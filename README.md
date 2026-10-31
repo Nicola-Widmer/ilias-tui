@@ -1,0 +1,351 @@
+# ilias-tui
+
+A terminal UI for [ILIAS](https://github.com/ILIAS-eLearning/ILIAS) 10, built with
+[ratatui](https://ratatui.rs). It is set up for the
+[HSLU ILIAS](https://elearning.hslu.ch/ilias/) (Keycloak + Switch edu-ID login), but
+works with any ILIAS 10 that logs in through OpenID Connect.
+
+> **Note:** The code and documentation in this project were written with the help of AI
+> (Claude by Anthropic). See [Disclaimer](#disclaimer).
+
+```
+  ILIAS   My courses  DEMO.101  ·  Introduction to Examples
+  Inhalt   Info   Mitglieder   Lernfortschritt   ⇥ switch
+╭───────────────────────────────────────────────────────────────────╮
+│  Welcome to Introduction to Examples                              │
+│  Room: B-042                                                      │
+│  Time: Monday, 09:00 - 11:30                                      │
+│                                                                   │
+│ ▍Course material                                                  │
+│▌   Slides                                                         │
+│      Lecture slides and recordings                                │
+│     Course information                                            │
+│      Schedule and general information                             │
+│                                                                   │
+│ ▍Assignments and discussion                                       │
+│     Submissions                                                   │
+│      Exercise  ·  Weekly exercise sheets                          │
+│     Questions & Answers                                           │
+│      Forum  ·  Posts (unread): 2 (14)                             │
+╰───────────────────────────────────────────────────────────────────╯
+ ✓ Saved ~/Downloads/ILIAS/Lecture_01.pdf   / filter  s search  ? help  q quit
+```
+
+(In the terminal: an ILIAS-navy header bar, coloured icons, yellow section headings, the
+selected row highlighted, and a spinner in the status bar while something loads.)
+
+What it does:
+
+- Lists your courses and groups ("Meine Kurse und Gruppen"), grouped by semester like on
+  ILIAS, with each course's full name.
+- Shows courses, groups and folders **the way ILIAS does**:
+  - the page text (welcome note, room, Zoom link, …),
+  - the named sections (item groups),
+  - the tabs (Inhalt, Info, Mitglieder, …; switch with `Tab`),
+  - each item's description and properties (file type, size, date, unread posts, …).
+- **Nerd Font icons** per object type and file type: PDF, Word, Excel, PowerPoint,
+  images, archives, code, …
+- **Filters** any list as you type (`/`).
+- **Searches** every file and folder below the current place (`s`), for one course or all
+  of them.
+- **Opens files** with their default app (Preview, Excel, …) on `Enter`. The first time,
+  the file is downloaded to `~/Downloads/ILIAS`. After that, the saved copy opens right
+  away; saved files are marked `✓ saved`.
+- Opens everything else (tests, forums, exercises, …) in your normal web browser.
+- Logs in once through Switch edu-ID (2FA included) and keeps the session in a private
+  file. Later runs refresh the session on their own, without a browser.
+
+## Motivation
+
+It's 07:58. The lecture starts at 08:00. You just need the slides.
+
+You open ILIAS. You wait. A spinner thinks about life. You click "My courses". You wait.
+You click the course. You wait. You click "Course material". You wait. Somewhere
+a PHP process sighs. You click the folder you clicked yesterday, and the day before, and
+every Thursday this semester. ILIAS has never seen it before. It renders it from scratch,
+with love, for the 34th time.
+
+We measured it: around **half a second to a whole second per page**, every time, even for
+a page that hasn't changed since September. Then the semester update arrives, and with it
+a fresh set of surprises.
+
+ILIAS has had over twenty years to learn that a folder you visited yesterday probably looks
+the same today. It hasn't. So we taught it ourselves:
+
+- **Pages you've seen open instantly.** We cache them and quietly check for changes in the
+  background, like it's 2010 and caching is a thing.
+- **Files you've downloaded open instantly.** No eleventh copy of `Lecture_01 (10).pdf`.
+- **Searching a whole course** fetches folders in parallel instead of politely queueing
+  like it's the Mensa at 12:05.
+- **No mouse marathon.** `/ demo` and Enter, and you're in the course.
+
+ILIAS still needs its second per page the first time; we can't fix the server. But we can
+make sure you only wait for it once.
+
+(Nothing personal, ILIAS. You've stored our slides faithfully for years. We just want
+them a bit faster.)
+
+## Requirements
+
+- Rust 1.88 or newer (edition 2024). For example `brew install rust` or
+  [rustup](https://rustup.rs).
+- Google Chrome or Chromium, used only for the login window.
+- A [Nerd Font](https://www.nerdfonts.com) in your terminal (for example
+  `brew install --cask font-jetbrains-mono-nerd-font`) for the icons. Without one, set
+  `ILIAS_NERD_FONT=0` to get plain Unicode symbols instead.
+
+## Install
+
+```bash
+cargo install --path .
+```
+
+Or run it straight from the checkout:
+
+```bash
+cargo run --release
+```
+
+## Usage
+
+```bash
+ilias-tui
+```
+
+On the first start, a Chrome window opens on the HSLU login. Log in with Switch edu-ID as
+usual. When the window lands back on ILIAS, the login is done: the window closes and the
+TUI starts.
+
+| Command               | What it does                                             |
+| --------------------- | -------------------------------------------------------- |
+| `ilias-tui`           | Start the TUI (logs in first if needed)                  |
+| `ilias-tui login`     | Force a fresh browser login                              |
+| `ilias-tui logout`    | Delete the saved session file                            |
+| `ilias-tui ls [URL] [--deep]` | Print a container's items as `kind<TAB>ref_id<TAB>title` (default: my courses). With `--deep`, print everything below it |
+| `ilias-tui get URL…`  | Download files, e.g. `goto.php/file/123`, to the download dir |
+| `ilias-tui show URL`  | Print how a page is parsed: tabs, headings, text, items (for debugging) |
+| `ilias-tui dump URL`  | Print the HTML ILIAS returns for `URL` (for debugging)   |
+
+`URL` can be absolute or relative to the ILIAS root, e.g. `ilias-tui ls goto.php/crs/123`.
+`ls` also works for scripting:
+
+```bash
+ilias-tui ls goto.php/crs/123 --deep | grep -i folien
+```
+
+```bash
+ilias-tui get goto.php/file/123456
+```
+
+### Searching
+
+| Key | What it does |
+| --- | ------------ |
+| `/` | Opens the filter bar under the list. Typing narrows the **current list** right away. Every word must appear in the title, in any order, ignoring case: `folien 3` finds "Woche 3 › Folien". `↑`/`↓` move through the matches while you type. `Enter` opens the selected match right away. `Esc` clears the filter. |
+| `s` | **Deep search.** Collects every file and folder below where you are and lists them with their path (`Unterlagen › Woche 3 › Folien.pdf`), then opens the filter bar. In a course it covers that course. On "My courses" it covers all your courses, which takes longer (progress shows in the status bar). `r` re-runs it, `Esc` goes back. |
+
+### Keys
+
+| Key             | Action                                          |
+| --------------- | ----------------------------------------------- |
+| `↑ ↓` / `k j`   | Move selection                                  |
+| `g` / `G`       | First / last item                               |
+| `Enter` `→` `l` | Open folder; open file (downloads it the first time); open anything else in the browser |
+| `Esc` `←` `h`   | Clear filter, then go back                      |
+| `/`             | Filter the current list                         |
+| `s`             | Search everything below here                    |
+| `d`             | Download a fresh copy without opening it        |
+| `o`             | Open selected item in your web browser          |
+| `Tab` / `Shift-Tab` | Next / previous tab (Inhalt, Info, …)       |
+| `r`             | Reload current list                             |
+| `L`             | Log in again (opens Chrome)                     |
+| `?`             | Toggle help                                     |
+| `q` / `Ctrl-c`  | Quit                                            |
+
+### Mouse
+
+| Action                 | What it does                                          |
+| ---------------------- | ----------------------------------------------------- |
+| Click an item          | Select it                                             |
+| Double-click an item   | Open it (same as `Enter`)                             |
+| Scroll wheel           | Move the selection                                    |
+| Click a tab            | Switch to that tab                                    |
+| Click a breadcrumb     | Jump back to that level                               |
+| Click anywhere         | Close the help overlay                                |
+
+While the app has the mouse, selecting text with the mouse needs a modifier: hold
+**Option** (iTerm2, Terminal.app) or **Shift** (most other terminals). `ILIAS_MOUSE=0`
+turns mouse support off.
+
+### Configuration
+
+| Environment variable  | Default                              |
+| --------------------- | ------------------------------------ |
+| `ILIAS_URL`           | `https://elearning.hslu.ch/ilias/`   |
+| `ILIAS_DOWNLOAD_DIR`  | `~/Downloads/ILIAS`                  |
+| `ILIAS_NERD_FONT`     | `1`. Set to `0` for plain Unicode icons |
+| `ILIAS_MOUSE`         | `1`. Set to `0` to turn off mouse support |
+| `ILIAS_CACHE`         | `1`. Set to `0` to turn off the page cache |
+
+The colours are tuned for **dark** terminal themes and use 24-bit colour, which almost every
+modern terminal supports (older versions of macOS Terminal.app don't; iTerm2, Ghostty,
+WezTerm, Kitty and Alacritty do). To change them, edit
+`src/theme.rs`.
+
+To use another school's ILIAS, point `ILIAS_URL` at the folder that contains `login.php`
+and `openidconnect.php`.
+
+## How long does a login last?
+
+There are two sessions:
+
+1. **The ILIAS session** (`PHPSESSID`). This one is short.
+2. **The Keycloak SSO session** (`KEYCLOAK_IDENTITY`). This one usually lasts much longer.
+
+When the ILIAS session expires, ilias-tui re-runs the OIDC redirect using the saved Keycloak
+cookies and gets a new ILIAS session without any interaction. Only when the Keycloak session
+has expired too do you see `session expired: press L to log in again`.
+
+See [docs/architecture.md](docs/architecture.md) for the details.
+
+## Speed
+
+ILIAS itself needs about 0.5–1 s to render a page; ilias-tui keeps everything else out of
+the way:
+
+- **Instant revisits.** Every page you open is cached on disk. When you open it again, the
+  cached copy shows immediately while the current version loads in the background
+  ("Refreshing…" in the status bar). It is swapped in only if something changed.
+- **Compressed transfers.** Pages come gzip/brotli-compressed, about 7× smaller.
+- **No duplicate requests at startup.** The login check fetches "My courses", and that page
+  is what you see first.
+- **Parallel deep search.** `s` fetches up to 6 folders at once, so whole courses (or all
+  of them) are searched several times faster.
+
+The cache lives in the system cache folder and cleans itself up after 30 days; see
+[Security](#security). `ILIAS_CACHE=0` turns it off, and `ilias-tui logout` deletes it.
+
+## Security
+
+The same protections apply on macOS and Linux unless a point says otherwise.
+
+**Your password never touches ilias-tui.** You log in yourself, in a real Chrome window,
+on the normal HSLU / Switch edu-ID pages, 2FA included. Chrome runs with a fresh,
+temporary profile that is deleted afterwards, so it doesn't see your normal browser data.
+
+**Only the cookies it needs are kept.**
+
+- After the login, ilias-tui keeps the cookies of ILIAS and of its login server (HSLU's
+  Keycloak), nothing else.
+- The Switch edu-ID cookies are dropped, because they could work for other edu-ID services.
+  (A session saved by an older version may still contain them. Run `ilias-tui login` once
+  to replace it.)
+
+**The session file is as good as your login.** Anyone who gets a copy can use ILIAS as you
+until the sessions expire. So:
+
+- It's stored in your data folder, which only your user can open:
+  - macOS: `~/Library/Application Support/ch.ilias-tui.ilias-tui/`, mode `0700`
+  - Linux: `~/.local/share/ilias-tui/`, mode `0700`
+- The session file itself is mode `0600`. It is **not encrypted** (yet; see
+  [docs/roadmap.md](docs/roadmap.md#security)), so treat it like a password. Don't commit,
+  sync or share it, and remember that backups (e.g. Time Machine, Déjà Dup) include it.
+
+**`ilias-tui logout` logs out on the server too.**
+
+- It ends your ILIAS session through ILIAS's own logout, then deletes the local session
+  and the page cache.
+- It also checks whether HSLU's Keycloak login is still active. Keycloak can only be logged
+  out through a confirmation page in the browser, so if it is still active, `logout` tells
+  you and you can log out of ILIAS / Switch edu-ID in your browser.
+- If you think the session file leaked: run `ilias-tui logout`. If in doubt, also change
+  your edu-ID password.
+
+**What else is stored locally:**
+
+- the **page cache**: course pages you've opened, for instant revisits.
+  - It lives in the system cache folder, `~/Library/Caches/ch.ilias-tui.ilias-tui/` on
+    macOS or `~/.cache/ilias-tui/` on Linux (mode `0700`). Backup tools usually skip that
+    folder.
+  - Entries older than 30 days are deleted automatically.
+  - `ILIAS_CACHE=0` turns the cache off.
+- the **saved-files list**: which ILIAS file was saved to which path (in the private data
+  folder).
+
+Downloaded files go to `~/Downloads/ILIAS` with normal permissions, like any browser
+download.
+
+**What it sends, and where:**
+
+- Only to your ILIAS server (`ILIAS_URL`), over HTTPS with certificate checks. During the
+  login, Chrome also talks to Keycloak and edu-ID. There is no telemetry and no third-party
+  service.
+- **Read-only.** ilias-tui only sends `GET` requests. It never submits forms, uploads files,
+  posts or changes anything on ILIAS. The only exception to "changes nothing" is
+  `ilias-tui logout`, which ends your session. Features that would write are deliberately
+  not built; see the rules in
+  [docs/roadmap.md](docs/roadmap.md#rules-for-features-that-write).
+
+**Opening things safely:**
+
+- **Files that can run code are never opened.** Anyone who can upload to a shared folder or
+  forum could place a `notes.command`, `setup.sh`, `.desktop`, `.app`, `.jar`, `.AppImage`,
+  `.exe`, …. For these, `Enter` only shows the file in your file manager (Finder,
+  Files/Dolphin, …) and says why. All other files open with their default app.
+- **Downloads are never executable.** On macOS they also get the same quarantine mark
+  browsers set, so Gatekeeper checks them before anything inside can run. Linux has no
+  equivalent mark; there, downloads simply aren't executable.
+- **Only ILIAS links open in the browser.** Before handing a link to `open` / `xdg-open`,
+  ilias-tui checks that it is an `http(s)` link to your ILIAS server, never `file:` or
+  app-specific URL schemes.
+- File names from ILIAS are sanitised before saving, so a crafted name can't write outside
+  the download folder.
+
+**AI-written code.** The code was written with an AI assistant and hasn't had a thorough
+human security review (see [Disclaimer](#disclaimer)). The parts that matter most are
+`src/auth.rs` (login), `src/session.rs` (session storage), `src/open.rs` (opening files and
+links) and `src/ilias/mod.rs` (requests, downloads, logout). Read them before you trust the
+tool with your account.
+
+## Troubleshooting
+
+| Problem | Fix |
+| ------- | --- |
+| `could not start Chrome/Chromium` | Install Google Chrome, or set `CHROME=/path/to/chrome`. |
+| Can't select text with the mouse | Hold Option (iTerm2, Terminal.app) or Shift while dragging, or set `ILIAS_MOUSE=0`. |
+| Icons show up as `?` or boxes | Your terminal font has no Nerd Font glyphs. Install one and select it in your terminal, or set `ILIAS_NERD_FONT=0`. |
+| A list is empty that shouldn't be | Check with `ilias-tui show goto.php/fold/<id>`. If that's empty too, ILIAS changed its HTML. Run `ilias-tui dump goto.php/fold/<id> > page.html` and compare it with the selectors in `src/ilias/parse.rs`. |
+| Want to log out / reset | Run `ilias-tui logout`. It removes the session and the page cache. The session is stored in `~/Library/Application Support/ch.ilias-tui.ilias-tui/` (macOS) or `~/.local/share/ilias-tui/` (Linux), readable only by you. |
+| `ILIAS returned a page instead of the file` | You don't have access, or the object isn't a plain file. Press `o` to open it in the browser. |
+| Login window doesn't close | Make sure you end up on an ILIAS page (not an error page). The login times out after 5 minutes. |
+
+## Development
+
+```bash
+cargo test
+```
+
+```bash
+cargo clippy --all-targets
+```
+
+```bash
+cargo fmt
+```
+
+The parser tests run against real, public HSLU pages stored in `tests/fixtures/`.
+[docs/architecture.md](docs/architecture.md) explains the code layout, the component
+architecture and how to add a feature.
+[docs/roadmap.md](docs/roadmap.md) lists the features that are missing, and the rules for
+anything that would change data on ILIAS.
+
+## Disclaimer
+
+**AI-generated code.** This project's code, tests and documentation were written with the
+help of an AI assistant (Claude by Anthropic), with a human directing and testing it. It
+has been tried against a real ILIAS installation, but it hasn't had a thorough human code
+review. Read the code before you rely on it, especially the login and session handling
+(`src/auth.rs`, `src/session.rs`), and use it at your own risk.
+
+This is an unofficial personal tool. It reads the same pages your browser does, with your
+own account. Keep the request rate reasonable and follow HSLU's IT usage rules.
