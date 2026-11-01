@@ -17,7 +17,7 @@ use crate::cache::Cache;
 use crate::components::{Browser, Component, Filter, Help, StatusBar};
 use crate::downloads::Downloads;
 use crate::ilias::{Client, Item, Page};
-use crate::{auth, open, session};
+use crate::{auth, ilias, open, session};
 
 pub struct App {
     client: Arc<Client>,
@@ -125,14 +125,27 @@ impl App {
                 let startup = (item.is_none() && !deep && !refresh)
                     .then(|| self.initial.take())
                     .flatten();
-                if let Some(page) = startup {
-                    self.cache.put(&key, &page);
+                if let Some(courses) = startup {
+                    // The courses come from the session check; the To-Do list takes a few
+                    // more requests, so until it arrives show last time's (if cached).
+                    let shown = self.cache.get(&key).unwrap_or_else(|| courses.clone());
                     self.tx.send(Action::Loaded {
-                        item,
-                        page,
-                        refresh,
-                        deep,
+                        item: None,
+                        page: shown,
+                        refresh: false,
+                        deep: false,
                     })?;
+                    let cache = self.cache.clone();
+                    self.spawn(move |client, _| {
+                        let page = ilias::with_todo(courses, client.todo()?);
+                        cache.put(&key, &page);
+                        Ok(Action::Loaded {
+                            item: None,
+                            page,
+                            refresh: true,
+                            deep: false,
+                        })
+                    });
                 } else if let Some(page) = (!refresh).then(|| self.cache.get(&key)).flatten() {
                     // Show the cached copy now and fetch the current one in the background.
                     self.tx.send(Action::Loaded {

@@ -25,7 +25,7 @@ impl Item {
     pub fn is_container(&self) -> bool {
         matches!(
             self.kind.as_str(),
-            "root" | "cat" | "crs" | "grp" | "fold" | "sess"
+            "root" | "cat" | "crs" | "grp" | "fold" | "sess" | "frm" | "thr"
         )
     }
 
@@ -41,6 +41,7 @@ impl Item {
             "tst" => "Test",
             "svy" => "Survey",
             "frm" => "Forum",
+            "thr" => "Thread",
             "webr" => "Weblink",
             "wiki" => "Wiki",
             "blog" => "Blog",
@@ -87,6 +88,20 @@ pub struct Tab {
     pub active: bool,
 }
 
+/// A forum post.
+#[derive(Debug, Clone, Default, PartialEq, Eq, Serialize, Deserialize)]
+pub struct Post {
+    /// Name and login, e.g. `Ada Lovelace · alovelace (Moderator)`.
+    pub author: String,
+    pub date: String,
+    pub title: String,
+    /// Paragraphs of the post text.
+    pub body: Vec<String>,
+    /// Reply depth; 0 = the thread's first post.
+    pub depth: usize,
+    pub unread: bool,
+}
+
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 pub enum Block {
     Heading(String),
@@ -96,12 +111,16 @@ pub enum Block {
         title: String,
         items: Vec<Item>,
     },
+    Post(Post),
 }
 
 #[derive(Debug, Clone, Default, PartialEq, Eq, Serialize, Deserialize)]
 pub struct Page {
     pub tabs: Vec<Tab>,
     pub blocks: Vec<Block>,
+    /// Assignments still to hand in; only on "My courses", shown beside the page.
+    #[serde(default)]
+    pub todo: Vec<Item>,
 }
 
 impl Page {
@@ -111,8 +130,8 @@ impl Page {
             items,
         }];
         Self {
-            tabs: Vec::new(),
             blocks,
+            ..Self::default()
         }
     }
 
@@ -140,6 +159,7 @@ impl Page {
 /// Understands ILIAS 10 permalinks (`goto.php/crs/123`), the legacy form
 /// (`goto.php?target=crs_123`) and direct GUI links
 /// (`ilias.php?cmdClass=ilObjFileGUI&cmd=sendfile&ref_id=123`, used for files in folders).
+/// Forum threads (`cmd=viewThread&thr_pk=42`) become `("thr", 42)`.
 pub fn parse_target(url: &Url) -> Option<(String, u64)> {
     let segments: Vec<&str> = url.path_segments()?.collect();
     if let Some(pos) = segments.iter().position(|s| *s == "goto.php")
@@ -154,6 +174,11 @@ pub fn parse_target(url: &Url) -> Option<(String, u64)> {
             .find(|(k, _)| k == key)
             .map(|(_, v)| v.as_ref())
     };
+    if param("cmd") == Some("viewThread")
+        && let Some(thread) = param("thr_pk")
+    {
+        return Some(("thr".into(), thread.parse().ok()?));
+    }
     if let Some(target) = param("target") {
         let mut parts = target.split('_');
         let kind = parts.next()?.to_string();
@@ -266,23 +291,154 @@ pub fn parse_page(html: &str, page_url: &Url) -> Page {
         })
         .collect();
 
+    // A forum thread: its posts are all that matters.
+    let posts: Vec<Block> = doc
+        .select(&sel(".ilFrmPostRow"))
+        .map(|row| Block::Post(post(row, page_url)))
+        .collect();
+    if !posts.is_empty() {
+        return Page {
+            tabs,
+            blocks: posts,
+            ..Page::default()
+        };
+    }
+
     let root = doc
         .select(&sel("#il_center_col"))
         .next()
         .or_else(|| doc.select(&sel("main")).next())
         .unwrap_or_else(|| doc.root_element());
-    let mut walker = Walker {
-        page_url,
-        blocks: Vec::new(),
-        line: String::new(),
-        seen: HashSet::new(),
-    };
+    let mut walker = Walker::new(page_url);
     walker.walk(root);
     walker.flush();
     Page {
         tabs,
         blocks: walker.blocks,
+        ..Page::default()
     }
+}
+
+fn post(row: ElementRef, page_url: &Url) -> Post {
+    // "Ada Lovelace | alovelace (Moderator) | 19. Feb 2024, 07:12"
+    let header = row
+        .select(&sel(".ilFrmPostHeader .small"))
+        .next()
+        .map(text_of)
+        .unwrap_or_default();
+    let mut parts: Vec<&str> = header.split(" | ").collect();
+    let date = match parts.len() {
+        0 | 1 => "",
+        _ => parts.pop().unwrap_or_default(),
+    };
+    let title = row.select(&sel(".ilFrmPostTitle")).next();
+    let body = row
+        .select(&sel(".ilFrmPostContent"))
+        .next()
+        .map(|content| {
+            let mut walker = Walker::new(page_url);
+            walker.walk(content);
+            walker.flush();
+            walker
+                .blocks
+                .into_iter()
+                .filter_map(|b| match b {
+                    Block::Heading(text) | Block::Text(text) => Some(text),
+                    _ => None,
+                })
+                .collect()
+        })
+        .unwrap_or_default();
+    Post {
+        author: parts.join(" · "),
+        date: date.to_string(),
+        title: title.map(text_of).unwrap_or_default(),
+        body,
+        depth: row
+            .value()
+            .classes()
+            .find_map(|c| c.strip_prefix("ilFrmPost-level-")?.parse::<usize>().ok())
+            .map_or(0, |level| level.saturating_sub(1)),
+        // Unread posts have their title linked to "mark as read" (never followed here).
+        unread: title.is_some_and(|t| {
+            t.select(&sel(r#"a[href*="cmd=markPostRead"]"#))
+                .next()
+                .is_some()
+        }),
+    }
+}
+
+/// The dashboard's "To-Do" block: assignments with an upcoming deadline, as exercise items
+/// whose description is the deadline as ILIAS shows it (e.g. `5. Nov 2026, 00:00`).
+pub fn parse_todo(html: &str, page_url: &Url) -> Vec<Item> {
+    let doc = Html::parse_document(html);
+    let Some(block) = doc.select(&sel(r#"[id^="block_pdtasks"]"#)).next() else {
+        return Vec::new();
+    };
+    let mut walker = Walker::new(page_url);
+    block
+        .select(&sel(".il-std-item"))
+        .filter_map(|container| {
+            // Several assignments can belong to the same exercise.
+            walker.seen.clear();
+            let mut item = walker.item(container)?;
+            // `Abgabe zur Übungseinheit "Sheet 3"` → `Sheet 3`
+            if let Some((_, rest)) = item.title.split_once('"')
+                && let Some((name, _)) = rest.rsplit_once('"')
+            {
+                item.title = name.to_string();
+            }
+            Some(item)
+        })
+        .collect()
+}
+
+/// The course (or else group) in a page's breadcrumb.
+pub fn course_title(html: &str) -> Option<String> {
+    let doc = Html::parse_document(html);
+    ["crs", "grp"].iter().find_map(|kind| {
+        doc.select(&sel(&format!(r#".breadcrumb a[href*="goto.php/{kind}/"]"#)))
+            .next()
+            .map(text_of)
+    })
+}
+
+/// Parses an ILIAS date like `5. Nov 2026, 23:55` (German or English month names) or
+/// `Heute, 23:55` / `Morgen, 23:55`.
+pub fn parse_date(text: &str, today: jiff::civil::Date) -> Option<jiff::civil::DateTime> {
+    let (day, time) = text.split_once(", ")?;
+    let (hour, minute) = time.trim().split_once(':')?;
+    let time = jiff::civil::time(hour.parse().ok()?, minute.get(..2)?.parse().ok()?, 0, 0);
+    let date = match day.trim() {
+        "Heute" | "Today" => today,
+        "Morgen" | "Tomorrow" => today.tomorrow().ok()?,
+        "Gestern" | "Yesterday" => today.yesterday().ok()?,
+        day => {
+            let mut parts = day.split_whitespace();
+            let d: i8 = parts.next()?.trim_end_matches('.').parse().ok()?;
+            let month = parts.next()?.trim_end_matches('.').to_lowercase();
+            let year: i16 = parts.next()?.parse().ok()?;
+            const MONTHS: [&[&str]; 12] = [
+                &["jan"],
+                &["feb"],
+                &["mär", "mrz", "mar"],
+                &["apr"],
+                &["mai", "may"],
+                &["jun"],
+                &["jul"],
+                &["aug"],
+                &["sep"],
+                &["okt", "oct"],
+                &["nov"],
+                &["dez", "dec"],
+            ];
+            let m = MONTHS
+                .iter()
+                .position(|names| names.iter().any(|n| month.starts_with(n)))?;
+            jiff::civil::Date::new(year, m as i8 + 1, d).ok()?
+        }
+    };
+    Some(date.to_datetime(time))
 }
 
 /// Walks the content column in document order and splits it into [`Block`]s.
@@ -337,7 +493,16 @@ const BLOCK_TAGS: &[&str] = &[
 ];
 const ITEM_CONTAINERS: &str = ".ilContainerListItemOuter, .il-std-item";
 
-impl Walker<'_> {
+impl<'a> Walker<'a> {
+    fn new(page_url: &'a Url) -> Self {
+        Self {
+            page_url,
+            blocks: Vec::new(),
+            line: String::new(),
+            seen: HashSet::new(),
+        }
+    }
+
     fn walk(&mut self, el: ElementRef) {
         for child in el.children() {
             match child.value() {
@@ -474,6 +639,10 @@ impl Walker<'_> {
             .filter(|p| !p.is_empty() && !p.ends_with(':'))
             .collect();
         for value in container.select(&sel(".il-item-property-value")) {
+            // Rating stars (forum threads) are buttons; their text says nothing.
+            if value.select(&sel(".ilRatingOverlay")).next().is_some() {
+                continue;
+            }
             let name = value
                 .prev_siblings()
                 .filter_map(ElementRef::wrap)
@@ -538,6 +707,12 @@ mod tests {
                 "{base}ilias.php?baseClass=ilrepositorygui&cmdNode=yb:o1&cmdClass=ilObjFileGUI&cmd=sendfile&ref_id=123456"
             ))),
             Some(("file".into(), 123456))
+        );
+        assert_eq!(
+            parse_target(&url(&format!(
+                "{base}ilias.php?baseClass=ilrepositorygui&cmdClass=ilObjForumGUI&cmd=viewThread&ref_id=123456&thr_pk=42&page=0"
+            ))),
+            Some(("thr".into(), 42))
         );
         assert_eq!(
             parse_target(&url(&format!("{base}ilias.php?ref_id=1"))),
@@ -705,5 +880,135 @@ mod tests {
         assert_eq!(title, "2026");
         assert_eq!(items[0].description, "Examples & Exercises");
         assert_eq!(items[0].properties, vec!["Anmeldung: Keine"]);
+    }
+
+    #[test]
+    fn parses_forum_threads_without_rating_buttons() {
+        let html = r#"<div id="il_center_col"><div class="il-item-group"><div class="il-item-group-items"><ul>
+            <li><div class="il-item il-std-item"><h4 class="il-item-title"><a href="ilias.php?baseClass=ilrepositorygui&amp;cmdClass=ilObjForumGUI&amp;cmd=viewThread&amp;ref_id=123456&amp;thr_pk=1&amp;page=0">Frage zu Blatt 1</a></h4>
+              <span class="il-item-property-name">Beiträge</span><span class="il-item-property-value">2 (1 Ungelesen)</span>
+              <span class="il-item-property-name">Bewertung</span><span class="il-item-property-value"><div class="il-standard-popover-content" style="display:none;"><div class="ilRatingOverlay"><p>Ihre Bewertung</p></div></div><button>Bewertungsskala aufklappen</button></span>
+            </div></li>
+            <li><div class="il-item il-std-item"><h4 class="il-item-title"><a href="ilias.php?baseClass=ilrepositorygui&amp;cmdClass=ilObjForumGUI&amp;cmd=viewThread&amp;ref_id=123456&amp;thr_pk=2&amp;page=0">Termine</a></h4>
+            </div></li></ul></div></div></div>"#;
+        let page = parse_page(
+            html,
+            &url("https://ilias.example/ilias/goto.php/frm/123456"),
+        );
+        let threads: Vec<_> = page.items().collect();
+        assert_eq!(
+            threads.len(),
+            2,
+            "both threads, although they share the forum's ref_id"
+        );
+        assert_eq!((threads[0].kind.as_str(), threads[0].ref_id), ("thr", 1));
+        assert!(threads[0].is_container());
+        assert_eq!(threads[0].properties, vec!["Beiträge: 2 (1 Ungelesen)"]);
+    }
+
+    #[test]
+    fn parses_forum_posts() {
+        let html = r##"<div id="il_center_col"><ul>
+            <li class="ilFrmPostRow ilModeratorPosting ilFrmPost-level-1"><div class="ilFrmPostContentContainer">
+              <div class="ilFrmPostHeader"><span class="small">Ada Lovelace | <a href="#">alovelace</a> (Moderator) | 19. Feb 2026, 07:12</span>
+                <div class="ilFrmPostTitle">Willkommen</div></div>
+              <div class="ilFrmPostContent"><p>Hallo zusammen!</p><p>Fragen bitte hier.</p></div></div>
+              <div class="il-item-actions"><button>Antworten</button></div></li>
+            <li class="ilFrmPostRow tblrow2 ilFrmPost-level-2"><div class="ilFrmPostContentContainer">
+              <div class="ilFrmPostHeader"><span class="small">Alan Turing | <a href="#">aturing</a> | 20. Feb 2026, 10:00</span>
+                <div class="ilFrmPostTitle"><a href="ilias.php?cmd=markPostRead&amp;pos_pk=2"><b>Re: Willkommen</b></a></div></div>
+              <div class="ilFrmPostContent"><span>Danke!<br />Bis bald</span></div></div></li>
+            </ul></div>"##;
+        let page = parse_page(html, &url("https://ilias.example/ilias/ilias.php"));
+        let posts: Vec<&Post> = page
+            .blocks
+            .iter()
+            .filter_map(|b| match b {
+                Block::Post(p) => Some(p),
+                _ => None,
+            })
+            .collect();
+        assert_eq!(page.blocks.len(), 2, "only the posts: {:#?}", page.blocks);
+        assert_eq!(
+            *posts[0],
+            Post {
+                author: "Ada Lovelace · alovelace (Moderator)".into(),
+                date: "19. Feb 2026, 07:12".into(),
+                title: "Willkommen".into(),
+                body: vec!["Hallo zusammen!".into(), "Fragen bitte hier.".into()],
+                depth: 0,
+                unread: false,
+            }
+        );
+        assert_eq!(posts[1].title, "Re: Willkommen");
+        assert_eq!(posts[1].body, vec!["Danke!", "Bis bald"]);
+        assert_eq!(posts[1].depth, 1);
+        assert!(posts[1].unread);
+    }
+
+    #[test]
+    fn parses_the_todo_block() {
+        let html = r#"<div id="il_center_col"></div><aside id="il_right_col">
+            <div id="block_pdtasks_0"><div class="il-item-group"><ul>
+              <li><div class="il-item il-std-item"><h4 class="il-item-title"><a href="https://ilias.example/ilias/goto.php/exc/123456/1">Abgabe zur Übungseinheit "Blatt 1"</a></h4>
+                <div class="il-item-description">17. Jan 2027, 23:55</div>
+                <span class="il-item-property-name">Übung</span><span class="il-item-property-value">Abgabeordner</span></div></li>
+              <li><div class="il-item il-std-item"><h4 class="il-item-title"><a href="https://ilias.example/ilias/goto.php/exc/123456/2">Abgabe zur Übungseinheit "Blatt 2"</a></h4>
+                <div class="il-item-description">5. Nov 2026, 00:00</div></div></li>
+            </ul></div></div>
+            <div id="block_pdnews_0"><div class="il-item il-std-item"><h4 class="il-item-title"><a href="https://ilias.example/ilias/goto.php/file/9">Neue Datei</a></h4></div></div>
+            </aside>"#;
+        let todo = parse_todo(html, &url("https://ilias.example/ilias/ilias.php"));
+        let found: Vec<_> = todo
+            .iter()
+            .map(|i| {
+                (
+                    i.kind.as_str(),
+                    i.ref_id,
+                    i.title.as_str(),
+                    i.description.as_str(),
+                )
+            })
+            .collect();
+        assert_eq!(
+            found,
+            vec![
+                ("exc", 123456, "Blatt 1", "17. Jan 2027, 23:55"),
+                ("exc", 123456, "Blatt 2", "5. Nov 2026, 00:00"),
+            ]
+        );
+        assert_eq!(todo[0].properties, vec!["Übung: Abgabeordner"]);
+    }
+
+    #[test]
+    fn finds_the_course_in_the_breadcrumb() {
+        let html = r#"<nav class="breadcrumb"><span class="breadcrumb-crumb"><a href="ilias.php?ref_id=3">Abgabeordner</a></span>
+            <span class="breadcrumb-crumb"><a href="https://ilias.example/ilias/goto.php/crs/2">DEMO.101</a></span>
+            <span class="breadcrumb-crumb"><a href="https://ilias.example/ilias/goto.php/cat/1">2026</a></span></nav>"#;
+        assert_eq!(course_title(html).as_deref(), Some("DEMO.101"));
+        assert_eq!(course_title("<p>nothing</p>"), None);
+    }
+
+    #[test]
+    fn parses_ilias_dates() {
+        use jiff::civil::{date, datetime};
+        let today = date(2026, 11, 1);
+        assert_eq!(
+            parse_date("5. Nov 2026, 00:00", today),
+            Some(datetime(2026, 11, 5, 0, 0, 0, 0))
+        );
+        assert_eq!(
+            parse_date("3. Mär 2027, 23:55", today),
+            Some(datetime(2027, 3, 3, 23, 55, 0, 0))
+        );
+        assert_eq!(
+            parse_date("1. Oct 2026, 8:05", today),
+            Some(datetime(2026, 10, 1, 8, 5, 0, 0))
+        );
+        assert_eq!(
+            parse_date("Morgen, 12:00", today),
+            Some(datetime(2026, 11, 2, 12, 0, 0, 0))
+        );
+        assert_eq!(parse_date("bald", today), None);
     }
 }

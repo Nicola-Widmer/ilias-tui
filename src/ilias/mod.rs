@@ -17,10 +17,13 @@ use reqwest::header::{CONTENT_DISPOSITION, CONTENT_TYPE};
 use reqwest_cookie_store::CookieStoreMutex;
 use url::Url;
 
-pub use parse::{Block, Item, Page, parse_page, parse_target};
+pub use parse::{Block, Item, Page, Post, parse_page, parse_target};
 
 /// The "My courses and groups" page.
 const MEMBERSHIPS: &str = "ilias.php?baseClass=ilmembershipoverviewgui";
+
+/// The dashboard; only its "To-Do" block (upcoming deadlines) is used.
+const DASHBOARD: &str = "ilias.php?baseClass=ilDashboardGUI";
 
 /// Upper bound of pages fetched by one deep search, to stay polite to the server.
 const MAX_CRAWL: usize = 500;
@@ -137,7 +140,7 @@ impl Client {
                 return Ok(None);
             }
         }
-        Ok(Some(parse_page(&fetched.html, &fetched.url)))
+        Ok(Some(newest_first(parse_page(&fetched.html, &fetched.url))))
     }
 
     /// GETs a page that requires a login, refreshing the session once if it expired.
@@ -155,10 +158,66 @@ impl Client {
         bail!("session expired: press L to log in again")
     }
 
-    /// "My courses and groups", grouped like on ILIAS (by semester).
+    /// "My courses and groups" with the To-Do list, both fetched at the same time.
     pub fn courses(&self) -> Result<Page> {
+        thread::scope(|scope| {
+            let todo = scope.spawn(|| self.todo());
+            let courses = self.memberships()?;
+            // Without the To-Do list, the courses are still worth showing.
+            let todo = todo.join().ok().and_then(Result::ok).unwrap_or_default();
+            Ok(with_todo(courses, todo))
+        })
+    }
+
+    /// "My courses and groups", grouped by year like on ILIAS, but newest year first.
+    fn memberships(&self) -> Result<Page> {
         let fetched = self.get_authed(&self.url(MEMBERSHIPS)?)?;
-        Ok(parse_page(&fetched.html, &fetched.url))
+        Ok(newest_first(parse_page(&fetched.html, &fetched.url)))
+    }
+
+    /// Assignments still to hand in (the dashboard's "To-Do" block), soonest first. Each
+    /// item's description says when it is due; its first property names the course.
+    pub fn todo(&self) -> Result<Vec<Item>> {
+        let fetched = self.get_authed(&self.url(DASHBOARD)?)?;
+        let mut items = parse::parse_todo(&fetched.html, &fetched.url);
+        // The block only names the exercise; its page's breadcrumb names the course.
+        let mut exercises: Vec<u64> = items.iter().map(|i| i.ref_id).collect();
+        exercises.sort_unstable();
+        exercises.dedup();
+        let courses: HashMap<u64, String> = thread::scope(|scope| {
+            let jobs: Vec<_> = exercises
+                .iter()
+                .map(|&id| {
+                    scope.spawn(move || -> Result<_> {
+                        let page = self.get_authed(&self.url(&format!("goto.php/exc/{id}"))?)?;
+                        Ok((id, parse::course_title(&page.html)))
+                    })
+                })
+                .collect();
+            jobs.into_iter()
+                .filter_map(|job| match job.join() {
+                    Ok(Ok((id, Some(course)))) => Some((id, course)),
+                    _ => None,
+                })
+                .collect()
+        });
+        let now = jiff::Zoned::now().datetime();
+        let mut due: Vec<(Option<jiff::civil::DateTime>, Item)> = items
+            .drain(..)
+            .map(|mut item| {
+                let deadline = parse::parse_date(&item.description, now.date());
+                if let Some(deadline) = deadline {
+                    item.description = format!("{} · {}", due_in(now, deadline), item.description);
+                }
+                if let Some(course) = courses.get(&item.ref_id) {
+                    item.properties.insert(0, course.clone());
+                }
+                (deadline, item)
+            })
+            .collect();
+        // Unknown dates last.
+        due.sort_by_key(|(deadline, _)| (deadline.is_none(), *deadline));
+        Ok(due.into_iter().map(|(_, item)| item).collect())
     }
 
     /// The page of a container; `url` selects another tab of it.
@@ -183,10 +242,12 @@ impl Client {
     ) -> Result<Vec<Item>> {
         let top = match root {
             Some(item) => self.children(item)?,
-            None => self.courses()?.items().cloned().collect(),
+            None => self.memberships()?.items().cloned().collect(),
         };
-        // Categories lead out of the course into the rest of the repository.
-        let crawlable = |i: &Item| i.is_container() && i.kind != "cat";
+        // Categories lead out of the course into the rest of the repository; forum threads
+        // hold posts, not files.
+        let crawlable =
+            |i: &Item| i.is_container() && !matches!(i.kind.as_str(), "cat" | "frm" | "thr");
 
         // 1. Fetch every container below `root`, one tree level at a time, in parallel.
         let mut queued: HashSet<u64> = root.map(|r| r.ref_id).into_iter().collect();
@@ -304,6 +365,39 @@ impl Client {
     }
 }
 
+/// Reverses the order of the year groups ("2024", "2025", …), leaving everything else in
+/// place. ILIAS lists the oldest year first, but the current courses matter most.
+fn newest_first(mut page: Page) -> Page {
+    let is_year = |b: &Block| matches!(b, Block::Items { title, .. } if !title.is_empty() && title.chars().all(|c| c.is_ascii_digit()));
+    let slots: Vec<usize> = (0..page.blocks.len())
+        .filter(|&i| is_year(&page.blocks[i]))
+        .collect();
+    let mut years: Vec<Block> = slots.iter().map(|&i| page.blocks[i].clone()).collect();
+    for &slot in &slots {
+        page.blocks[slot] = years.pop().expect("one block per slot");
+    }
+    page
+}
+
+pub fn with_todo(page: Page, todo: Vec<Item>) -> Page {
+    Page { todo, ..page }
+}
+
+/// `due in 3 days`, `due in 5 hours`, `overdue`.
+fn due_in(now: jiff::civil::DateTime, deadline: jiff::civil::DateTime) -> String {
+    let hours = now
+        .until((jiff::Unit::Hour, deadline))
+        .map_or(0, |span| span.get_hours());
+    match hours {
+        ..0 => "overdue".into(),
+        0 => "due in less than an hour".into(),
+        1 => "due in 1 hour".into(),
+        2..24 => format!("due in {hours} hours"),
+        24..48 => "due in 1 day".into(),
+        _ => format!("due in {} days", hours / 24),
+    }
+}
+
 fn is_html(response: &Response) -> bool {
     response
         .headers()
@@ -388,6 +482,54 @@ mod tests {
             Some("Übung 1.pdf")
         );
         assert_eq!(filename_from_disposition("inline"), None);
+    }
+
+    #[test]
+    fn lists_the_newest_year_first() {
+        let group = |title: &str| Block::Items {
+            title: title.into(),
+            items: vec![Item::default()],
+        };
+        let page = Page {
+            blocks: vec![
+                Block::Heading("Meine Kurse und Gruppen".into()),
+                group("2024"),
+                group("2025"),
+                group("2026"),
+                group("Von Hand erstellte Kurse"),
+            ],
+            ..Page::default()
+        };
+        let titles: Vec<String> = newest_first(page)
+            .blocks
+            .iter()
+            .map(|b| match b {
+                Block::Heading(t) | Block::Items { title: t, .. } => t.clone(),
+                _ => String::new(),
+            })
+            .collect();
+        assert_eq!(
+            titles,
+            [
+                "Meine Kurse und Gruppen",
+                "2026",
+                "2025",
+                "2024",
+                "Von Hand erstellte Kurse"
+            ]
+        );
+    }
+
+    #[test]
+    fn says_when_something_is_due() {
+        use jiff::civil::datetime;
+        let now = datetime(2026, 11, 1, 14, 0, 0, 0);
+        let due = |y, m, d, h| due_in(now, datetime(y, m, d, h, 0, 0, 0));
+        assert_eq!(due(2026, 11, 5, 0), "due in 3 days");
+        assert_eq!(due(2026, 11, 2, 13), "due in 23 hours");
+        assert_eq!(due(2026, 11, 2, 14), "due in 1 day");
+        assert_eq!(due(2026, 11, 1, 14), "due in less than an hour");
+        assert_eq!(due(2026, 10, 31, 0), "overdue");
     }
 
     #[test]

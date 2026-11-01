@@ -19,7 +19,7 @@ use super::Component;
 use super::filter::matches;
 use crate::action::Action;
 use crate::icons::icon;
-use crate::ilias::{Block, Item, Page};
+use crate::ilias::{Block, Item, Page, Post};
 use crate::theme;
 
 struct Level {
@@ -43,6 +43,8 @@ enum Row {
     Blank,
     Heading(String),
     Text(String),
+    /// Already styled, e.g. a line of a forum post.
+    Styled(Line<'static>),
     Item(usize),
 }
 
@@ -93,9 +95,12 @@ impl Level {
         self.cursor = (!self.visible.is_empty()).then_some(0);
     }
 
+    /// Moves the selection; on pages without items (forum threads) scrolls instead.
     fn move_cursor(&mut self, to: impl FnOnce(usize, usize) -> usize) {
-        if let Some(cursor) = self.cursor {
-            self.cursor = Some(to(cursor, self.visible.len() - 1));
+        match self.cursor {
+            Some(cursor) => self.cursor = Some(to(cursor, self.visible.len() - 1)),
+            // `draw` clamps the offset to the page length.
+            None => *self.list.offset_mut() = to(self.list.offset(), usize::MAX / 2),
         }
     }
 
@@ -104,6 +109,12 @@ impl Level {
     fn rows(&self, filtering: bool, width: usize) -> Vec<Row> {
         let mut rows = Vec::new();
         let mut index = 0;
+        // Replies usually repeat the thread title; only show titles that say something new.
+        let mut last_title = self
+            .item
+            .as_ref()
+            .map(|i| i.title.clone())
+            .unwrap_or_default();
         for block in &self.page.blocks {
             match block {
                 Block::Heading(text) if !filtering => {
@@ -112,6 +123,13 @@ impl Level {
                 }
                 Block::Text(text) if !filtering => {
                     rows.extend(wrap(text, width).into_iter().map(Row::Text));
+                }
+                Block::Post(post) if !filtering => {
+                    blank_line(&mut rows);
+                    let title = post.title.trim_start_matches("Re: ").to_string();
+                    let new_title = title != last_title;
+                    post_rows(&mut rows, post, new_title, width);
+                    last_title = title;
                 }
                 Block::Items { title, items } => {
                     let range = index..index + items.len();
@@ -141,6 +159,89 @@ impl Level {
         }
         rows
     }
+}
+
+/// A forum post: author line, then title and text behind a bar, indented by reply depth.
+fn post_rows(rows: &mut Vec<Row>, post: &Post, show_title: bool, width: usize) {
+    let indent = "  ".repeat(post.depth.min(6));
+    let bar = || {
+        Span::styled(
+            format!("{indent}{} ", theme::glyph("▎", "│")),
+            Style::new().fg(theme::BORDER),
+        )
+    };
+    let mut header = vec![
+        Span::raw(indent.clone()),
+        Span::styled(post.author.clone(), theme::accent_bold()),
+        Span::styled(format!("  {}", post.date), theme::muted()),
+    ];
+    if post.unread {
+        header.push(Span::styled(
+            "  ● new",
+            Style::new().fg(theme::GREEN).add_modifier(Modifier::BOLD),
+        ));
+    }
+    rows.push(Row::Styled(Line::from(header)));
+    if show_title && !post.title.is_empty() {
+        rows.push(Row::Styled(Line::from(vec![
+            bar(),
+            Span::styled(
+                post.title.clone(),
+                Style::new().fg(theme::FG).add_modifier(Modifier::BOLD),
+            ),
+        ])));
+    }
+    let width = width.saturating_sub(indent.len() + 2).max(20);
+    for paragraph in &post.body {
+        for line in wrap(paragraph, width) {
+            rows.push(Row::Styled(Line::from(vec![
+                bar(),
+                Span::styled(line, Style::new().fg(theme::FG)),
+            ])));
+        }
+    }
+}
+
+/// A To-Do entry: assignment, how long is left (red when it's close), course.
+fn todo_row(item: &Item, last: bool) -> ListItem<'static> {
+    let (glyph, color) = icon(item);
+    let (due, date) = item
+        .description
+        .split_once(" · ")
+        .unwrap_or((item.description.as_str(), ""));
+    let days = due
+        .strip_prefix("due in ")
+        .and_then(|rest| rest.strip_suffix(" days").or(rest.strip_suffix(" day")))
+        .and_then(|n| n.parse::<u32>().ok());
+    let due_color = match days {
+        _ if due == "overdue" || due.contains("hour") => theme::RED,
+        Some(days) if days <= 3 => theme::YELLOW,
+        _ => theme::GREEN,
+    };
+    let mut lines = vec![
+        Line::from(vec![
+            Span::styled(format!("{glyph}  "), Style::new().fg(color)),
+            Span::styled(
+                item.title.clone(),
+                Style::new().fg(theme::FG).add_modifier(Modifier::BOLD),
+            ),
+        ]),
+        Line::from(vec![
+            Span::styled(
+                format!("   {due}"),
+                Style::new().fg(due_color).add_modifier(Modifier::BOLD),
+            ),
+            Span::styled(format!("  {date}"), theme::muted()),
+        ]),
+        Line::styled(
+            format!("   {}", item.properties.first().map_or("", String::as_str)),
+            theme::muted().add_modifier(Modifier::ITALIC),
+        ),
+    ];
+    if !last {
+        lines.push(Line::raw(""));
+    }
+    ListItem::new(Text::from(lines))
 }
 
 /// Separates a new section from what came before, without doubling up empty lines.
@@ -246,8 +347,12 @@ pub struct Browser {
     saved: HashSet<u64>,
     /// Clickable areas from the last draw.
     hits: Vec<(Rect, Hit)>,
-    /// Item position and time of the last click, to detect double-clicks.
-    last_click: Option<(usize, Instant)>,
+    /// What was clicked last and when, to detect double-clicks.
+    last_click: Option<(Hit, Instant)>,
+    /// Selection in the To-Do panel ("My courses" only).
+    todo: ListState,
+    /// Keys go to the To-Do panel instead of the list.
+    todo_focus: bool,
 }
 
 /// What a mouse click at some screen area means.
@@ -258,6 +363,8 @@ enum Hit {
     Tab(usize),
     /// A breadcrumb; the index into `Browser::stack`.
     Crumb(usize),
+    /// An entry of the To-Do panel.
+    Todo(usize),
 }
 
 const DOUBLE_CLICK: Duration = Duration::from_millis(400);
@@ -292,19 +399,30 @@ impl Browser {
         }
     }
 
+    /// The To-Do entries of the page on screen.
+    fn todo_items(&self) -> &[Item] {
+        self.current().map_or(&[], |l| l.page.todo.as_slice())
+    }
+
     fn click(&mut self, hit: Hit) -> Option<Action> {
+        let double = self
+            .last_click
+            .is_some_and(|(h, at)| h == hit && at.elapsed() < DOUBLE_CLICK);
+        self.last_click = (!double).then(|| (hit, Instant::now()));
         match hit {
             Hit::Item(position) => {
-                let double = self
-                    .last_click
-                    .is_some_and(|(p, at)| p == position && at.elapsed() < DOUBLE_CLICK);
+                self.todo_focus = false;
                 self.stack.last_mut()?.cursor = Some(position);
-                if double {
-                    self.last_click = None;
-                    return self.current()?.selected().map(|i| self.open(i));
-                }
-                self.last_click = Some((position, Instant::now()));
-                None
+                double
+                    .then(|| self.current()?.selected().map(|i| self.open(i)))
+                    .flatten()
+            }
+            Hit::Todo(index) => {
+                self.todo_focus = true;
+                self.todo.select(Some(index));
+                double
+                    .then(|| self.todo_items().get(index).map(|i| self.open(i)))
+                    .flatten()
             }
             Hit::Tab(index) => {
                 let level = self.current()?;
@@ -340,8 +458,53 @@ impl Browser {
     }
 }
 
+impl Browser {
+    /// Keys while the To-Do panel has the focus; `None` hands the key back to the list.
+    fn todo_key(&mut self, key: KeyEvent) -> Option<Option<Action>> {
+        let last = self.todo_items().len().checked_sub(1)?;
+        let selected = self.todo.selected().unwrap_or(0).min(last);
+        let to = match key.code {
+            KeyCode::Down | KeyCode::Char('j') => (selected + 1).min(last),
+            KeyCode::Up | KeyCode::Char('k') => selected.saturating_sub(1),
+            KeyCode::Home | KeyCode::Char('g') => 0,
+            KeyCode::End | KeyCode::Char('G') => last,
+            KeyCode::Enter | KeyCode::Right | KeyCode::Char('l' | 'o') => {
+                return Some(self.todo_items().get(selected).map(|i| self.open(i)));
+            }
+            KeyCode::Tab | KeyCode::BackTab | KeyCode::Esc | KeyCode::Left | KeyCode::Char('h') => {
+                self.todo_focus = false;
+                return Some(None);
+            }
+            // Anything else (filter, search, …) is about the list.
+            _ => {
+                self.todo_focus = false;
+                return None;
+            }
+        };
+        self.todo.select(Some(to));
+        Some(None)
+    }
+}
+
 impl Component for Browser {
     fn handle_key_event(&mut self, key: KeyEvent) -> Option<Action> {
+        if self.todo_focus
+            && let Some(action) = self.todo_key(key)
+        {
+            return action;
+        }
+        // On a page without tabs (My courses), Tab moves to the To-Do panel.
+        if matches!(key.code, KeyCode::Tab | KeyCode::BackTab)
+            && let Some(level) = self.current()
+            && level.page.tabs.is_empty()
+            && !level.page.todo.is_empty()
+        {
+            self.todo_focus = true;
+            if self.todo.selected().is_none() {
+                self.todo.select(Some(0));
+            }
+            return None;
+        }
         let level = self.stack.last_mut()?;
         match key.code {
             KeyCode::Down | KeyCode::Char('j') => level.move_cursor(|c, last| (c + 1).min(last)),
@@ -401,6 +564,18 @@ impl Component for Browser {
     }
 
     fn handle_mouse_event(&mut self, mouse: MouseEvent) -> Option<Action> {
+        if self.todo_focus
+            && matches!(
+                mouse.kind,
+                MouseEventKind::ScrollDown | MouseEventKind::ScrollUp
+            )
+        {
+            let code = match mouse.kind {
+                MouseEventKind::ScrollDown => KeyCode::Down,
+                _ => KeyCode::Up,
+            };
+            return self.todo_key(KeyEvent::from(code)).flatten();
+        }
         let level = self.stack.last_mut()?;
         match mouse.kind {
             MouseEventKind::ScrollDown => level.move_cursor(|c, last| (c + 1).min(last)),
@@ -426,10 +601,18 @@ impl Component for Browser {
                 refresh,
                 deep,
             } => {
-                if self.pending != Some((item.as_ref().map(|i| i.ref_id), *deep)) {
+                let key = (item.as_ref().map(|i| i.ref_id), *deep);
+                // Background refreshes of the page on screen (e.g. the To-Do list arriving
+                // after startup) apply even while something else is loading.
+                let refreshes_current = *refresh
+                    && self
+                        .current()
+                        .is_some_and(|l| (l.item.as_ref().map(|i| i.ref_id), l.deep) == key);
+                if self.pending == Some(key) {
+                    self.pending = None;
+                } else if !refreshes_current {
                     return None;
                 }
-                self.pending = None;
                 match self.stack.last_mut() {
                     // A background refresh that found nothing new: keep the view as it is.
                     Some(level) if *refresh && level.page == *page => {}
@@ -442,6 +625,7 @@ impl Component for Browser {
                     }
                     _ => {
                         self.query.clear();
+                        self.todo_focus = false;
                         self.stack
                             .push(Level::new(item.clone(), *deep, page.clone()));
                         // A new list starts unfiltered; tell the search bar.
@@ -486,6 +670,25 @@ impl Component for Browser {
         ])
         .areas(area);
         self.draw_header(frame, header);
+
+        // "My courses": the To-Do list beside the page, or below it on narrow terminals.
+        let todo_count = self.todo_items().len() as u16;
+        let (body, todo_area) = if todo_count == 0 {
+            (body, None)
+        } else if body.width >= 100 {
+            let [main, side] = Layout::horizontal([Constraint::Fill(1), Constraint::Length(44)])
+                .spacing(1)
+                .areas(body);
+            (main, Some(side))
+        } else {
+            let height = (todo_count * 4 + 1).min(body.height / 2);
+            let [main, bottom] =
+                Layout::vertical([Constraint::Fill(1), Constraint::Length(height)]).areas(body);
+            (main, Some(bottom))
+        };
+        if let Some(area) = todo_area {
+            self.draw_todo(frame, area);
+        }
 
         let mut border = Border::bordered()
             .border_type(BorderType::Rounded)
@@ -559,6 +762,7 @@ impl Component for Browser {
                 Row::Blank => ListItem::new(""),
                 Row::Heading(text) => heading_row(text),
                 Row::Text(text) => text_row(text),
+                Row::Styled(line) => ListItem::new(line),
                 Row::Item(i) => {
                     let item = &level.items[i];
                     item_row(item, &self.query, self.saved.contains(&item.ref_id))
@@ -567,6 +771,11 @@ impl Component for Browser {
             .collect();
         let heights: Vec<u16> = list_items.iter().map(|i| i.height() as u16).collect();
         level.list.select(selected_row);
+        if selected_row.is_none() {
+            // Scrolled with j/k on a page without items: stop at the end of the page.
+            let last = row_count.saturating_sub(inner.height as usize);
+            *level.list.offset_mut() = level.list.offset().min(last);
+        }
         let list = List::new(list_items)
             .highlight_style(Style::new().bg(theme::SELECTED_BG))
             .highlight_symbol(Line::styled("▌ ", Style::new().fg(theme::ACCENT)))
@@ -601,6 +810,65 @@ impl Component for Browser {
 }
 
 impl Browser {
+    fn draw_todo(&mut self, frame: &mut Frame, area: Rect) {
+        let Some(level) = self.stack.last() else {
+            return;
+        };
+        let border_color = if self.todo_focus {
+            theme::ACCENT
+        } else {
+            theme::BORDER
+        };
+        let mut border = Border::bordered()
+            .border_type(BorderType::Rounded)
+            .border_style(Style::new().fg(border_color))
+            .padding(Padding::horizontal(1))
+            .title(Line::from(vec![
+                Span::styled(
+                    " To-Do ",
+                    Style::new().fg(theme::YELLOW).add_modifier(Modifier::BOLD),
+                ),
+                Span::styled(format!("{} ", level.page.todo.len()), theme::muted()),
+            ]));
+        if !self.todo_focus {
+            border = border.title_bottom(Line::styled(" ⇥ focus ", theme::muted()).right_aligned());
+        }
+        let inner = border.inner(area);
+        frame.render_widget(border, area);
+        let last = level.page.todo.len() - 1;
+        let rows: Vec<ListItem> = level
+            .page
+            .todo
+            .iter()
+            .enumerate()
+            .map(|(i, item)| todo_row(item, i == last))
+            .collect();
+        let heights: Vec<u16> = rows.iter().map(|r| r.height() as u16).collect();
+        if !self.todo_focus {
+            self.todo.select(None);
+        }
+        let list = List::new(rows)
+            .highlight_style(Style::new().bg(theme::SELECTED_BG))
+            .highlight_symbol(Line::styled("▌ ", Style::new().fg(theme::ACCENT)))
+            .highlight_spacing(HighlightSpacing::Always);
+        let selected = self.todo.selected();
+        frame.render_stateful_widget(list, inner, &mut self.todo);
+        if !self.todo_focus {
+            // Remember the place for when the panel gets the focus again.
+            self.todo.select(selected);
+        }
+        let mut y = inner.y;
+        for (i, height) in heights.iter().enumerate().skip(self.todo.offset()) {
+            if y >= inner.bottom() {
+                break;
+            }
+            let height = (*height).min(inner.bottom() - y);
+            self.hits
+                .push((Rect::new(inner.x, y, inner.width, height), Hit::Todo(i)));
+            y += height;
+        }
+    }
+
     /// ILIAS-style top bar: logo, breadcrumb and the full name of the current object.
     fn draw_header(&mut self, frame: &mut Frame, area: Rect) {
         let logo = format!(" {}  ILIAS ", theme::logo());
@@ -860,6 +1128,7 @@ mod tests {
         let mut file = item("file", 3, "Skript");
         file.properties = vec!["pdf".into()];
         let page = Page {
+            todo: Vec::new(),
             tabs: vec![
                 crate::ilias::parse::Tab {
                     title: "Inhalt".into(),
@@ -982,6 +1251,7 @@ mod tests {
         let mut file = item("file", 9, "Lecture_01");
         file.properties = vec!["pdf".into(), "1.2 MB".into()];
         let page = Page {
+            todo: Vec::new(),
             tabs: vec![
                 crate::ilias::parse::Tab {
                     title: "Inhalt".into(),
@@ -1028,5 +1298,56 @@ mod tests {
         assert!(
             matches!(tab, Some(Action::Load { url: Some(ref u), refresh: true, .. }) if u == "u2")
         );
+    }
+
+    #[test]
+    fn todo_panel_gets_focus_with_tab_and_opens_assignments() {
+        let mut browser = Browser::default();
+        let mut assignment = item("exc", 5, "Blatt 1");
+        assignment.description = "due in 2 days · 3. Nov 2026, 23:55".into();
+        assignment.properties = vec!["DEMO.101".into()];
+        let page = Page {
+            todo: vec![assignment, item("exc", 6, "Blatt 2")],
+            ..Page::from_items(vec![item("crs", 1, "DEMO.101")])
+        };
+        browser.update(&Action::Load {
+            item: None,
+            url: None,
+            refresh: false,
+            deep: false,
+        });
+        browser.update(&Action::Loaded {
+            item: None,
+            page,
+            refresh: false,
+            deep: false,
+        });
+        let key = |b: &mut Browser, code| b.handle_key_event(KeyEvent::from(code));
+
+        // The panel sits to the right of the list on a wide terminal.
+        let mut terminal = Terminal::new(TestBackend::new(120, 20)).unwrap();
+        terminal.draw(|f| browser.draw(f, f.area())).unwrap();
+        let screen = format!("{:?}", terminal.backend().buffer());
+        assert!(screen.contains("To-Do"), "{screen}");
+        assert!(screen.contains("due in 2 days"), "{screen}");
+
+        assert!(key(&mut browser, KeyCode::Tab).is_none());
+        assert!(browser.todo_focus);
+        assert!(key(&mut browser, KeyCode::Char('j')).is_none());
+        let open = key(&mut browser, KeyCode::Enter);
+        assert!(matches!(open, Some(Action::OpenInBrowser(ref i)) if i.title == "Blatt 2"));
+
+        // Esc gives the keys back to the course list.
+        key(&mut browser, KeyCode::Esc);
+        assert!(!browser.todo_focus);
+        let open = key(&mut browser, KeyCode::Enter);
+        assert!(
+            matches!(open, Some(Action::Load { item: Some(ref i), .. }) if i.title == "DEMO.101")
+        );
+
+        // Double-clicking an entry opens it.
+        assert!(browser.click(Hit::Todo(0)).is_none());
+        let open = browser.click(Hit::Todo(0));
+        assert!(matches!(open, Some(Action::OpenInBrowser(ref i)) if i.title == "Blatt 1"));
     }
 }

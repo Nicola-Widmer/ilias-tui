@@ -36,8 +36,15 @@ selected row highlighted, and a spinner in the status bar while something loads.
 
 What it does:
 
-- Lists your courses and groups ("Meine Kurse und Gruppen"), grouped by semester like on
-  ILIAS, with each course's full name.
+- Lists your courses and groups ("Meine Kurse und Gruppen"), grouped by year like on
+  ILIAS but with the newest year first, with each course's full name.
+- Shows a **To-Do** panel to the right of them (below them on narrow terminals): the
+  assignments you still have to hand in, soonest first, with the course and how long you
+  have left ("due in 3 days", yellow within 3 days, red within a day). `Tab` moves into the
+  panel; `Enter` opens the assignment in your browser to upload it.
+- **Reads forums**: the threads of a forum (author, number of posts, unread posts, last
+  post), and in a thread all posts with author, date, replies indented and unread posts
+  marked `● new`. Reading changes nothing on ILIAS; posts stay unread there.
 - Shows courses, groups and folders **the way ILIAS does**:
   - the page text (welcome note, room, Zoom link, …),
   - the named sections (item groups),
@@ -51,7 +58,7 @@ What it does:
 - **Opens files** with their default app (Preview, Excel, …) on `Enter`. The first time,
   the file is downloaded to `~/Downloads/ILIAS`. After that, the saved copy opens right
   away; saved files are marked `✓ saved`.
-- Opens everything else (tests, forums, exercises, …) in your normal web browser.
+- Opens everything else (tests, exercises, …) in your normal web browser.
 - Logs in once through Switch edu-ID (2FA included) and keeps the session in a private
   file. Later runs refresh the session on their own, without a browser.
 
@@ -123,6 +130,7 @@ TUI starts.
 | `ilias-tui logout`    | Delete the saved session file                            |
 | `ilias-tui ls [URL] [--deep]` | Print a container's items as `kind<TAB>ref_id<TAB>title` (default: my courses). With `--deep`, print everything below it |
 | `ilias-tui get URL…`  | Download files, e.g. `goto.php/file/123`, to the download dir |
+| `ilias-tui todo`      | Print the assignments still to hand in, soonest first    |
 | `ilias-tui show URL`  | Print how a page is parsed: tabs, headings, text, items (for debugging) |
 | `ilias-tui dump URL`  | Print the HTML ILIAS returns for `URL` (for debugging)   |
 
@@ -148,15 +156,15 @@ ilias-tui get goto.php/file/123456
 
 | Key             | Action                                          |
 | --------------- | ----------------------------------------------- |
-| `↑ ↓` / `k j`   | Move selection                                  |
+| `↑ ↓` / `k j`   | Move selection; scroll in a forum thread        |
 | `g` / `G`       | First / last item                               |
-| `Enter` `→` `l` | Open folder; open file (downloads it the first time); open anything else in the browser |
+| `Enter` `→` `l` | Open folder, forum or thread; open file (downloads it the first time); open anything else in the browser |
 | `Esc` `←` `h`   | Clear filter, then go back                      |
 | `/`             | Filter the current list                         |
 | `s`             | Search everything below here                    |
 | `d`             | Download a fresh copy without opening it        |
 | `o`             | Open selected item in your web browser          |
-| `Tab` / `Shift-Tab` | Next / previous tab (Inhalt, Info, …)       |
+| `Tab` / `Shift-Tab` | Next / previous tab (Inhalt, Info, …); on My courses, in and out of the To-Do panel |
 | `r`             | Reload current list                             |
 | `L`             | Log in again (opens Chrome)                     |
 | `?`             | Toggle help                                     |
@@ -167,7 +175,7 @@ ilias-tui get goto.php/file/123456
 | Action                 | What it does                                          |
 | ---------------------- | ----------------------------------------------------- |
 | Click an item          | Select it                                             |
-| Double-click an item   | Open it (same as `Enter`)                             |
+| Double-click an item   | Open it (same as `Enter`), also in the To-Do panel    |
 | Scroll wheel           | Move the selection                                    |
 | Click a tab            | Switch to that tab                                    |
 | Click a breadcrumb     | Jump back to that level                               |

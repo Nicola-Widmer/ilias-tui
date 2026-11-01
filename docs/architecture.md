@@ -104,11 +104,12 @@ that fails.
 ILIAS 10 renders HTML on the server. `parse_page` turns a page into a `Page`:
 
 ```rust
-pub struct Page { pub tabs: Vec<Tab>, pub blocks: Vec<Block> }
+pub struct Page { pub tabs: Vec<Tab>, pub blocks: Vec<Block>, pub todo: Vec<Item> }
 pub enum Block {
     Heading(String),                              // h1–h4, page-editor headings
     Text(String),                                 // one paragraph / line of page text
     Items { title: String, items: Vec<Item> },    // an item group / content block
+    Post(Post),                                   // a forum post (author, date, title, body, depth, unread)
 }
 pub struct Item {
     kind, ref_id, title, url,
@@ -125,6 +126,20 @@ pub struct Item {
   - Other block elements (`p`, `div`, `li`, …) become `Text` paragraphs.
   - It skips scripts, modals, action dropdowns, hidden elements and screen-reader text.
   - `form-group` rows (the Info tab) become `Label: value`.
+- **Forum threads**: a page with `.ilFrmPostRow` rows is a thread; it becomes one `Post`
+  block per row. The reply depth comes from the `ilFrmPost-level-N` class. A post is unread
+  when its title links to `cmd=markPostRead`; that link is never followed. Viewing a thread
+  does not mark posts as read on ILIAS (checked on HSLU).
+- **To-Do**: `parse_todo` reads the dashboard's `block_pdtasks` block (assignments with an
+  upcoming deadline). `Client::todo` adds the course from each exercise page's breadcrumb
+  (`course_title`; one request per exercise, in parallel), works out "due in …" with
+  `parse_date` and sorts by deadline. `Client::courses` fetches it alongside the
+  memberships and stores it in `Page::todo` (`with_todo`), apart from the blocks, so
+  filters and deep search never see it. `Browser::draw_todo` shows it as a panel to the
+  right (below on terminals narrower than 100 columns); `Tab` on a page without tabs moves
+  the keys into it (`todo_focus`).
+- **My courses order**: ILIAS lists the year groups oldest first; `newest_first` reverses
+  the groups whose title is a year and leaves the rest in place.
 - **Icons**: `icons.rs` picks the glyph from `kind`, and for files from
   `Item::extension()`. That is the first property, where ILIAS shows the file type, with
   the title as fallback.
@@ -141,6 +156,8 @@ three link formats (plus a fallback, see below):
 
 - ILIAS 10 permalinks: `goto.php/crs/123`. Used for most objects.
 - Legacy links: `goto.php?target=crs_123`.
+- Forum threads: `ilias.php?cmdClass=ilObjForumGUI&cmd=viewThread&ref_id=…&thr_pk=42`
+  becomes `("thr", 42)`. All threads share the forum's `ref_id`, so they need their own id.
 - Direct GUI links: `ilias.php?cmdClass=ilObjFileGUI&cmd=sendfile&ref_id=123`.
   **Files inside folders use this format.** The kind comes from the GUI class
   (`ilObjFileGUI` → `file`, `ilObjFolderGUI` → `fold`, …; see `kind_from_gui_class`).
@@ -158,9 +175,10 @@ URLs used:
 | What        | URL                                                |
 | ----------- | -------------------------------------------------- |
 | My courses  | `ilias.php?baseClass=ilmembershipoverviewgui`      |
+| To-Do       | `ilias.php?baseClass=ilDashboardGUI` (only the `block_pdtasks` block), plus `goto.php/exc/<ref_id>` per exercise for its course |
 | A container | the item's permalink, e.g. `goto.php/crs/123`      |
 | A download  | the item's `cmd=sendfile` link, else `goto.php?target=file_<ref_id>_download` |
-| Deep search | `Client::descendants`: depth-first over all containers below the start (categories are skipped, at most 500 pages), titles become paths |
+| Deep search | `Client::descendants`: depth-first over all containers below the start (categories, forums and threads are skipped, at most 500 pages), titles become paths |
 
 Downloads:
 
@@ -259,7 +277,10 @@ Components never touch the network and never call each other. They only:
 `App::dispatch(Load { item, url, refresh, deep })` decides where a page comes from:
 
 1. **Startup:** the first "My courses" load uses the page that `Client::check_session`
-   already fetched to verify the login. No request is made.
+   already fetched to verify the login. It is shown at once (or last time's cached page,
+   which includes the To-Do list), while a worker fetches the To-Do list and sends
+   `Loaded { refresh: true }`. `Browser` applies a refresh of the page on screen even
+   while another load is pending.
 2. **Cache hit** (only when `refresh` is false): send `Loaded` with the cached page right
    away, then queue `Load { refresh: true }`. The browser shows the cached page.
    - The refresh fetches the page from ILIAS, writes it to the cache and sends

@@ -11,8 +11,7 @@ When a feature is built, tick it off here in the same commit.
 1. **Check the "show more" gap**: ILIAS can truncate long lists behind a "show more"
    button, and items behind it may currently be missing. See [Reading content](#reading-content).
 2. **What's new since my last visit**
-3. **Upcoming deadlines across all courses**
-4. **Download / sync a whole folder or course**
+3. **Download / sync a whole folder or course**
 
 ## Reading content
 
@@ -23,9 +22,14 @@ Read-only; safe to build and to try against ILIAS.
   items behind it may be **silently missing**. Check first whether HSLU uses it.
 - [ ] **What's new since my last visit.** Show new or changed files per course. The page
   cache (`src/cache.rs`) already holds the previous version to compare against.
-- [ ] **Upcoming deadlines.** One list of exercise, test and session dates across all
-  courses.
-- [ ] **Forums.** Read threads and posts in the TUI (today: opens in the browser).
+- [x] **Upcoming deadlines.** The To-Do list on "My courses" (from the ILIAS dashboard).
+  Covers exercise assignments only.
+- [ ] **Test and session dates** in the To-Do list. The dashboard block only lists
+  exercises; tests and sessions would need the calendar.
+- [x] **Forums.** Read threads and posts in the TUI.
+- [ ] **Long forums and threads.** Check whether ILIAS splits long thread lists or threads
+  into pages; only the first page is read today.
+- [ ] **Links and attachments in forum posts.** Today only the text is shown.
 - [ ] **Exercises.** Show assignments, deadlines and your own submission status (today:
   opens in the browser).
 - [ ] **Calendar and session dates.**

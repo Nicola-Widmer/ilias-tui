@@ -37,6 +37,7 @@ pub fn icon(item: &Item) -> (&'static str, Color) {
         "poll" => ("\u{f080}", "▤", ORANGE),
         "chtr" => ("\u{f086}", "✉", GREEN),
         "frm" => ("\u{f086}", "✉", GREEN), // comments
+        "thr" => ("\u{f0e5}", "›", GREEN), // comment-o
         "webr" => ("\u{f0c1}", "↗", BLUE), // link
         "wiki" | "lm" | "htlm" | "sahs" | "copa" => ("\u{f02d}", "▤", MAGENTA), // book
         "blog" => ("\u{f09e}", "▤", MAGENTA), // rss

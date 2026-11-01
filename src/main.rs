@@ -34,6 +34,7 @@ USAGE:
                          Print the items of a container (default: my courses),
                          with --deep everything below it (tab-separated)
     ilias-tui get URL…   Download files (e.g. goto.php/file/123) to the download dir
+    ilias-tui todo       Print assignments still to hand in, soonest first
 
 ENVIRONMENT:
     ILIAS_URL            ILIAS root URL (default: https://elearning.hslu.ch/ilias/)
@@ -115,6 +116,17 @@ fn main() -> Result<()> {
                 match block {
                     ilias::Block::Heading(text) => println!("\n## {text}"),
                     ilias::Block::Text(text) => println!("{text}"),
+                    ilias::Block::Post(post) => {
+                        let new = if post.unread { " [new]" } else { "" };
+                        let indent = "  ".repeat(post.depth);
+                        println!(
+                            "\n{indent}{} | {}{new}\n{indent}{}",
+                            post.author, post.date, post.title
+                        );
+                        for paragraph in &post.body {
+                            println!("{indent}  {paragraph}");
+                        }
+                    }
                     ilias::Block::Items { title, items } => {
                         println!("\n## {title}");
                         for i in items {
@@ -162,6 +174,18 @@ fn main() -> Result<()> {
                 let path = client.download(&item, &dir)?;
                 downloads.insert(item.ref_id, path.clone())?;
                 println!("{}", path.display());
+            }
+            Ok(())
+        }
+        ["todo"] => {
+            let (client, _) = connect(&base, false)?;
+            for item in client.todo()? {
+                println!(
+                    "{}\t{}\t{}",
+                    item.description,
+                    item.title,
+                    item.properties.join(" · ")
+                );
             }
             Ok(())
         }

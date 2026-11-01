@@ -24,6 +24,7 @@ pub const KEYS: &[(&str, &[(&str, &str)])] = &[
             ),
             ("Esc  ←  h", "Clear filter, then go back"),
             ("Tab  S-Tab", "Next / previous tab (Inhalt, Info, …)"),
+            ("Tab", "My courses: into / out of the To-Do panel"),
         ],
     ),
     (
