@@ -138,6 +138,20 @@ pub struct Item {
   filters and deep search never see it. `Browser::draw_todo` shows it as a panel to the
   right (below on terminals narrower than 100 columns); `Tab` on a page without tabs moves
   the keys into it (`todo_focus`).
+- **Favourites**: `parse_dashboard` also reads the `block_dash_fav` block (tiles: `.il-card`
+  with a `.card-title a`). `with_dashboard` puts it above the courses and copies each
+  course's full name from the course list.
+- **Favourite links**: `Walker::item` keeps the item's own `cmd=addToDesk` /
+  `cmd=removeFromDesk` link from its action menu (`favorite_toggle`, only if its
+  `item_ref_id` is the item's) and sets `favorite` when it is a remove link.
+  `ilias/write.rs` (`Client::toggle_favorite`) checks the link again (https, same host,
+  one of those two commands, same item) and GETs it, unless `ILIAS_DRY_RUN=1`. After a
+  change, `App` refreshes "My courses" in the background and `Browser` reloads the page on
+  screen. Refreshes now apply to their page wherever it is in the stack.
+- **Download folders**: `breadcrumb_path` takes the page's breadcrumb (ILIAS writes it
+  leaf to root) from the course or group down, and every file on the page gets it as
+  `Item::path`. `Client::download` saves into `<download dir>/<path…>/`, each part
+  sanitised. Deep search results keep the path of the page they came from.
 - **My courses order**: ILIAS lists the year groups oldest first; `newest_first` reverses
   the groups whose title is a year and leaves the rest in place.
 - **Icons**: `icons.rs` picks the glyph from `kind`, and for files from
@@ -347,6 +361,7 @@ pages.
 | `Browser`   | stack of `Level { item, deep, page, items, visible, cursor, list }`, `query` | Tab bar, then the page laid out as rows: headings, wrapped text, items with icon and details. Only item rows can be selected. `Tab` loads another tab into the same level. Back = pop (no request). `r` refreshes the top level. |
 | `StatusBar` | `Status` (idle/busy/done/info/error), start time | Spinner while busy, ✓ / ⚠ icons for results and errors; key hints on the right. |
 | `Help`      | `visible: bool`                          | Overlay drawn last, on top of everything. Keys come from `help::KEYS`, grouped into sections. |
+| `Confirm`   | `pending: Option<(question, Action)>`    | Yes/no dialog, first in the z-order. `Action::Ask { question, then }` opens it; `y` sends `then`, anything that cancels sends `Cancelled`. Every write goes through it. |
 
 ### Look
 

@@ -179,7 +179,7 @@ fn main() -> Result<()> {
         }
         ["todo"] => {
             let (client, _) = connect(&base, false)?;
-            for item in client.todo()? {
+            for item in client.dashboard()?.todo {
                 println!(
                     "{}\t{}\t{}",
                     item.description,

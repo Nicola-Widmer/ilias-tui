@@ -1,6 +1,7 @@
 //! HTTP client for an ILIAS installation, authenticated with the session cookies.
 
 pub mod parse;
+pub mod write;
 
 use std::collections::{HashMap, HashSet};
 use std::fs::File;
@@ -17,12 +18,12 @@ use reqwest::header::{CONTENT_DISPOSITION, CONTENT_TYPE};
 use reqwest_cookie_store::CookieStoreMutex;
 use url::Url;
 
-pub use parse::{Block, Item, Page, Post, parse_page, parse_target};
+pub use parse::{Block, Dashboard, Item, Page, Post, parse_page, parse_target};
 
 /// The "My courses and groups" page.
 const MEMBERSHIPS: &str = "ilias.php?baseClass=ilmembershipoverviewgui";
 
-/// The dashboard; only its "To-Do" block (upcoming deadlines) is used.
+/// The dashboard; only its favourites and "To-Do" (upcoming deadlines) blocks are used.
 const DASHBOARD: &str = "ilias.php?baseClass=ilDashboardGUI";
 
 /// Upper bound of pages fetched by one deep search, to stay polite to the server.
@@ -158,14 +159,19 @@ impl Client {
         bail!("session expired: press L to log in again")
     }
 
-    /// "My courses and groups" with the To-Do list, both fetched at the same time.
+    /// "My courses and groups" with the favourites and the To-Do list, all fetched at the
+    /// same time.
     pub fn courses(&self) -> Result<Page> {
         thread::scope(|scope| {
-            let todo = scope.spawn(|| self.todo());
+            let dashboard = scope.spawn(|| self.dashboard());
             let courses = self.memberships()?;
-            // Without the To-Do list, the courses are still worth showing.
-            let todo = todo.join().ok().and_then(Result::ok).unwrap_or_default();
-            Ok(with_todo(courses, todo))
+            // Without the dashboard, the courses are still worth showing.
+            let dashboard = dashboard
+                .join()
+                .ok()
+                .and_then(Result::ok)
+                .unwrap_or_default();
+            Ok(with_dashboard(courses, dashboard))
         })
     }
 
@@ -175,11 +181,13 @@ impl Client {
         Ok(newest_first(parse_page(&fetched.html, &fetched.url)))
     }
 
-    /// Assignments still to hand in (the dashboard's "To-Do" block), soonest first. Each
-    /// item's description says when it is due; its first property names the course.
-    pub fn todo(&self) -> Result<Vec<Item>> {
+    /// The favourites and the assignments still to hand in (the dashboard's "To-Do"
+    /// block), soonest first. Each To-Do item's description says when it is due; its first
+    /// property names the course.
+    pub fn dashboard(&self) -> Result<Dashboard> {
         let fetched = self.get_authed(&self.url(DASHBOARD)?)?;
-        let mut items = parse::parse_todo(&fetched.html, &fetched.url);
+        let mut dashboard = parse::parse_dashboard(&fetched.html, &fetched.url);
+        let items = &mut dashboard.todo;
         // The block only names the exercise; its page's breadcrumb names the course.
         let mut exercises: Vec<u64> = items.iter().map(|i| i.ref_id).collect();
         exercises.sort_unstable();
@@ -217,7 +225,8 @@ impl Client {
             .collect();
         // Unknown dates last.
         due.sort_by_key(|(deadline, _)| (deadline.is_none(), *deadline));
-        Ok(due.into_iter().map(|(_, item)| item).collect())
+        dashboard.todo = due.into_iter().map(|(_, item)| item).collect();
+        Ok(dashboard)
     }
 
     /// The page of a container; `url` selects another tab of it.
@@ -342,8 +351,9 @@ impl Client {
             bail!("ILIAS returned a page instead of the file (no access or session expired)");
         }
         let name = filename(&response).unwrap_or_else(|| item.title.clone());
-        std::fs::create_dir_all(dir)?;
-        let path = unique_path(dir, &sanitize(&name));
+        let dir = folder_for(dir, item);
+        std::fs::create_dir_all(&dir)?;
+        let path = unique_path(&dir, &sanitize(&name));
         io::copy(&mut response, &mut File::create(&path)?)?;
         crate::open::quarantine(&path);
         Ok(path)
@@ -379,8 +389,23 @@ fn newest_first(mut page: Page) -> Page {
     page
 }
 
-pub fn with_todo(page: Page, todo: Vec<Item>) -> Page {
-    Page { todo, ..page }
+/// Puts the favourites above the courses and the To-Do list beside them.
+pub fn with_dashboard(mut page: Page, dashboard: Dashboard) -> Page {
+    if let Some(mut favorites) = dashboard.favorites {
+        // Favourite tiles only carry the short title; the course list has the full name.
+        if let Block::Items { items, .. } = &mut favorites {
+            for favorite in items.iter_mut().filter(|f| f.description.is_empty()) {
+                if let Some(known) = page.items().find(|i| i.ref_id == favorite.ref_id) {
+                    favorite.description.clone_from(&known.description);
+                }
+            }
+        }
+        page.blocks.insert(0, favorites);
+    }
+    Page {
+        todo: dashboard.todo,
+        ..page
+    }
 }
 
 /// `due in 3 days`, `due in 5 hours`, `overdue`.
@@ -430,6 +455,13 @@ fn filename_from_disposition(header: &str) -> Option<String> {
         }
     }
     plain
+}
+
+/// Same folders as on ILIAS: `<download dir>/<course>/<folder>/…`.
+fn folder_for(dir: &Path, item: &Item) -> PathBuf {
+    item.path
+        .iter()
+        .fold(dir.to_path_buf(), |dir, folder| dir.join(sanitize(folder)))
 }
 
 fn sanitize(name: &str) -> String {
@@ -530,6 +562,46 @@ mod tests {
         assert_eq!(due(2026, 11, 2, 14), "due in 1 day");
         assert_eq!(due(2026, 11, 1, 14), "due in less than an hour");
         assert_eq!(due(2026, 10, 31, 0), "overdue");
+    }
+
+    #[test]
+    fn saves_files_in_their_ilias_folders() {
+        let item = Item {
+            path: vec!["DEMO.101".into(), "Woche 1: Intro".into(), "../..".into()],
+            ..Item::default()
+        };
+        assert_eq!(
+            folder_for(Path::new("/dl"), &item),
+            Path::new("/dl/DEMO.101/Woche 1_ Intro/_..")
+        );
+        assert_eq!(
+            folder_for(Path::new("/dl"), &Item::default()),
+            Path::new("/dl")
+        );
+    }
+
+    #[test]
+    fn only_sends_favourites_links_for_the_item() {
+        let base = Url::parse("https://ilias.example/ilias/").unwrap();
+        let client = Client::new(base, CookieStore::default()).unwrap();
+        let item = |link: &str| Item {
+            ref_id: 7,
+            title: "DEMO".into(),
+            favorite_toggle: Some(link.into()),
+            ..Item::default()
+        };
+        for link in [
+            // another item
+            "https://ilias.example/ilias/ilias.php?cmd=addToDesk&item_ref_id=8",
+            // another command
+            "https://ilias.example/ilias/ilias.php?cmd=delete&item_ref_id=7",
+            // another server
+            "https://evil.example/ilias/ilias.php?cmd=addToDesk&item_ref_id=7",
+        ] {
+            let error = client.toggle_favorite(&item(link)).unwrap_err();
+            assert!(error.to_string().contains("unexpected"), "{link}: {error}");
+        }
+        assert!(client.toggle_favorite(&Item::default()).is_err());
     }
 
     #[test]

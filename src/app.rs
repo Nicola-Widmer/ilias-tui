@@ -14,7 +14,7 @@ use ratatui::{DefaultTerminal, Frame};
 
 use crate::action::Action;
 use crate::cache::Cache;
-use crate::components::{Browser, Component, Filter, Help, StatusBar};
+use crate::components::{Browser, Component, Confirm, Filter, Help, StatusBar};
 use crate::downloads::Downloads;
 use crate::ilias::{Client, Item, Page};
 use crate::{auth, ilias, open, session};
@@ -26,6 +26,7 @@ pub struct App {
     cache: Cache,
     /// "My courses" from the startup session check, shown without fetching it again.
     initial: Option<Page>,
+    confirm: Confirm,
     filter: Filter,
     browser: Browser,
     status_bar: StatusBar,
@@ -47,6 +48,7 @@ impl App {
             downloads,
             cache,
             initial: Some(courses),
+            confirm: Confirm::default(),
             filter: Filter::default(),
             browser,
             status_bar: StatusBar::default(),
@@ -58,8 +60,9 @@ impl App {
     }
 
     /// Components from top-most to bottom-most; earlier ones get keys first.
-    fn components(&mut self) -> [&mut dyn Component; 4] {
+    fn components(&mut self) -> [&mut dyn Component; 5] {
         [
+            &mut self.confirm,
             &mut self.help,
             &mut self.filter,
             &mut self.browser,
@@ -137,7 +140,7 @@ impl App {
                     })?;
                     let cache = self.cache.clone();
                     self.spawn(move |client, _| {
-                        let page = ilias::with_todo(courses, client.todo()?);
+                        let page = ilias::with_dashboard(courses, client.dashboard()?);
                         cache.put(&key, &page);
                         Ok(Action::Loaded {
                             item: None,
@@ -194,6 +197,21 @@ impl App {
                     "Not opening {}: not an ILIAS link",
                     item.url
                 )))?;
+            }
+            Action::ToggleFavorite(item) => {
+                let item = item.clone();
+                self.spawn(move |client, _| {
+                    let sent = client.toggle_favorite(&item)?;
+                    Ok(Action::FavoriteToggled {
+                        item,
+                        dry_run: !sent,
+                    })
+                });
+            }
+            // The favourites are listed on "My courses"; refresh it wherever it is in the
+            // stack (the browser reloads the page on screen itself).
+            Action::FavoriteToggled { dry_run: false, .. } => {
+                self.fetch(None, None, true, false, Cache::key(None, false));
             }
             Action::Login => self.spawn(|client, _| {
                 client.set_cookies(auth::browser_login(&client.base)?);
@@ -264,6 +282,8 @@ impl App {
         }
         self.status_bar.draw(frame, status);
         self.help.draw(frame, area);
+        // Last, so the question is on top of everything.
+        self.confirm.draw(frame, area);
     }
 }
 
@@ -281,6 +301,9 @@ mod tests {
             kind: "crs".into(),
             ref_id: 1,
             title: "DEMO".into(),
+            favorite_toggle: Some(
+                "https://ilias.example/ilias/ilias.php?cmd=addToDesk&item_ref_id=1".into(),
+            ),
             ..Default::default()
         }]);
         let mut app = App::new(client, PathBuf::from("/tmp"), courses);
@@ -312,6 +335,33 @@ mod tests {
         }
         let open = app.handle_key(key(KeyCode::Enter));
         assert!(matches!(open, Some(Action::Load { item: Some(ref i), .. }) if i.title == "DEMO"));
+        let _ = std::fs::remove_dir_all(dir);
+    }
+
+    #[test]
+    fn f_shows_the_question_on_screen() {
+        let dir = std::env::temp_dir().join(format!("ilias-tui-confirm-{}", std::process::id()));
+        let mut app = app(&dir);
+        app.dispatch(load(None)).unwrap();
+        while let Ok(action) = app.rx.try_recv() {
+            app.dispatch(action).unwrap();
+        }
+        let key = |c| ratatui::crossterm::event::KeyEvent::from(c);
+        let ask = app.handle_key(key(KeyCode::Char('f'))).expect("f asks");
+        app.dispatch(ask).unwrap();
+
+        let mut terminal =
+            ratatui::Terminal::new(ratatui::backend::TestBackend::new(100, 20)).unwrap();
+        terminal.draw(|frame| app.draw(frame)).unwrap();
+        let screen = format!("{:?}", terminal.backend().buffer());
+        assert!(
+            screen.contains("Add “DEMO” to your ILIAS favourites?"),
+            "{screen}"
+        );
+
+        // "n" closes it without sending anything.
+        let answer = app.handle_key(key(KeyCode::Char('n')));
+        assert!(matches!(answer, Some(Action::Cancelled)));
         let _ = std::fs::remove_dir_all(dir);
     }
 

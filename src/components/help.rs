@@ -39,6 +39,7 @@ pub const KEYS: &[(&str, &[(&str, &str)])] = &[
         &[
             ("d", "Download a fresh copy (no open)"),
             ("o", "Open in your web browser"),
+            ("f", "Add to / remove from ILIAS favourites (asks first)"),
             ("r", "Reload"),
         ],
     ),

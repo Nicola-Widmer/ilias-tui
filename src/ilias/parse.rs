@@ -19,6 +19,15 @@ pub struct Item {
     pub description: String,
     /// What ILIAS lists under the title, e.g. `["pdf", "1.2 MB", "1. Mar 2026, 10:00"]`.
     pub properties: Vec<String>,
+    /// Whether it is one of the user's ILIAS favourites (as far as the page says).
+    #[serde(default)]
+    pub favorite: bool,
+    /// The "add to / remove from favourites" link from the item's action menu.
+    #[serde(default)]
+    pub favorite_toggle: Option<String>,
+    /// Files: the folders it is in, from the course down, e.g. `["DEMO.101", "Unterlagen"]`.
+    #[serde(default)]
+    pub path: Vec<String>,
 }
 
 impl Item {
@@ -290,6 +299,7 @@ pub fn parse_page(html: &str, page_url: &Url) -> Page {
             })
         })
         .collect();
+    let path = breadcrumb_path(&doc, page_url);
 
     // A forum thread: its posts are all that matters.
     let posts: Vec<Block> = doc
@@ -312,10 +322,41 @@ pub fn parse_page(html: &str, page_url: &Url) -> Page {
     let mut walker = Walker::new(page_url);
     walker.walk(root);
     walker.flush();
+    for block in &mut walker.blocks {
+        if let Block::Items { items, .. } = block {
+            for item in items.iter_mut().filter(|i| i.kind == "file") {
+                item.path.clone_from(&path);
+            }
+        }
+    }
     Page {
         tabs,
         blocks: walker.blocks,
         ..Page::default()
+    }
+}
+
+/// The page's place from the course (or group) down, e.g. `["DEMO.101", "Unterlagen",
+/// "Woche 3"]`; empty outside courses and groups.
+fn breadcrumb_path(doc: &Html, page_url: &Url) -> Vec<String> {
+    let mut crumbs: Vec<(String, String)> = doc
+        .select(&sel(".breadcrumb a"))
+        .filter_map(|a| {
+            let url = page_url.join(a.attr("href")?).ok()?;
+            Some((parse_target(&url)?.0, text_of(a)))
+        })
+        .collect();
+    // ILIAS 10 writes the breadcrumb from the current object up to the root (and shows it
+    // reversed); turn it around unless it already starts at the root.
+    if crumbs.first().is_some_and(|(kind, _)| kind != "root") {
+        crumbs.reverse();
+    }
+    let start = ["crs", "grp"]
+        .iter()
+        .find_map(|kind| crumbs.iter().position(|(k, _)| k == kind));
+    match start {
+        Some(start) => crumbs.drain(start..).map(|(_, title)| title).collect(),
+        None => Vec::new(),
     }
 }
 
@@ -368,10 +409,41 @@ fn post(row: ElementRef, page_url: &Url) -> Post {
     }
 }
 
+/// What ilias-tui uses from the dashboard.
+#[derive(Debug, Default)]
+pub struct Dashboard {
+    /// The "Favoriten" block, as an items block titled like on ILIAS.
+    pub favorites: Option<Block>,
+    pub todo: Vec<Item>,
+}
+
+pub fn parse_dashboard(html: &str, page_url: &Url) -> Dashboard {
+    let doc = Html::parse_document(html);
+    Dashboard {
+        favorites: parse_favorites(&doc, page_url),
+        todo: parse_todo(&doc, page_url),
+    }
+}
+
+/// The dashboard's favourites, shown as tiles (cards) or as a list.
+fn parse_favorites(doc: &Html, page_url: &Url) -> Option<Block> {
+    let block = doc.select(&sel(r#"[id^="block_dash_fav"]"#)).next()?;
+    let title = block.select(&sel("h2")).next().map(text_of)?;
+    let mut walker = Walker::new(page_url);
+    let items: Vec<Item> = block
+        .select(&sel(".il-card, .il-std-item"))
+        .filter_map(|container| {
+            let mut item = walker.item(container)?;
+            item.favorite = true;
+            Some(item)
+        })
+        .collect();
+    (!items.is_empty()).then_some(Block::Items { title, items })
+}
+
 /// The dashboard's "To-Do" block: assignments with an upcoming deadline, as exercise items
 /// whose description is the deadline as ILIAS shows it (e.g. `5. Nov 2026, 00:00`).
-pub fn parse_todo(html: &str, page_url: &Url) -> Vec<Item> {
-    let doc = Html::parse_document(html);
+fn parse_todo(doc: &Html, page_url: &Url) -> Vec<Item> {
     let Some(block) = doc.select(&sel(r#"[id^="block_pdtasks"]"#)).next() else {
         return Vec::new();
     };
@@ -610,7 +682,9 @@ impl<'a> Walker<'a> {
 
     fn item(&mut self, container: ElementRef) -> Option<Item> {
         let a = container
-            .select(&sel("a.il_ContainerItemTitle, .il-item-title a"))
+            .select(&sel(
+                "a.il_ContainerItemTitle, .il-item-title a, .card-title a",
+            ))
             .next()?;
         let url = self.page_url.join(a.attr("href")?).ok()?;
         // Some links (e.g. weblinks: `baseClass=ilLinkResourceHandlerGUI&ref_id=…`) carry no
@@ -658,6 +732,22 @@ impl<'a> Walker<'a> {
                 });
             }
         }
+        // The action menu offers either "add to" or "remove from" favourites. Only links
+        // for this very item count (menus can be nested in containers).
+        let favorite_toggle = container
+            .select(&sel(
+                r#"[href*="cmd=addToDesk"], [data-action*="cmd=addToDesk"], [href*="cmd=removeFromDesk"], [data-action*="cmd=removeFromDesk"]"#,
+            ))
+            .filter_map(|e| e.attr("href").or(e.attr("data-action")))
+            .filter_map(|link| self.page_url.join(link).ok())
+            .find(|link| {
+                link.query_pairs()
+                    .any(|(k, v)| k == "item_ref_id" && v == ref_id.to_string())
+            });
+        let favorite = favorite_toggle.as_ref().is_some_and(|link| {
+            link.query()
+                .is_some_and(|q| q.contains("cmd=removeFromDesk"))
+        });
         Some(Item {
             kind,
             ref_id,
@@ -665,6 +755,9 @@ impl<'a> Walker<'a> {
             url: url.into(),
             description,
             properties,
+            favorite,
+            favorite_toggle: favorite_toggle.map(Into::into),
+            path: Vec::new(),
         })
     }
 
@@ -958,7 +1051,7 @@ mod tests {
             </ul></div></div>
             <div id="block_pdnews_0"><div class="il-item il-std-item"><h4 class="il-item-title"><a href="https://ilias.example/ilias/goto.php/file/9">Neue Datei</a></h4></div></div>
             </aside>"#;
-        let todo = parse_todo(html, &url("https://ilias.example/ilias/ilias.php"));
+        let todo = parse_dashboard(html, &url("https://ilias.example/ilias/ilias.php")).todo;
         let found: Vec<_> = todo
             .iter()
             .map(|i| {
@@ -1010,5 +1103,62 @@ mod tests {
             Some(datetime(2026, 11, 2, 12, 0, 0, 0))
         );
         assert_eq!(parse_date("bald", today), None);
+    }
+
+    #[test]
+    fn reads_favourites_and_their_menu_links() {
+        let html = r#"<div id="il_center_col">
+            <div id="block_dash_fav_0"><h2>Favoriten</h2><div class="il-deck">
+              <div class="il-card thumbnail">
+                <ul class="dropdown-menu"><li><button data-action="ilias.php?baseClass=ildashboardgui&amp;cmd=removeFromDesk&amp;type=crs&amp;item_ref_id=101">Von Favoriten entfernen</button></li></ul>
+                <div class="caption card-title"><a href="https://ilias.example/ilias/goto.php/crs/101">DEMO.101</a></div>
+              </div></div></div>
+            <div class="il-item-group"><h3>2026</h3><div class="il-item-group-items"><ul>
+              <li><div class="il-item il-std-item"><h4 class="il-item-title"><a href="https://ilias.example/ilias/goto.php/crs/102">DEMO.102</a></h4>
+                <ul class="dropdown-menu"><li><button data-action="ilias.php?cmd=addToDesk&amp;type=crs&amp;item_ref_id=102">Zu Favoriten hinzufügen</button></li></ul></div></li>
+              <li><div class="il-item il-std-item"><h4 class="il-item-title"><a href="https://ilias.example/ilias/goto.php/crs/103">DEMO.103</a></h4>
+                <ul class="dropdown-menu"><li><button data-action="ilias.php?cmd=addToDesk&amp;type=crs&amp;item_ref_id=999">Zu Favoriten hinzufügen</button></li></ul></div></li>
+            </ul></div></div></div>"#;
+        let base = url("https://ilias.example/ilias/ilias.php");
+        let Some(Block::Items { title, items }) = parse_dashboard(html, &base).favorites else {
+            panic!("no favourites");
+        };
+        assert_eq!(title, "Favoriten");
+        assert_eq!((items[0].ref_id, items[0].favorite), (101, true));
+        assert!(
+            items[0]
+                .favorite_toggle
+                .as_deref()
+                .unwrap()
+                .contains("cmd=removeFromDesk")
+        );
+
+        let page = parse_page(html, &base);
+        let course = |id| page.items().find(|i| i.ref_id == id).unwrap();
+        assert!(!course(102).favorite);
+        assert_eq!(
+            course(102).favorite_toggle.as_deref(),
+            Some("https://ilias.example/ilias/ilias.php?cmd=addToDesk&type=crs&item_ref_id=102")
+        );
+        // A menu link for another object is not this item's.
+        assert_eq!(course(103).favorite_toggle, None);
+    }
+
+    #[test]
+    fn files_know_their_folders() {
+        let html = r#"<nav><div class="breadcrumb" dir="rtl">
+              <span class="breadcrumb-crumb"><a href="https://ilias.example/ilias/goto.php/fold/3">Woche 1</a></span>
+              <span class="breadcrumb-crumb"><a href="https://ilias.example/ilias/goto.php/fold/2">Unterlagen</a></span>
+              <span class="breadcrumb-crumb"><a href="https://ilias.example/ilias/goto.php/crs/1">DEMO.101</a></span>
+              <span class="breadcrumb-crumb"><a href="https://ilias.example/ilias/goto.php/cat/9">2026</a></span>
+              <span class="breadcrumb-crumb"><a href="https://ilias.example/ilias/goto.php/root/1">Magazin</a></span>
+            </div></nav>
+            <div id="il_center_col"><div class="ilContainerListItemOuter">
+              <a class="il_ContainerItemTitle" href="ilias.php?cmdClass=ilObjFileGUI&amp;cmd=sendfile&amp;ref_id=4">Lecture_01</a></div>
+              <div class="ilContainerListItemOuter"><a class="il_ContainerItemTitle" href="goto.php/fold/5">Extras</a></div></div>"#;
+        let page = parse_page(html, &url("https://ilias.example/ilias/goto.php/fold/3"));
+        let items: Vec<_> = page.items().collect();
+        assert_eq!(items[0].path, vec!["DEMO.101", "Unterlagen", "Woche 1"]);
+        assert!(items[1].path.is_empty(), "only files need it");
     }
 }

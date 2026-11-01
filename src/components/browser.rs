@@ -63,6 +63,19 @@ impl Level {
         level
     }
 
+    /// Shows a newer version of the page, keeping the selection where it was. Nothing
+    /// changes if the page is the same.
+    fn refresh(&mut self, page: &Page, query: &str) {
+        if self.page == *page {
+            return;
+        }
+        let cursor = self.cursor;
+        self.set_page(page.clone(), query);
+        if cursor.is_some_and(|c| c < self.visible.len()) {
+            self.cursor = cursor;
+        }
+    }
+
     fn set_page(&mut self, page: Page, query: &str) {
         self.items = page.items().cloned().collect();
         self.page = page;
@@ -279,6 +292,9 @@ fn item_row(item: &Item, query: &str, saved: bool) -> ListItem<'static> {
     };
     let mut title = vec![Span::styled(format!("{glyph}  "), Style::new().fg(color))];
     title.extend(highlight(&item.title, query, title_style));
+    if item.favorite {
+        title.push(Span::styled("  ★", Style::new().fg(theme::YELLOW)));
+    }
     if saved {
         title.push(Span::styled(
             format!("  {} saved", theme::check()),
@@ -557,6 +573,24 @@ impl Component for Browser {
                     deep: true,
                 });
             }
+            KeyCode::Char('f') => {
+                let item = level.selected()?.clone();
+                if item.favorite_toggle.is_none() {
+                    return Some(Action::Error(format!(
+                        "ILIAS offers no favourites option for {}",
+                        item.title
+                    )));
+                }
+                let question = if item.favorite {
+                    format!("Remove “{}” from your ILIAS favourites?", item.title)
+                } else {
+                    format!("Add “{}” to your ILIAS favourites?", item.title)
+                };
+                return Some(Action::Ask {
+                    question,
+                    then: Box::new(Action::ToggleFavorite(item)),
+                });
+            }
             KeyCode::Char('L') => return Some(Action::Login),
             _ => return None,
         }
@@ -602,27 +636,29 @@ impl Component for Browser {
                 deep,
             } => {
                 let key = (item.as_ref().map(|i| i.ref_id), *deep);
-                // Background refreshes of the page on screen (e.g. the To-Do list arriving
-                // after startup) apply even while something else is loading.
-                let refreshes_current = *refresh
-                    && self
-                        .current()
-                        .is_some_and(|l| (l.item.as_ref().map(|i| i.ref_id), l.deep) == key);
                 if self.pending == Some(key) {
                     self.pending = None;
-                } else if !refreshes_current {
+                } else {
+                    // Background refreshes (the To-Do list after startup, "My courses" after
+                    // a favourites change) apply to their page wherever it is in the stack,
+                    // even while something else is loading.
+                    let top = self.stack.len().saturating_sub(1);
+                    let position = self
+                        .stack
+                        .iter()
+                        .rposition(|l| (l.item.as_ref().map(|i| i.ref_id), l.deep) == key);
+                    if let Some(position) = position.filter(|_| *refresh) {
+                        let query = if position == top {
+                            self.query.as_str()
+                        } else {
+                            ""
+                        };
+                        self.stack[position].refresh(page, query);
+                    }
                     return None;
                 }
                 match self.stack.last_mut() {
-                    // A background refresh that found nothing new: keep the view as it is.
-                    Some(level) if *refresh && level.page == *page => {}
-                    Some(level) if *refresh => {
-                        let cursor = level.cursor;
-                        level.set_page(page.clone(), &self.query);
-                        if cursor.is_some_and(|c| c < level.visible.len()) {
-                            level.cursor = cursor;
-                        }
-                    }
+                    Some(level) if *refresh => level.refresh(page, &self.query),
                     _ => {
                         self.query.clear();
                         self.todo_focus = false;
@@ -643,6 +679,22 @@ impl Component for Browser {
                 self.saved.insert(item.ref_id);
             }
             Action::Error(_) => self.pending = None,
+            // "My courses" is refreshed by the app; any other page on screen reloads here, so
+            // its ★ marks are right.
+            Action::FavoriteToggled { dry_run: false, .. } => {
+                let level = self.current().filter(|l| l.item.is_some())?;
+                return Some(Action::Load {
+                    item: level.item.clone(),
+                    url: level
+                        .page
+                        .tabs
+                        .iter()
+                        .find(|t| t.active)
+                        .map(|t| t.url.clone()),
+                    refresh: true,
+                    deep: level.deep,
+                });
+            }
             // Reload whatever is on screen with the fresh session.
             Action::LoggedIn => {
                 let level = self.current();
@@ -1349,5 +1401,33 @@ mod tests {
         assert!(browser.click(Hit::Todo(0)).is_none());
         let open = browser.click(Hit::Todo(0));
         assert!(matches!(open, Some(Action::OpenInBrowser(ref i)) if i.title == "Blatt 1"));
+    }
+
+    #[test]
+    fn f_asks_before_changing_favourites() {
+        let mut course = item("crs", 1, "DEMO.101");
+        course.favorite = true;
+        course.favorite_toggle =
+            Some("https://ilias.example/ilias.php?cmd=removeFromDesk&item_ref_id=1".into());
+        let mut browser = Browser::default();
+        load(
+            &mut browser,
+            None,
+            Page::from_items(vec![course, item("crs", 2, "DEMO.102")]),
+            false,
+        );
+        assert!(screen(&mut browser).contains("★"));
+
+        let action = browser.handle_key_event(KeyEvent::from(KeyCode::Char('f')));
+        let Some(Action::Ask { question, then }) = action else {
+            panic!("expected a question, got {action:?}");
+        };
+        assert!(question.starts_with("Remove “DEMO.101”"), "{question}");
+        assert!(matches!(*then, Action::ToggleFavorite(ref i) if i.ref_id == 1));
+
+        // Without a menu link there is nothing to send.
+        browser.handle_key_event(KeyEvent::from(KeyCode::Char('j')));
+        let action = browser.handle_key_event(KeyEvent::from(KeyCode::Char('f')));
+        assert!(matches!(action, Some(Action::Error(_))));
     }
 }

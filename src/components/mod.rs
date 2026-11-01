@@ -2,11 +2,13 @@
 //! <https://ratatui.rs/concepts/application-patterns/component-architecture/>
 
 mod browser;
+mod confirm;
 mod filter;
 mod help;
 mod status_bar;
 
 pub use browser::Browser;
+pub use confirm::Confirm;
 pub use filter::Filter;
 pub use help::Help;
 pub use status_bar::StatusBar;

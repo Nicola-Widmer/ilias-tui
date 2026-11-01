@@ -38,6 +38,21 @@ pub enum Action {
     /// Open a local file with its default app.
     OpenFile(PathBuf),
     OpenInBrowser(Item),
+    /// Ask the user first; `then` only runs on "yes". Everything that changes data on ILIAS
+    /// goes through this.
+    Ask {
+        question: String,
+        then: Box<Action>,
+    },
+    /// The user said no to an [`Action::Ask`].
+    Cancelled,
+    /// Add the item to the ILIAS favourites, or remove it (whichever its menu offers).
+    ToggleFavorite(Item),
+    /// `dry_run`: `ILIAS_DRY_RUN` was set, so nothing was sent.
+    FavoriteToggled {
+        item: Item,
+        dry_run: bool,
+    },
     /// Run the interactive browser login.
     Login,
     LoggedIn,

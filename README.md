@@ -36,8 +36,11 @@ selected row highlighted, and a spinner in the status bar while something loads.
 
 What it does:
 
-- Lists your courses and groups ("Meine Kurse und Gruppen"), grouped by year like on
-  ILIAS but with the newest year first, with each course's full name.
+- Shows your ILIAS **favourites** first, then your courses and groups ("Meine Kurse und
+  Gruppen"), grouped by year like on ILIAS but with the newest year first, with each
+  course's full name. Favourites are marked `★` everywhere.
+- **Adds and removes favourites** with `f`. This changes your ILIAS account, so it always
+  asks first (`y` / `n`).
 - Shows a **To-Do** panel to the right of them (below them on narrow terminals): the
   assignments you still have to hand in, soonest first, with the course and how long you
   have left ("due in 3 days", yellow within 3 days, red within a day). `Tab` moves into the
@@ -56,8 +59,10 @@ What it does:
 - **Searches** every file and folder below the current place (`s`), for one course or all
   of them.
 - **Opens files** with their default app (Preview, Excel, …) on `Enter`. The first time,
-  the file is downloaded to `~/Downloads/ILIAS`. After that, the saved copy opens right
-  away; saved files are marked `✓ saved`.
+  the file is downloaded into the same folders as on ILIAS, e.g.
+  `~/Downloads/ILIAS/DEMO.101/Unterlagen/Woche 3/Folien.pdf`. After that, the saved copy
+  opens right away; saved files are marked `✓ saved`. (`ilias-tui get` only knows the
+  file, not its folders, so it saves directly into `~/Downloads/ILIAS`.)
 - Opens everything else (tests, exercises, …) in your normal web browser.
 - Logs in once through Switch edu-ID (2FA included) and keeps the session in a private
   file. Later runs refresh the session on their own, without a browser.
@@ -164,6 +169,7 @@ ilias-tui get goto.php/file/123456
 | `s`             | Search everything below here                    |
 | `d`             | Download a fresh copy without opening it        |
 | `o`             | Open selected item in your web browser          |
+| `f`             | Add to / remove from your ILIAS favourites (asks first) |
 | `Tab` / `Shift-Tab` | Next / previous tab (Inhalt, Info, …); on My courses, in and out of the To-Do panel |
 | `r`             | Reload current list                             |
 | `L`             | Log in again (opens Chrome)                     |
@@ -194,6 +200,7 @@ turns mouse support off.
 | `ILIAS_NERD_FONT`     | `1`. Set to `0` for plain Unicode icons |
 | `ILIAS_MOUSE`         | `1`. Set to `0` to turn off mouse support |
 | `ILIAS_CACHE`         | `1`. Set to `0` to turn off the page cache |
+| `ILIAS_DRY_RUN`       | `0`. Set to `1` to never send changes to ILIAS (favourites); the app only says what it would have done |
 
 The colours are tuned for **dark** terminal themes and use 24-bit colour, which almost every
 modern terminal supports (older versions of macOS Terminal.app don't; iTerm2, Ghostty,
@@ -288,10 +295,14 @@ download.
 - Only to your ILIAS server (`ILIAS_URL`), over HTTPS with certificate checks. During the
   login, Chrome also talks to Keycloak and edu-ID. There is no telemetry and no third-party
   service.
-- **Read-only.** ilias-tui only sends `GET` requests. It never submits forms, uploads files,
-  posts or changes anything on ILIAS. The only exception to "changes nothing" is
-  `ilias-tui logout`, which ends your session. Features that would write are deliberately
-  not built; see the rules in
+- **Almost read-only.** ilias-tui only sends `GET` requests. It never submits forms, uploads
+  files or posts. Two things change something on ILIAS:
+  - `ilias-tui logout` ends your session.
+  - `f` adds or removes a favourite. It asks first, only sends the favourites link from
+    that item's own ILIAS menu (checked to be for that item, on your ILIAS), and does
+    nothing with `ILIAS_DRY_RUN=1`. All such requests live in `src/ilias/write.rs`.
+
+  Other features that would write are deliberately not built; see the rules in
   [docs/roadmap.md](docs/roadmap.md#rules-for-features-that-write).
 
 **Opening things safely:**

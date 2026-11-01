@@ -63,7 +63,25 @@ impl Component for StatusBar {
             Action::Login => Status::Busy("Complete the login in the Chrome window…".into()),
             Action::LoggedIn => Status::Done("Logged in".into()),
             Action::Error(e) => Status::Error(e.clone()),
-            Action::Quit | Action::ToggleHelp | Action::Filter(_) => return None,
+            Action::Cancelled => Status::Info("Cancelled; nothing was sent to ILIAS".into()),
+            Action::ToggleFavorite(_) => Status::Busy("Updating your favourites…".into()),
+            Action::FavoriteToggled { item, dry_run } => {
+                let change = if item.favorite {
+                    format!("removed {} from", item.title)
+                } else {
+                    format!("added {} to", item.title)
+                };
+                if *dry_run {
+                    Status::Info(format!("Dry run: would have {change} your favourites"))
+                } else {
+                    let mut text = format!("{change} your favourites");
+                    text[..1].make_ascii_uppercase();
+                    Status::Done(text)
+                }
+            }
+            Action::Ask { .. } | Action::Quit | Action::ToggleHelp | Action::Filter(_) => {
+                return None;
+            }
         };
         None
     }

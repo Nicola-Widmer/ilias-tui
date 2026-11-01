@@ -44,8 +44,8 @@ Read-only; safe to build and to try against ILIAS.
 - [ ] **Videos / Mediacast.** Hand off to a player such as `mpv` (today: open in the browser).
 - [ ] **ILIAS server-side search.** Today there is only the local `/` filter and the `s`
   crawl.
-- [ ] **Favourites ("Favoriten") and recently visited items.** Today only "My courses" is
-  shown.
+- [x] **Favourites ("Favoriten")** on top of "My courses".
+- [ ] **Recently visited items.**
 - [ ] **Browse the whole repository.** All categories, not just your own courses.
 
 ## Downloads and files
@@ -58,8 +58,9 @@ Read-only; safe to build.
   always fetches a fresh copy without comparing.
 - [ ] **Download progress bar and cancel.** Today there is only a spinner.
 - [ ] **Download queue.** Several downloads at once, with a list of what is running.
-- [ ] **Mirror the course structure** in the download folder (`ILIAS/<course>/<folder>/…`).
-  Today everything lands flat in `~/Downloads/ILIAS`.
+- [x] **Mirror the course structure** in the download folder (`ILIAS/<course>/<folder>/…`).
+- [ ] **Folders for `ilias-tui get`.** It only has the file's id, so it saves flat; it would
+  need one more request (the file's info page) for the breadcrumb.
 - [ ] **File versions.** List and download older versions.
 
 ## Changes data on ILIAS
@@ -71,7 +72,7 @@ Read-only; safe to build.
 - [ ] Write forum posts and replies
 - [ ] Send ILIAS mail
 - [ ] Join or leave courses and groups
-- [ ] Add or remove favourites
+- [x] Add or remove favourites (`f`; asks first, `ILIAS_DRY_RUN`, `src/ilias/write.rs`)
 - [ ] Mark items as read, set learning progress
 - [ ] Ratings, notes, tags
 - [ ] Take tests and surveys (probably better left to the browser)
