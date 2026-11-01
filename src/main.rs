@@ -54,7 +54,7 @@ fn main() -> Result<()> {
         .as_slice()
     {
         [] => {
-            let (client, courses) = connect(&base, false)?;
+            let client = connect(&base, false)?;
             let mut terminal = ratatui::init();
             let mouse = mouse_enabled();
             if mouse {
@@ -66,7 +66,7 @@ fn main() -> Result<()> {
                     hook(info);
                 }));
             }
-            let result = app::App::new(client, download_dir(), courses).run(&mut terminal);
+            let result = app::App::new(client, download_dir()).run(&mut terminal);
             if mouse {
                 execute!(std::io::stdout(), DisableMouseCapture)?;
             }
@@ -97,7 +97,7 @@ fn main() -> Result<()> {
             Ok(())
         }
         ["show", url] => {
-            let (client, _) = connect(&base, false)?;
+            let client = connect(&base, false)?;
             let fetched = client.get_authed(&base.join(url)?)?;
             let page = ilias::parse_page(&fetched.html, &fetched.url);
             let tabs: Vec<String> = page
@@ -144,7 +144,7 @@ fn main() -> Result<()> {
             Ok(())
         }
         ["dump", url] => {
-            let (client, _) = connect(&base, false)?;
+            let client = connect(&base, false)?;
             print!("{}", client.get_authed(&base.join(url)?)?.html);
             Ok(())
         }
@@ -154,11 +154,11 @@ fn main() -> Result<()> {
                 Some(url) => Some(item_from_url(&base, url)?),
                 None => None,
             };
-            let (client, courses) = connect(&base, false)?;
+            let client = connect(&base, false)?;
             let items = match (&item, deep) {
                 (_, true) => client.descendants(item.as_ref(), |_| {})?,
                 (Some(item), false) => client.children(item)?,
-                (None, false) => courses.items().cloned().collect(),
+                (None, false) => client.course_list()?,
             };
             for i in items {
                 println!("{}\t{}\t{}", i.kind, i.ref_id, i.title);
@@ -166,7 +166,7 @@ fn main() -> Result<()> {
             Ok(())
         }
         ["get", urls @ ..] if !urls.is_empty() => {
-            let (client, _) = connect(&base, false)?;
+            let client = connect(&base, false)?;
             let dir = download_dir();
             let mut downloads = downloads::Downloads::load(&base);
             for url in urls {
@@ -178,8 +178,8 @@ fn main() -> Result<()> {
             Ok(())
         }
         ["todo"] => {
-            let (client, _) = connect(&base, false)?;
-            for item in client.dashboard()?.todo {
+            let client = connect(&base, false)?;
+            for item in client.my_courses()?.todo {
                 println!(
                     "{}\t{}\t{}",
                     item.description,
@@ -241,22 +241,16 @@ fn download_dir() -> PathBuf {
 }
 
 /// Restores the saved session, refreshing it silently via Keycloak, and falls back to
-/// the interactive browser login. Returns the client and "My courses".
-fn connect(base: &Url, force_login: bool) -> Result<(Client, ilias::Page)> {
+/// the interactive browser login.
+fn connect(base: &Url, force_login: bool) -> Result<Client> {
     let client = Client::new(base.clone(), session::load(base))?;
-    let mut courses = if force_login {
-        None
-    } else {
-        client.check_session()?
-    };
-    if courses.is_none() {
+    if force_login || !client.check_session()? {
         eprintln!("Opening Chrome for the ILIAS / Switch edu-ID login…");
         client.set_cookies(auth::browser_login(base)?);
-        courses = client.check_session()?;
+        if !client.check_session()? {
+            bail!("login finished, but ILIAS does not recognise the session");
+        }
     }
-    let Some(courses) = courses else {
-        bail!("login finished, but ILIAS does not recognise the session");
-    };
     session::save(base, &client.cookies())?;
-    Ok((client, courses))
+    Ok(client)
 }

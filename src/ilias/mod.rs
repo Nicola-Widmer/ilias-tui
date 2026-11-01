@@ -1,5 +1,8 @@
-//! HTTP client for an ILIAS installation, authenticated with the session cookies.
+//! HTTP client for an ILIAS installation, authenticated with the session cookies. Page
+//! requests go through the [`pages::Pages`] seam, behind the write guard.
 
+mod my_courses;
+pub mod pages;
 pub mod parse;
 pub mod write;
 
@@ -18,13 +21,12 @@ use reqwest::header::{CONTENT_DISPOSITION, CONTENT_TYPE};
 use reqwest_cookie_store::CookieStoreMutex;
 use url::Url;
 
-pub use parse::{Block, Dashboard, Item, Page, Post, parse_page, parse_target};
+pub use pages::Fetched;
+use pages::{Https, Pages};
+pub use parse::{Block, Item, Page, Post, parse_page, parse_target};
 
 /// The "My courses and groups" page.
 const MEMBERSHIPS: &str = "ilias.php?baseClass=ilmembershipoverviewgui";
-
-/// The dashboard; only its favourites and "To-Do" (upcoming deadlines) blocks are used.
-const DASHBOARD: &str = "ilias.php?baseClass=ilDashboardGUI";
 
 /// Upper bound of pages fetched by one deep search, to stay polite to the server.
 const MAX_CRAWL: usize = 500;
@@ -32,17 +34,16 @@ const MAX_CRAWL: usize = 500;
 /// Concurrent requests during a deep search; low enough to stay polite to the server.
 const PARALLEL: usize = 6;
 
-/// A fetched HTML page and the URL it ended up at (after redirects).
-pub struct Fetched {
-    pub url: Url,
-    pub html: String,
-}
-
 pub struct Client {
     /// ILIAS root, always ending in `/`, e.g. `https://elearning.hslu.ch/ilias/`.
     pub base: Url,
+    /// Where page requests go (the network, or a fake ILIAS in tests).
+    pages: Arc<dyn Pages>,
+    /// For file downloads and the Keycloak probe, which bypass `pages`.
     http: reqwest::blocking::Client,
     jar: Arc<CookieStoreMutex>,
+    /// `ILIAS_DRY_RUN`: favourites changes are only pretended.
+    dry_run: bool,
 }
 
 impl Client {
@@ -52,20 +53,41 @@ impl Client {
             .cookie_provider(jar.clone())
             .user_agent(concat!("ilias-tui/", env!("CARGO_PKG_VERSION")))
             .build()?;
-        Ok(Self { base, http, jar })
+        Ok(Self {
+            base,
+            pages: Arc::new(Https(http.clone())),
+            http,
+            jar,
+            dry_run: write::dry_run_from_env(),
+        })
+    }
+
+    /// A client whose page requests go to `pages` (a fake ILIAS).
+    #[cfg(test)]
+    pub fn with_pages(base: Url, pages: Arc<dyn Pages>) -> Self {
+        Self {
+            pages,
+            dry_run: false,
+            ..Self::new(base, CookieStore::default()).unwrap()
+        }
     }
 
     pub fn url(&self, path: &str) -> Result<Url> {
         Ok(self.base.join(path)?)
     }
 
+    /// GETs a page. Refused if it looks like a write (the write guard); writes go through
+    /// `write.rs`.
     pub fn get(&self, url: &Url) -> Result<Fetched> {
-        let response = self.http.get(url.clone()).send()?.error_for_status()?;
-        let url = response.url().clone();
-        Ok(Fetched {
-            url,
-            html: response.text()?,
-        })
+        self.request(url, false)
+    }
+
+    /// The one place page requests leave the client. Only `write.rs` passes `write: true`.
+    fn request(&self, url: &Url, write: bool) -> Result<Fetched> {
+        if !write && write::is_write(url) {
+            bail!("refused to request {url}: it would change something on ILIAS");
+        }
+        self.pages.get(url)
     }
 
     /// Anonymous ILIAS pages carry a "force_login" link; redirects to Keycloak/edu-ID or the
@@ -74,21 +96,6 @@ impl Client {
         page.url.host_str() == self.base.host_str()
             && !page.url.path().ends_with("login.php")
             && !page.html.contains("cmd=force_login")
-    }
-
-    /// Ends the ILIAS session on the server via its logout link (which carries a one-time
-    /// token, so it has to be read from a page). Returns whether a session was ended.
-    pub fn logout(&self) -> Result<bool> {
-        let fetched = self.get(&self.url(MEMBERSHIPS)?)?;
-        if !self.is_logged_in(&fetched) {
-            return Ok(false);
-        }
-        let Some(url) = parse::logout_link(&fetched.html, &fetched.url) else {
-            bail!("no logout link found on the ILIAS page");
-        };
-        self.get(&url)?;
-        let after = self.get(&self.url(MEMBERSHIPS)?)?;
-        Ok(!self.is_logged_in(&after))
     }
 
     /// Whether the login server (HSLU's Keycloak) would still log us in without a password.
@@ -126,107 +133,32 @@ impl Client {
         Ok(self.is_logged_in(&page))
     }
 
-    /// Checks the current session and refreshes it silently if needed.
-    /// Checks the session (refreshing it silently if needed). On success returns "My courses",
-    /// which had to be fetched for the check anyway, so the TUI can show it right away.
-    pub fn check_session(&self) -> Result<Option<Page>> {
+    /// The session check: whether the saved session works, renewing it silently if needed.
+    pub fn check_session(&self) -> Result<bool> {
         let url = self.url(MEMBERSHIPS)?;
-        let mut fetched = self.get(&url)?;
-        if !self.is_logged_in(&fetched) {
-            if !self.silent_login()? {
-                return Ok(None);
-            }
-            fetched = self.get(&url)?;
-            if !self.is_logged_in(&fetched) {
-                return Ok(None);
-            }
+        if self.is_logged_in(&self.get(&url)?) {
+            return Ok(true);
         }
-        Ok(Some(newest_first(parse_page(&fetched.html, &fetched.url))))
+        Ok(self.silent_login()? && self.is_logged_in(&self.get(&url)?))
     }
 
     /// GETs a page that requires a login, refreshing the session once if it expired.
     pub fn get_authed(&self, url: &Url) -> Result<Fetched> {
-        let page = self.get(url)?;
+        self.authed(url, false)
+    }
+
+    fn authed(&self, url: &Url, write: bool) -> Result<Fetched> {
+        let page = self.request(url, write)?;
         if self.is_logged_in(&page) {
             return Ok(page);
         }
         if self.silent_login()? {
-            let page = self.get(url)?;
+            let page = self.request(url, write)?;
             if self.is_logged_in(&page) {
                 return Ok(page);
             }
         }
         bail!("session expired: press L to log in again")
-    }
-
-    /// "My courses and groups" with the favourites and the To-Do list, all fetched at the
-    /// same time.
-    pub fn courses(&self) -> Result<Page> {
-        thread::scope(|scope| {
-            let dashboard = scope.spawn(|| self.dashboard());
-            let courses = self.memberships()?;
-            // Without the dashboard, the courses are still worth showing.
-            let dashboard = dashboard
-                .join()
-                .ok()
-                .and_then(Result::ok)
-                .unwrap_or_default();
-            Ok(with_dashboard(courses, dashboard))
-        })
-    }
-
-    /// "My courses and groups", grouped by year like on ILIAS, but newest year first.
-    fn memberships(&self) -> Result<Page> {
-        let fetched = self.get_authed(&self.url(MEMBERSHIPS)?)?;
-        Ok(newest_first(parse_page(&fetched.html, &fetched.url)))
-    }
-
-    /// The favourites and the assignments still to hand in (the dashboard's "To-Do"
-    /// block), soonest first. Each To-Do item's description says when it is due; its first
-    /// property names the course.
-    pub fn dashboard(&self) -> Result<Dashboard> {
-        let fetched = self.get_authed(&self.url(DASHBOARD)?)?;
-        let mut dashboard = parse::parse_dashboard(&fetched.html, &fetched.url);
-        let items = &mut dashboard.todo;
-        // The block only names the exercise; its page's breadcrumb names the course.
-        let mut exercises: Vec<u64> = items.iter().map(|i| i.ref_id).collect();
-        exercises.sort_unstable();
-        exercises.dedup();
-        let courses: HashMap<u64, String> = thread::scope(|scope| {
-            let jobs: Vec<_> = exercises
-                .iter()
-                .map(|&id| {
-                    scope.spawn(move || -> Result<_> {
-                        let page = self.get_authed(&self.url(&format!("goto.php/exc/{id}"))?)?;
-                        Ok((id, parse::course_title(&page.html)))
-                    })
-                })
-                .collect();
-            jobs.into_iter()
-                .filter_map(|job| match job.join() {
-                    Ok(Ok((id, Some(course)))) => Some((id, course)),
-                    _ => None,
-                })
-                .collect()
-        });
-        let now = jiff::Zoned::now().datetime();
-        let mut due: Vec<(Option<jiff::civil::DateTime>, Item)> = items
-            .drain(..)
-            .map(|mut item| {
-                let deadline = parse::parse_date(&item.description, now.date());
-                if let Some(deadline) = deadline {
-                    item.description = format!("{} · {}", due_in(now, deadline), item.description);
-                }
-                if let Some(course) = courses.get(&item.ref_id) {
-                    item.properties.insert(0, course.clone());
-                }
-                (deadline, item)
-            })
-            .collect();
-        // Unknown dates last.
-        due.sort_by_key(|(deadline, _)| (deadline.is_none(), *deadline));
-        dashboard.todo = due.into_iter().map(|(_, item)| item).collect();
-        Ok(dashboard)
     }
 
     /// The page of a container; `url` selects another tab of it.
@@ -251,7 +183,7 @@ impl Client {
     ) -> Result<Vec<Item>> {
         let top = match root {
             Some(item) => self.children(item)?,
-            None => self.memberships()?.items().cloned().collect(),
+            None => self.course_list()?,
         };
         // Categories lead out of the course into the rest of the repository; forum threads
         // hold posts, not files.
@@ -375,54 +307,6 @@ impl Client {
     }
 }
 
-/// Reverses the order of the year groups ("2024", "2025", …), leaving everything else in
-/// place. ILIAS lists the oldest year first, but the current courses matter most.
-fn newest_first(mut page: Page) -> Page {
-    let is_year = |b: &Block| matches!(b, Block::Items { title, .. } if !title.is_empty() && title.chars().all(|c| c.is_ascii_digit()));
-    let slots: Vec<usize> = (0..page.blocks.len())
-        .filter(|&i| is_year(&page.blocks[i]))
-        .collect();
-    let mut years: Vec<Block> = slots.iter().map(|&i| page.blocks[i].clone()).collect();
-    for &slot in &slots {
-        page.blocks[slot] = years.pop().expect("one block per slot");
-    }
-    page
-}
-
-/// Puts the favourites above the courses and the To-Do list beside them.
-pub fn with_dashboard(mut page: Page, dashboard: Dashboard) -> Page {
-    if let Some(mut favorites) = dashboard.favorites {
-        // Favourite tiles only carry the short title; the course list has the full name.
-        if let Block::Items { items, .. } = &mut favorites {
-            for favorite in items.iter_mut().filter(|f| f.description.is_empty()) {
-                if let Some(known) = page.items().find(|i| i.ref_id == favorite.ref_id) {
-                    favorite.description.clone_from(&known.description);
-                }
-            }
-        }
-        page.blocks.insert(0, favorites);
-    }
-    Page {
-        todo: dashboard.todo,
-        ..page
-    }
-}
-
-/// `due in 3 days`, `due in 5 hours`, `overdue`.
-fn due_in(now: jiff::civil::DateTime, deadline: jiff::civil::DateTime) -> String {
-    let hours = now
-        .until((jiff::Unit::Hour, deadline))
-        .map_or(0, |span| span.get_hours());
-    match hours {
-        ..0 => "overdue".into(),
-        0 => "due in less than an hour".into(),
-        1 => "due in 1 hour".into(),
-        2..24 => format!("due in {hours} hours"),
-        24..48 => "due in 1 day".into(),
-        _ => format!("due in {} days", hours / 24),
-    }
-}
-
 fn is_html(response: &Response) -> bool {
     response
         .headers()
@@ -517,54 +401,6 @@ mod tests {
     }
 
     #[test]
-    fn lists_the_newest_year_first() {
-        let group = |title: &str| Block::Items {
-            title: title.into(),
-            items: vec![Item::default()],
-        };
-        let page = Page {
-            blocks: vec![
-                Block::Heading("Meine Kurse und Gruppen".into()),
-                group("2024"),
-                group("2025"),
-                group("2026"),
-                group("Von Hand erstellte Kurse"),
-            ],
-            ..Page::default()
-        };
-        let titles: Vec<String> = newest_first(page)
-            .blocks
-            .iter()
-            .map(|b| match b {
-                Block::Heading(t) | Block::Items { title: t, .. } => t.clone(),
-                _ => String::new(),
-            })
-            .collect();
-        assert_eq!(
-            titles,
-            [
-                "Meine Kurse und Gruppen",
-                "2026",
-                "2025",
-                "2024",
-                "Von Hand erstellte Kurse"
-            ]
-        );
-    }
-
-    #[test]
-    fn says_when_something_is_due() {
-        use jiff::civil::datetime;
-        let now = datetime(2026, 11, 1, 14, 0, 0, 0);
-        let due = |y, m, d, h| due_in(now, datetime(y, m, d, h, 0, 0, 0));
-        assert_eq!(due(2026, 11, 5, 0), "due in 3 days");
-        assert_eq!(due(2026, 11, 2, 13), "due in 23 hours");
-        assert_eq!(due(2026, 11, 2, 14), "due in 1 day");
-        assert_eq!(due(2026, 11, 1, 14), "due in less than an hour");
-        assert_eq!(due(2026, 10, 31, 0), "overdue");
-    }
-
-    #[test]
     fn saves_files_in_their_ilias_folders() {
         let item = Item {
             path: vec!["DEMO.101".into(), "Woche 1: Intro".into(), "../..".into()],
@@ -609,5 +445,126 @@ mod tests {
         assert_eq!(sanitize("../etc/passwd"), "_etc_passwd");
         assert_eq!(sanitize("..."), "download");
         assert_eq!(sanitize("Woche 1: Intro.pdf"), "Woche 1_ Intro.pdf");
+    }
+
+    use super::pages::{FakeIlias, LOGGED_OUT, reply};
+    use color_eyre::eyre::eyre;
+    use std::sync::atomic::AtomicBool;
+
+    fn base() -> Url {
+        Url::parse("https://ilias.example/ilias/").unwrap()
+    }
+
+    fn fake(
+        respond: impl Fn(&Url) -> Result<Fetched> + Send + Sync + 'static,
+    ) -> (Client, Arc<FakeIlias>) {
+        let fake = Arc::new(FakeIlias::new(respond));
+        (Client::with_pages(base(), fake.clone()), fake)
+    }
+
+    #[test]
+    fn renews_an_expired_session_once_and_retries() {
+        let logged_in = Arc::new(AtomicBool::new(false));
+        let state = logged_in.clone();
+        let (client, ilias) = fake(move |url| {
+            if url.path().ends_with("openidconnect.php") {
+                state.store(true, Ordering::SeqCst);
+            }
+            match state.load(Ordering::SeqCst) {
+                true => reply(url, "<p>Inhalt</p>"),
+                false => reply(url, LOGGED_OUT),
+            }
+        });
+        let page = client
+            .get_authed(&client.url("goto.php/crs/1").unwrap())
+            .unwrap();
+        assert_eq!(page.html, "<p>Inhalt</p>");
+        assert_eq!(
+            ilias.requests(&base()),
+            ["goto.php/crs/1", "openidconnect.php", "goto.php/crs/1"]
+        );
+    }
+
+    #[test]
+    fn says_so_when_the_session_cannot_be_renewed() {
+        let (client, ilias) = fake(|url| reply(url, LOGGED_OUT));
+        let error = client
+            .get_authed(&client.url("goto.php/crs/1").unwrap())
+            .unwrap_err();
+        assert!(
+            error.to_string().contains("press L to log in again"),
+            "{error}"
+        );
+        assert_eq!(
+            ilias.requests(&base()).len(),
+            2,
+            "one page, one silent login, no retry"
+        );
+        assert!(!client.check_session().unwrap());
+    }
+
+    #[test]
+    fn the_write_guard_refuses_writes_outside_the_write_path() {
+        let (client, ilias) = fake(|url| reply(url, "<p>ok</p>"));
+        for link in [
+            "ilias.php?cmd=addToDesk&item_ref_id=1",
+            "ilias.php?cmd=markPostRead&pos_pk=2",
+            "ilias.php?cmd=join&ref_id=3",
+            "ilias.php?baseClass=ilstartupgui&cmd=doLogout&rtoken=abc",
+            "ilias.php?cmd=saveRating&rating=5&rtoken=abc",
+        ] {
+            let error = client.get_authed(&client.url(link).unwrap()).unwrap_err();
+            assert!(error.to_string().contains("refused"), "{link}: {error}");
+        }
+        assert!(ilias.requests(&base()).is_empty(), "nothing reached ILIAS");
+        // Reading is fine, also with a `cmd`.
+        client
+            .get_authed(&client.url("ilias.php?cmd=viewThread&thr_pk=1").unwrap())
+            .unwrap();
+    }
+
+    #[test]
+    fn deep_search_follows_folders_but_not_forums() {
+        let link = |kind: &str, id: u32, title: &str| {
+            format!(
+                r#"<div class="ilContainerListItemOuter"><a class="il_ContainerItemTitle" href="https://ilias.example/ilias/goto.php/{kind}/{id}">{title}</a></div>"#
+            )
+        };
+        let (client, ilias) = fake(move |url| {
+            let html = match url.path() {
+                "/ilias/goto.php/crs/1" => {
+                    [link("fold", 2, "Unterlagen"), link("frm", 3, "Forum")].concat()
+                }
+                "/ilias/goto.php/fold/2" => {
+                    [link("file", 4, "Folien"), link("fold", 5, "Woche 1")].concat()
+                }
+                "/ilias/goto.php/fold/5" => link("file", 6, "Blatt 1"),
+                other => return Err(eyre!("unexpected request {other}")),
+            };
+            reply(url, &format!(r#"<div id="il_center_col">{html}</div>"#))
+        });
+        let course = Item {
+            kind: "crs".into(),
+            ref_id: 1,
+            url: "https://ilias.example/ilias/goto.php/crs/1".into(),
+            ..Item::default()
+        };
+        let found: Vec<String> = client
+            .descendants(Some(&course), |_| {})
+            .unwrap()
+            .into_iter()
+            .map(|i| i.title)
+            .collect();
+        assert_eq!(
+            found,
+            [
+                "Unterlagen",
+                "Unterlagen › Folien",
+                "Unterlagen › Woche 1",
+                "Unterlagen › Woche 1 › Blatt 1",
+                "Forum"
+            ]
+        );
+        assert_eq!(ilias.requests(&base()).len(), 3, "the forum is not crawled");
     }
 }

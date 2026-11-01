@@ -17,15 +17,13 @@ use crate::cache::Cache;
 use crate::components::{Browser, Component, Confirm, Filter, Help, StatusBar};
 use crate::downloads::Downloads;
 use crate::ilias::{Client, Item, Page};
-use crate::{auth, ilias, open, session};
+use crate::{auth, open, session};
 
 pub struct App {
     client: Arc<Client>,
     download_dir: PathBuf,
     downloads: Downloads,
     cache: Cache,
-    /// "My courses" from the startup session check, shown without fetching it again.
-    initial: Option<Page>,
     confirm: Confirm,
     filter: Filter,
     browser: Browser,
@@ -37,7 +35,7 @@ pub struct App {
 }
 
 impl App {
-    pub fn new(client: Client, download_dir: PathBuf, courses: Page) -> Self {
+    pub fn new(client: Client, download_dir: PathBuf) -> Self {
         let (tx, rx) = mpsc::channel();
         let downloads = Downloads::load(&client.base);
         let cache = Cache::new(&client.base);
@@ -47,7 +45,6 @@ impl App {
             download_dir,
             downloads,
             cache,
-            initial: Some(courses),
             confirm: Confirm::default(),
             filter: Filter::default(),
             browser,
@@ -125,31 +122,7 @@ impl App {
                     url.as_deref().or(item.as_ref().map(|i| i.url.as_str())),
                     deep,
                 );
-                let startup = (item.is_none() && !deep && !refresh)
-                    .then(|| self.initial.take())
-                    .flatten();
-                if let Some(courses) = startup {
-                    // The courses come from the session check; the To-Do list takes a few
-                    // more requests, so until it arrives show last time's (if cached).
-                    let shown = self.cache.get(&key).unwrap_or_else(|| courses.clone());
-                    self.tx.send(Action::Loaded {
-                        item: None,
-                        page: shown,
-                        refresh: false,
-                        deep: false,
-                    })?;
-                    let cache = self.cache.clone();
-                    self.spawn(move |client, _| {
-                        let page = ilias::with_dashboard(courses, client.dashboard()?);
-                        cache.put(&key, &page);
-                        Ok(Action::Loaded {
-                            item: None,
-                            page,
-                            refresh: true,
-                            deep: false,
-                        })
-                    });
-                } else if let Some(page) = (!refresh).then(|| self.cache.get(&key)).flatten() {
+                if let Some(page) = (!refresh).then(|| self.cache.get(&key)).flatten() {
                     // Show the cached copy now and fetch the current one in the background.
                     self.tx.send(Action::Loaded {
                         item: item.clone(),
@@ -208,11 +181,6 @@ impl App {
                     })
                 });
             }
-            // The favourites are listed on "My courses"; refresh it wherever it is in the
-            // stack (the browser reloads the page on screen itself).
-            Action::FavoriteToggled { dry_run: false, .. } => {
-                self.fetch(None, None, true, false, Cache::key(None, false));
-            }
             Action::Login => self.spawn(|client, _| {
                 client.set_cookies(auth::browser_login(&client.base)?);
                 session::save(&client.base, &client.cookies())?;
@@ -245,7 +213,7 @@ impl App {
                     let _ = tx.send(Action::Progress(format!("Searching… {n} folders")));
                 })?),
                 (Some(item), false) => client.page(item, url.as_deref())?,
-                (None, false) => client.courses()?,
+                (None, false) => client.my_courses()?,
             };
             cache.put(&key, &page);
             Ok(Action::Loaded {
@@ -291,22 +259,16 @@ impl App {
 mod tests {
     use super::*;
     use crate::ilias::Item;
-    use cookie_store::CookieStore;
     use url::Url;
 
     fn app(cache_dir: &std::path::Path) -> App {
         let base = Url::parse("https://ilias.example/ilias/").unwrap();
-        let client = Client::new(base, CookieStore::default()).unwrap();
-        let courses = Page::from_items(vec![Item {
-            kind: "crs".into(),
-            ref_id: 1,
-            title: "DEMO".into(),
-            favorite_toggle: Some(
-                "https://ilias.example/ilias/ilias.php?cmd=addToDesk&item_ref_id=1".into(),
-            ),
-            ..Default::default()
-        }]);
-        let mut app = App::new(client, PathBuf::from("/tmp"), courses);
+        // No test reaches the network: every page request fails.
+        let offline = crate::ilias::pages::FakeIlias::new(|url| {
+            Err(color_eyre::eyre::eyre!("offline: {url}"))
+        });
+        let client = Client::with_pages(base, std::sync::Arc::new(offline));
+        let mut app = App::new(client, PathBuf::from("/tmp"));
         app.cache = Cache::in_dir(cache_dir.to_path_buf());
         app
     }
@@ -320,14 +282,35 @@ mod tests {
         }
     }
 
+    /// Shows My courses (with one course) from the cache, without the background refresh,
+    /// which would go to the network.
+    fn show_my_courses(app: &mut App) {
+        let courses = Page::from_items(vec![Item {
+            kind: "crs".into(),
+            ref_id: 1,
+            title: "DEMO".into(),
+            favorite_toggle: Some(
+                "https://ilias.example/ilias/ilias.php?cmd=addToDesk&item_ref_id=1".into(),
+            ),
+            ..Default::default()
+        }]);
+        app.cache.put(&Cache::key(None, false), &courses);
+        app.dispatch(load(None)).unwrap();
+        let shown = app.rx.try_recv().unwrap();
+        assert!(matches!(shown, Action::Loaded { refresh: false, .. }));
+        app.dispatch(shown).unwrap();
+        assert!(matches!(
+            app.rx.try_recv(),
+            Ok(Action::Load { refresh: true, .. })
+        ));
+        while app.rx.try_recv().is_ok() {}
+    }
+
     #[test]
     fn one_enter_in_the_filter_opens_the_match() {
         let dir = std::env::temp_dir().join(format!("ilias-tui-filter-{}", std::process::id()));
         let mut app = app(&dir);
-        app.dispatch(load(None)).unwrap();
-        while let Ok(action) = app.rx.try_recv() {
-            app.dispatch(action).unwrap();
-        }
+        show_my_courses(&mut app);
         let key = |c| ratatui::crossterm::event::KeyEvent::from(c);
         for code in [KeyCode::Char('/'), KeyCode::Char('d'), KeyCode::Char('e')] {
             let action = app.handle_key(key(code)).expect("filter handles typing");
@@ -342,10 +325,7 @@ mod tests {
     fn f_shows_the_question_on_screen() {
         let dir = std::env::temp_dir().join(format!("ilias-tui-confirm-{}", std::process::id()));
         let mut app = app(&dir);
-        app.dispatch(load(None)).unwrap();
-        while let Ok(action) = app.rx.try_recv() {
-            app.dispatch(action).unwrap();
-        }
+        show_my_courses(&mut app);
         let key = |c| ratatui::crossterm::event::KeyEvent::from(c);
         let ask = app.handle_key(key(KeyCode::Char('f'))).expect("f asks");
         app.dispatch(ask).unwrap();
@@ -366,22 +346,12 @@ mod tests {
     }
 
     #[test]
-    fn startup_page_and_cache_hits_need_no_request() {
+    fn cache_hits_need_no_request() {
         let dir = std::env::temp_dir().join(format!("ilias-tui-test-{}", std::process::id()));
         let mut app = app(&dir);
 
-        // "My courses" comes from the startup session check.
-        app.dispatch(load(None)).unwrap();
-        let Ok(Action::Loaded {
-            item: None,
-            page,
-            refresh: false,
-            ..
-        }) = app.rx.try_recv()
-        else {
-            panic!("expected the startup page");
-        };
-        assert_eq!(page.items().next().unwrap().title, "DEMO");
+        // My courses loads like any other page: the cached copy, then a refresh.
+        show_my_courses(&mut app);
 
         // A cached page is shown right away, then refreshed in the background.
         let folder = Item {

@@ -36,6 +36,9 @@ struct Level {
     cursor: Option<usize>,
     /// Scroll state of the rendered rows.
     list: ListState,
+    /// Something (a favourites change) made the page wrong while it was hidden under
+    /// other levels; it reloads once it is on screen again.
+    out_of_date: bool,
 }
 
 /// One rendered row; only `Item` rows can be selected.
@@ -58,6 +61,7 @@ impl Level {
             visible: Vec::new(),
             cursor: None,
             list: ListState::default(),
+            out_of_date: false,
         };
         level.set_page(page, "");
         level
@@ -73,6 +77,21 @@ impl Level {
         self.set_page(page.clone(), query);
         if cursor.is_some_and(|c| c < self.visible.len()) {
             self.cursor = cursor;
+        }
+    }
+
+    /// Fetches the page again (the tab on screen), showing the current one meanwhile.
+    fn reload(&self) -> Action {
+        Action::Load {
+            item: self.item.clone(),
+            url: self
+                .page
+                .tabs
+                .iter()
+                .find(|t| t.active)
+                .map(|t| t.url.clone()),
+            refresh: true,
+            deep: self.deep,
         }
     }
 
@@ -635,28 +654,11 @@ impl Component for Browser {
                 refresh,
                 deep,
             } => {
-                let key = (item.as_ref().map(|i| i.ref_id), *deep);
-                if self.pending == Some(key) {
-                    self.pending = None;
-                } else {
-                    // Background refreshes (the To-Do list after startup, "My courses" after
-                    // a favourites change) apply to their page wherever it is in the stack,
-                    // even while something else is loading.
-                    let top = self.stack.len().saturating_sub(1);
-                    let position = self
-                        .stack
-                        .iter()
-                        .rposition(|l| (l.item.as_ref().map(|i| i.ref_id), l.deep) == key);
-                    if let Some(position) = position.filter(|_| *refresh) {
-                        let query = if position == top {
-                            self.query.as_str()
-                        } else {
-                            ""
-                        };
-                        self.stack[position].refresh(page, query);
-                    }
+                // Only the page asked for last counts; the rest is stale.
+                if self.pending != Some((item.as_ref().map(|i| i.ref_id), *deep)) {
                     return None;
                 }
+                self.pending = None;
                 match self.stack.last_mut() {
                     Some(level) if *refresh => level.refresh(page, &self.query),
                     _ => {
@@ -671,29 +673,30 @@ impl Component for Browser {
             }
             Action::Filter(query) => {
                 self.query.clone_from(query);
-                if let Some(level) = self.stack.last_mut() {
-                    level.filter(query);
+                let level = self.stack.last_mut()?;
+                level.filter(query);
+                // Going back (Esc, a breadcrumb) clears the filter: the moment a page that
+                // went out of date while hidden is on screen again.
+                if std::mem::take(&mut level.out_of_date) {
+                    return Some(level.reload());
                 }
             }
             Action::Downloaded { item, .. } => {
                 self.saved.insert(item.ref_id);
             }
             Action::Error(_) => self.pending = None,
-            // "My courses" is refreshed by the app; any other page on screen reloads here, so
-            // its ★ marks are right.
-            Action::FavoriteToggled { dry_run: false, .. } => {
-                let level = self.current().filter(|l| l.item.is_some())?;
-                return Some(Action::Load {
-                    item: level.item.clone(),
-                    url: level
-                        .page
-                        .tabs
-                        .iter()
-                        .find(|t| t.active)
-                        .map(|t| t.url.clone()),
-                    refresh: true,
-                    deep: level.deep,
-                });
+            // The ★ marks (and My courses' favourites) are now wrong: reload the page on
+            // screen, and mark the hidden ones that show the item, or the favourites.
+            Action::FavoriteToggled {
+                item,
+                dry_run: false,
+            } => {
+                let (top, hidden) = self.stack.split_last_mut()?;
+                for level in hidden {
+                    level.out_of_date |=
+                        level.item.is_none() || level.items.iter().any(|i| i.ref_id == item.ref_id);
+                }
+                return Some(top.reload());
             }
             // Reload whatever is on screen with the fresh session.
             Action::LoggedIn => {
@@ -1429,5 +1432,72 @@ mod tests {
         browser.handle_key_event(KeyEvent::from(KeyCode::Char('j')));
         let action = browser.handle_key_event(KeyEvent::from(KeyCode::Char('f')));
         assert!(matches!(action, Some(Action::Error(_))));
+    }
+
+    #[test]
+    fn hidden_pages_reload_when_shown_again_after_a_favourites_change() {
+        let mut browser = Browser::default();
+        let course = item("crs", 1, "DEMO.101");
+        load(
+            &mut browser,
+            None,
+            Page::from_items(vec![course.clone()]),
+            false,
+        );
+        let file = item("file", 5, "Lecture_01");
+        load(
+            &mut browser,
+            Some(course.clone()),
+            Page::from_items(vec![file.clone()]),
+            false,
+        );
+
+        // The page on screen reloads right away …
+        let now = browser.update(&Action::FavoriteToggled {
+            item: file,
+            dry_run: false,
+        });
+        assert!(
+            matches!(now, Some(Action::Load { item: Some(ref i), refresh: true, .. }) if i.ref_id == 1)
+        );
+        // … while a refresh of hidden My courses is not applied behind the course.
+        browser.update(&Action::Loaded {
+            item: None,
+            page: Page::default(),
+            refresh: true,
+            deep: false,
+        });
+        assert_eq!(browser.current().unwrap().items[0].ref_id, 5);
+
+        // Going back shows My courses and reloads it, once.
+        let back = browser
+            .handle_key_event(KeyEvent::from(KeyCode::Esc))
+            .unwrap();
+        let reload = browser.update(&back);
+        assert!(matches!(
+            reload,
+            Some(Action::Load {
+                item: None,
+                refresh: true,
+                ..
+            })
+        ));
+        assert!(browser.update(&Action::Filter(String::new())).is_none());
+    }
+
+    #[test]
+    fn a_dry_run_marks_nothing_out_of_date() {
+        let mut browser = Browser::default();
+        load(
+            &mut browser,
+            None,
+            Page::from_items(vec![item("crs", 1, "DEMO.101")]),
+            false,
+        );
+        let change = Action::FavoriteToggled {
+            item: item("crs", 1, "DEMO.101"),
+            dry_run: true,
+        };
+        assert!(browser.update(&change).is_none());
     }
 }

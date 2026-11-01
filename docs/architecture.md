@@ -13,8 +13,11 @@ src/
 ├── downloads.rs         ref_id → local path of saved files (open instead of re-downloading)
 ├── cache.rs             Parsed pages on disk, for instant display (stale-while-revalidate)
 ├── ilias/
-│   ├── mod.rs           HTTP client: session checks, silent re-login, pages, downloads
-│   └── parse.rs         HTML → Page { tabs, blocks } (ILIAS 10 markup)
+│   ├── mod.rs           HTTP client: session check, silent re-login, pages, downloads
+│   ├── my_courses.rs    My courses: course list + favourites + To-Do, assembled
+│   ├── pages.rs         The seam for page requests: Https, and FakeIlias for tests
+│   ├── parse.rs         HTML → Page { tabs, blocks } (ILIAS 10 markup)
+│   └── write.rs         Every write (favourites, logout) and the write guard
 ├── action.rs            Action enum (the app's messages)
 ├── app.rs               Event loop, side effects, action routing
 └── components/
@@ -22,6 +25,7 @@ src/
     ├── browser.rs       Course/folder list with navigation stack
     ├── filter.rs        `/` search bar + matching
     ├── status_bar.rs    Footer messages
+    ├── confirm.rs       Yes/no dialog in front of every write
     └── help.rs          Key binding overlay
 ```
 
@@ -96,8 +100,9 @@ sequenceDiagram
 - `get_authed(url)`: fetch the page. If we're logged out, run `silent_login` and try once
   more. If that fails too, return `session expired: press L to log in again`.
 
-At startup, `main::connect` runs `ensure_session`, and falls back to the browser login if
-that fails.
+At startup, `main::connect` runs `check_session` (the session check: logged in or not,
+renewing silently if possible) and falls back to the browser login if that fails. The
+check only checks; it provides no page.
 
 ## 2. Reading ILIAS (`ilias/parse.rs`)
 
@@ -130,30 +135,34 @@ pub struct Item {
   block per row. The reply depth comes from the `ilFrmPost-level-N` class. A post is unread
   when its title links to `cmd=markPostRead`; that link is never followed. Viewing a thread
   does not mark posts as read on ILIAS (checked on HSLU).
-- **To-Do**: `parse_todo` reads the dashboard's `block_pdtasks` block (assignments with an
-  upcoming deadline). `Client::todo` adds the course from each exercise page's breadcrumb
-  (`course_title`; one request per exercise, in parallel), works out "due in …" with
-  `parse_date` and sorts by deadline. `Client::courses` fetches it alongside the
-  memberships and stores it in `Page::todo` (`with_todo`), apart from the blocks, so
-  filters and deep search never see it. `Browser::draw_todo` shows it as a panel to the
-  right (below on terminals narrower than 100 columns); `Tab` on a page without tabs moves
-  the keys into it (`todo_focus`).
-- **Favourites**: `parse_dashboard` also reads the `block_dash_fav` block (tiles: `.il-card`
-  with a `.card-title a`). `with_dashboard` puts it above the courses and copies each
-  course's full name from the course list.
+- **Dashboard**: `parse_dashboard` reads two blocks: favourites (`block_dash_fav`, tiles:
+  `.il-card` with a `.card-title a`) and To-Do (`block_pdtasks`, assignments with an
+  upcoming deadline).
+- **My courses** (`ilias/my_courses.rs`, see [CONTEXT.md](../CONTEXT.md)) is the one
+  module that knows what the start page is made of. Callers use `Client::my_courses()`
+  (the complete page) or `Client::course_list()` (where a deep search on My courses
+  starts; no dashboard). Inside:
+  - the course list and the dashboard are fetched in parallel; a failed dashboard still
+    leaves the course list;
+  - each To-Do exercise's page is fetched for its course (`course_title`, in parallel);
+  - `assemble(course list, dashboard, now)` puts the year groups newest first
+    (`newest_first`), the favourites on top with full course names, and the To-Do in
+    `Page::todo`, soonest first with "due in …". Tests cover the whole page through it.
+  
+  `Page::todo` is apart from the blocks, so filters and deep search never see it.
+  `Browser::draw_todo` shows it as a panel to the right (below on terminals narrower than
+  100 columns); `Tab` on a page without tabs moves the keys into it (`todo_focus`).
 - **Favourite links**: `Walker::item` keeps the item's own `cmd=addToDesk` /
   `cmd=removeFromDesk` link from its action menu (`favorite_toggle`, only if its
   `item_ref_id` is the item's) and sets `favorite` when it is a remove link.
   `ilias/write.rs` (`Client::toggle_favorite`) checks the link again (https, same host,
   one of those two commands, same item) and GETs it, unless `ILIAS_DRY_RUN=1`. After a
-  change, `App` refreshes "My courses" in the background and `Browser` reloads the page on
-  screen. Refreshes now apply to their page wherever it is in the stack.
+  change, `Browser` reloads the page on screen and marks hidden levels that list the item,
+  and My courses, as *out of date*; they reload once they are on screen again.
 - **Download folders**: `breadcrumb_path` takes the page's breadcrumb (ILIAS writes it
   leaf to root) from the course or group down, and every file on the page gets it as
   `Item::path`. `Client::download` saves into `<download dir>/<path…>/`, each part
   sanitised. Deep search results keep the path of the page they came from.
-- **My courses order**: ILIAS lists the year groups oldest first; `newest_first` reverses
-  the groups whose title is a year and leaves the rest in place.
 - **Icons**: `icons.rs` picks the glyph from `kind`, and for files from
   `Item::extension()`. That is the first property, where ILIAS shows the file type, with
   the title as fallback.
@@ -290,19 +299,17 @@ Components never touch the network and never call each other. They only:
 
 `App::dispatch(Load { item, url, refresh, deep })` decides where a page comes from:
 
-1. **Startup:** the first "My courses" load uses the page that `Client::check_session`
-   already fetched to verify the login. It is shown at once (or last time's cached page,
-   which includes the To-Do list), while a worker fetches the To-Do list and sends
-   `Loaded { refresh: true }`. `Browser` applies a refresh of the page on screen even
-   while another load is pending.
-2. **Cache hit** (only when `refresh` is false): send `Loaded` with the cached page right
+My courses has no special case: on the first start with an empty cache it takes ~2–3 s
+(course list, dashboard and the To-Do exercises), later starts show the cached copy.
+
+1. **Cache hit** (only when `refresh` is false): send `Loaded` with the cached page right
    away, then queue `Load { refresh: true }`. The browser shows the cached page.
    - The refresh fetches the page from ILIAS, writes it to the cache and sends
      `Loaded { refresh: true }`.
    - `Browser` replaces the top level only if the page actually changed, so the cursor and
      scroll position don't jump.
    - If the user has moved on, the stale-response check drops it.
-3. **Otherwise:** `App::fetch` loads the page on a worker thread and writes it to the
+2. **Otherwise:** `App::fetch` loads the page on a worker thread and writes it to the
    cache.
 
 Cache keys are `"{deep}|{url}"` (the tab URL, the item URL or `courses`), hashed with
@@ -358,7 +365,7 @@ pages.
 | Component   | State                                    | Notes                                    |
 | ----------- | ---------------------------------------- | ---------------------------------------- |
 | `Filter`    | `query`, `editing`                       | One line above the status bar, shown while editing or filtering. |
-| `Browser`   | stack of `Level { item, deep, page, items, visible, cursor, list }`, `query` | Tab bar, then the page laid out as rows: headings, wrapped text, items with icon and details. Only item rows can be selected. `Tab` loads another tab into the same level. Back = pop (no request). `r` refreshes the top level. |
+| `Browser`   | stack of `Level { item, deep, page, items, visible, cursor, list }`, `query` | Tab bar, then the page laid out as rows: headings, wrapped text, items with icon and details. Only item rows can be selected. `Tab` loads another tab into the same level. Back = pop (no request, unless the level went out of date while hidden: then it reloads once). `r` refreshes the top level. Only responses for the page asked for last are applied. |
 | `StatusBar` | `Status` (idle/busy/done/info/error), start time | Spinner while busy, ✓ / ⚠ icons for results and errors; key hints on the right. |
 | `Help`      | `visible: bool`                          | Overlay drawn last, on top of everything. Keys come from `help::KEYS`, grouped into sections. |
 | `Confirm`   | `pending: Option<(question, Action)>`    | Yes/no dialog, first in the z-order. `Action::Ask { question, then }` opens it; `y` sends `then`, anything that cancels sends `Cancelled`. Every write goes through it. |
@@ -400,6 +407,13 @@ If the feature needs ILIAS data, add a method to `ilias::Client`, then a matchin
 `cargo test` runs:
 
 - **Parser tests** (`ilias/parse.rs`) against real public HSLU pages in `tests/fixtures/`.
+- **Client tests through the `Pages` seam.** `Client` sends every page request to a
+  `Pages` adapter: `Https` in the app, `FakeIlias` in tests (answers from a closure, records
+  the URLs asked for). With it the tests cover silent re-login and its failure, the write
+  guard, deep search order and limits, the complete My courses (also without a working
+  dashboard), favourites changes (exactly one request; none in dry-run mode) and logout.
+  The `App` tests use an offline `FakeIlias`, so no test reaches the network. File
+  downloads and the Keycloak probe bypass the seam.
 - **Download helpers** (`ilias/mod.rs`): `Content-Disposition` parsing and filename
   sanitising.
 - **Component tests** (`components/browser.rs`, `components/filter.rs`): they drive the
@@ -407,5 +421,11 @@ If the feature needs ILIAS data, add a method to `ilias::Client`, then a matchin
   check the output. This covers navigation, stale responses, filtering and deep search.
   No terminal or network is needed.
 
-The login and the logged-in pages can't run in CI, because they need your edu-ID. Test
-those by hand with `ilias-tui login`, `ilias-tui ls …` and `ilias-tui dump …`.
+The login itself and the real HTML of logged-in pages can't run in CI, because they need
+your edu-ID. Test those by hand with `ilias-tui login`, `ilias-tui ls …` and
+`ilias-tui dump …`.
+
+**The write guard.** `Client::request` is the one place page requests leave the client.
+It refuses URLs that `write::is_write` flags (an `rtoken`, or a command in
+`WRITE_COMMANDS`) unless the caller is the write path (`write.rs`: `toggle_favorite`,
+`logout`). When ILIAS gains a write command ilias-tui might see in a link, add it there.

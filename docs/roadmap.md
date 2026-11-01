@@ -94,7 +94,8 @@ Read-only; safe to build.
 
 Done: owner-only data and cache folders, only ILIAS + Keycloak cookies kept, server-side
 logout, no auto-opening of files that can run code, macOS quarantine on downloads, only
-ILIAS links handed to the browser, cache opt-out and 30-day cleanup.
+ILIAS links handed to the browser, cache opt-out and 30-day cleanup, a write guard in
+front of every page request (only `src/ilias/write.rs` gets past it).
 
 - [ ] **Encrypt the session file** with a key from the OS secret store. macOS: the Keychain
   via the `security` tool, which avoids losing access after every rebuild. Linux: Secret
@@ -122,6 +123,8 @@ ILIAS links handed to the browser, cache opt-out and 30-day cleanup.
 - [ ] **Several accounts or ILIAS installations** side by side. Today: one at a time via
   `ILIAS_URL`.
 - [ ] **Packaging.** Release binaries, a Homebrew formula, CI that runs tests and clippy.
-- [ ] **Tests for logged-in pages.** Today the parser tests use small HTML snippets modelled
-  on real pages. Real logged-in pages contain personal data and must not be committed as
-  fixtures.
+- [x] **Tests for the client's logic.** `FakeIlias` (`src/ilias/pages.rs`) serves small,
+  anonymised HTML snippets. Real logged-in pages contain personal data and must not be
+  committed as fixtures.
+- [ ] **Downloads through the fake ILIAS.** File downloads (and the Keycloak probe) still go
+  to the network directly, so "session expired during a download" is untested.

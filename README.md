@@ -300,7 +300,12 @@ download.
   - `ilias-tui logout` ends your session.
   - `f` adds or removes a favourite. It asks first, only sends the favourites link from
     that item's own ILIAS menu (checked to be for that item, on your ILIAS), and does
-    nothing with `ILIAS_DRY_RUN=1`. All such requests live in `src/ilias/write.rs`.
+    nothing with `ILIAS_DRY_RUN=1`.
+
+  Both live in `src/ilias/write.rs`. Every other request passes a **write guard** that
+  refuses anything that looks like a write (an ILIAS one-time `rtoken`, or a known write
+  command such as `addToDesk`, `markPostRead` or `join`), so a bug elsewhere can't turn a
+  link into a change. Tests check this against a fake ILIAS.
 
   Other features that would write are deliberately not built; see the rules in
   [docs/roadmap.md](docs/roadmap.md#rules-for-features-that-write).
