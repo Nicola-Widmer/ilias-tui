@@ -373,3 +373,9 @@ review. Read the code before you rely on it, especially the login and session ha
 
 This is an unofficial personal tool. It reads the same pages your browser does, with your
 own account. Keep the request rate reasonable and follow HSLU's IT usage rules.
+
+## License
+
+[MIT](LICENSE). You may use, change and share it freely. It comes **as is, without any
+warranty**, and the authors are not liable for any damage or consequences of using it
+(see the licence text).
