@@ -302,7 +302,7 @@ fn wrap(text: &str, width: usize) -> Vec<String> {
     lines
 }
 
-fn item_row(item: &Item, query: &str, saved: bool) -> ListItem<'static> {
+fn item_row(item: &Item, query: &str, saved: bool, marked: bool) -> ListItem<'static> {
     let (glyph, color) = icon(item);
     let title_style = if item.is_container() {
         Style::new().fg(theme::FG).add_modifier(Modifier::BOLD)
@@ -319,6 +319,9 @@ fn item_row(item: &Item, query: &str, saved: bool) -> ListItem<'static> {
             format!("  {} saved", theme::check()),
             Style::new().fg(theme::GREEN),
         ));
+    }
+    if marked {
+        title.push(Span::styled("  ◉ sync", theme::accent_bold()));
     }
     let mut lines = vec![Line::from(title)];
     // The icon already says "course" or "folder", and files show their type as a property;
@@ -388,6 +391,13 @@ pub struct Browser {
     todo: ListState,
     /// Keys go to the To-Do panel instead of the list.
     todo_focus: bool,
+    /// Courses and folders marked with Space for the next sync.
+    marked: Vec<Item>,
+}
+
+/// What `S` can sync: places that hold files.
+fn syncable(item: &Item) -> bool {
+    matches!(item.kind.as_str(), "crs" | "grp" | "fold" | "sess")
 }
 
 /// What a mouse click at some screen area means.
@@ -610,6 +620,40 @@ impl Component for Browser {
                     then: Box::new(Action::ToggleFavorite(item)),
                 });
             }
+            KeyCode::Char(' ') => {
+                let item = level.selected()?.clone();
+                if !syncable(&item) {
+                    return Some(Action::Error(
+                        "Only courses, groups and folders can be marked for sync".into(),
+                    ));
+                }
+                match self.marked.iter().position(|m| m.ref_id == item.ref_id) {
+                    Some(i) => {
+                        self.marked.remove(i);
+                    }
+                    None => self.marked.push(item),
+                }
+            }
+            KeyCode::Char('S') => {
+                // The marked ones, else the selected course/folder, else the one you're in.
+                let roots = if self.marked.is_empty() {
+                    level
+                        .selected()
+                        .filter(|i| syncable(i))
+                        .or(level.item.as_ref().filter(|i| syncable(i)))
+                        .cloned()
+                        .into_iter()
+                        .collect()
+                } else {
+                    std::mem::take(&mut self.marked)
+                };
+                if roots.is_empty() {
+                    return Some(Action::Error(
+                        "Select a course or folder to sync (Space marks several)".into(),
+                    ));
+                }
+                return Some(Action::Sync(roots));
+            }
             KeyCode::Char('L') => return Some(Action::Login),
             _ => return None,
         }
@@ -684,6 +728,7 @@ impl Component for Browser {
             Action::Downloaded { item, .. } => {
                 self.saved.insert(item.ref_id);
             }
+            Action::Synced { saved, .. } => self.saved.extend(saved),
             Action::Error(_) => self.pending = None,
             // The ★ marks (and My courses' favourites) are now wrong: reload the page on
             // screen, and mark the hidden ones that show the item, or the favourites.
@@ -826,7 +871,8 @@ impl Component for Browser {
                 Row::Styled(line) => ListItem::new(line),
                 Row::Item(i) => {
                     let item = &level.items[i];
-                    item_row(item, &self.query, self.saved.contains(&item.ref_id))
+                    let marked = self.marked.iter().any(|m| m.ref_id == item.ref_id);
+                    item_row(item, &self.query, self.saved.contains(&item.ref_id), marked)
                 }
             })
             .collect();

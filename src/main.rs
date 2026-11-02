@@ -8,6 +8,7 @@ mod icons;
 mod ilias;
 mod open;
 mod session;
+mod sync;
 mod theme;
 
 use std::path::PathBuf;
@@ -180,7 +181,7 @@ fn main() -> Result<()> {
             for url in urls {
                 let item = item_from_url(&base, url)?;
                 let path = client.download(&item, &dir)?;
-                downloads.insert(item.ref_id, path.clone())?;
+                downloads.record(item.ref_id, path.clone(), sync::version(&item))?;
                 println!("{}", path.display());
             }
             Ok(())

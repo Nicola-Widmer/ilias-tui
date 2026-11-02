@@ -75,6 +75,10 @@ impl Component for StatusBar {
                 )
             }
             Action::Error(e) => Status::Error(e.clone()),
+            Action::Sync(roots) => {
+                Status::Busy(format!("Sync: starting ({} selected)…", roots.len()))
+            }
+            Action::Synced { summary, .. } => Status::Done(summary.clone()),
             Action::Cancelled => Status::Info("Cancelled; nothing was sent to ILIAS".into()),
             Action::ToggleFavorite(_) => Status::Busy("Updating your favourites…".into()),
             Action::FavoriteToggled { item, dry_run } => {

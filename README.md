@@ -63,6 +63,9 @@ What it does:
   `~/Downloads/ILIAS/DEMO.101/Unterlagen/Woche 3/Folien.pdf`. After that, the saved copy
   opens right away; saved files are marked `✓ saved`. (`ilias-tui get` only knows the
   file, not its folders, so it saves directly into `~/Downloads/ILIAS`.)
+- **Syncs whole courses** (`S`, or mark several with `Space`): every file up to 50 MB,
+  in ILIAS's folder structure, and later only what changed. Files you edited (say, an
+  annotated PDF) are never overwritten; see [Sync](#sync).
 - Opens everything else (tests, exercises, …) in your normal web browser.
 - Logs in once through Switch edu-ID (2FA included) and keeps the session in a private
   file. Later runs refresh the session on their own, without a browser.
@@ -169,6 +172,8 @@ ilias-tui get goto.php/file/123456
 | `/`             | Filter the current list                         |
 | `s`             | Search everything below here                    |
 | `d`             | Download a fresh copy without opening it        |
+| `Space`         | Mark a course or folder for sync                |
+| `S`             | Sync the marked courses (or the selected one)   |
 | `o`             | Open selected item in your web browser          |
 | `f`             | Add to / remove from your ILIAS favourites (asks first) |
 | `Tab` / `Shift-Tab` | Next / previous tab (Inhalt, Info, …); on My courses, in and out of the To-Do panel |
@@ -201,6 +206,7 @@ turns mouse support off.
 | `ILIAS_NERD_FONT`     | `1`. Set to `0` for plain Unicode icons |
 | `ILIAS_MOUSE`         | `1`. Set to `0` to turn off mouse support |
 | `ILIAS_CACHE`         | `1`. Set to `0` to turn off the page cache |
+| `ILIAS_SYNC_MAX_MB`   | `50`. Sync skips files bigger than this         |
 | `ILIAS_OFFLINE`       | `0`. Set to `1` to always start offline (same as `--offline`) |
 | `ILIAS_DRY_RUN`       | `0`. Set to `1` to never send changes to ILIAS (favourites); the app only says what it would have done |
 
@@ -211,6 +217,28 @@ WezTerm, Kitty and Alacritty do). To change them, edit
 
 To use another school's ILIAS, point `ILIAS_URL` at the folder that contains `login.php`
 and `openidconnect.php`.
+
+## Sync
+
+`S` saves all files of the selected course or folder into the download folder, in the same
+folders as on ILIAS (`~/Downloads/ILIAS/<course>/<folder>/…`). Mark several with `Space`
+first (they show `◉ sync`), then `S` syncs all of them. Progress shows in the status bar,
+and at the end a summary: new, updated, unchanged, skipped.
+
+- **Only reasonably sized files:** up to 50 MB (`ILIAS_SYNC_MAX_MB`). Lecture recordings
+  and other big files are skipped and counted.
+- **Only what changed:** ILIAS lists each file's size and date. A file is fetched again
+  only if those changed, so syncing an unchanged course just reads its folder pages.
+- **Your edits are safe:** sync remembers each file's size and modification time right
+  after saving it. If they differ later, you changed it, and sync never overwrites it.
+  When such a file changes on ILIAS, the new version is saved beside yours, e.g.
+  `Blatt 3 (ILIAS 2026-11-02).pdf`. Files downloaded before sync existed count as edited.
+- **Deleted is deleted:** a file you removed comes back only if it changes on ILIAS.
+- **Speed:** folders are read 6 at a time and files downloaded 3 at a time, so the server
+  isn't flooded. Nothing is half-written: a download goes to a new file first and only
+  then replaces an unedited copy.
+
+Sync only reads from ILIAS. It doesn't work offline.
 
 ## Offline
 

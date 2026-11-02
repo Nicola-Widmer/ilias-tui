@@ -53,6 +53,13 @@ pub enum Action {
         item: Item,
         dry_run: bool,
     },
+    /// Save the files of these courses or folders (see `sync.rs`).
+    Sync(Vec<Item>),
+    /// A sync finished: what happened, and the ref ids of all files saved now.
+    Synced {
+        summary: String,
+        saved: Vec<u64>,
+    },
     /// The app runs offline: only cached pages and saved files, nothing is sent.
     Offline,
     /// Run the interactive browser login (offline: first try the saved session).

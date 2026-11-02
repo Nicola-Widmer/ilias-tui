@@ -10,7 +10,8 @@ src/
 ├── theme.rs             Palette (24-bit colours) and UI glyphs; the one place to restyle
 ├── auth.rs              Interactive login in Chrome → CookieStore
 ├── session.rs           Cookie jar ⇄ private JSON file
-├── downloads.rs         ref_id → local path of saved files (open instead of re-downloading)
+├── downloads.rs         Saved files: path, ILIAS version, size + mtime when saved
+├── sync.rs              Sync whole courses: plan per file, parallel downloads
 ├── cache.rs             Parsed pages on disk, for instant display (stale-while-revalidate)
 ├── ilias/
 │   ├── mod.rs           HTTP client: session check, silent re-login, pages, downloads
@@ -307,6 +308,16 @@ also `refresh: true` ones, with no background refresh, and an `Error` if the pag
 cached; it refuses `Ask` (writes) up front. `Login` first turns offline off and tries the
 session check, and only opens Chrome if the session expired; if ILIAS still can't be
 reached it goes back to offline.
+
+**Sync** (`sync.rs`): `Client::descendants` lists every file below the chosen courses
+(their folder path and the listing's size and date come with them). `plan` decides per file
+from what `downloads.rs` recorded: `New`, `Update` (changed on ILIAS, copy untouched),
+`Beside` (changed on ILIAS, copy edited), `Adopt` (old entry without version), `Unchanged`,
+`Deleted`, `TooBig`. "Edited" means size or mtime differ from right after the download;
+old entries count as edited, so nothing saved before is ever overwritten. Downloads run 3
+at a time into fresh files, then replace or sit beside. The sync job writes the index
+itself (`Downloads::update` re-reads the file first, so it and the TUI don't drop each
+other's entries); `Synced` makes `App` read it again.
 
 My courses has no special case: on the first start with an empty cache it takes ~2–3 s
 (course list, dashboard and the To-Do exercises), later starts show the cached copy.

@@ -394,7 +394,7 @@ fn sanitize(name: &str) -> String {
     }
 }
 
-fn unique_path(dir: &Path, name: &str) -> PathBuf {
+pub(crate) fn unique_path(dir: &Path, name: &str) -> PathBuf {
     let path = dir.join(name);
     if !path.exists() {
         return path;

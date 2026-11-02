@@ -17,7 +17,7 @@ use crate::cache::Cache;
 use crate::components::{Browser, Component, Confirm, Filter, Help, StatusBar};
 use crate::downloads::Downloads;
 use crate::ilias::{Client, Item, Page};
-use crate::{auth, open, session};
+use crate::{auth, open, session, sync};
 
 pub struct App {
     client: Arc<Client>,
@@ -113,9 +113,10 @@ impl App {
 
     fn dispatch(&mut self, action: Action) -> Result<()> {
         // Offline nothing can be changed on ILIAS; say so before asking the question.
-        if self.client.is_offline() && matches!(action, Action::Ask { .. }) {
+        if self.client.is_offline() && matches!(action, Action::Ask { .. } | Action::Sync(_)) {
             self.tx.send(Action::Error(
-                "Offline: changes can't be sent to ILIAS. Press L to go online.".into(),
+                "Offline: nothing can be sent to or fetched from ILIAS. Press L to go online."
+                    .into(),
             ))?;
             return Ok(());
         }
@@ -178,7 +179,8 @@ impl App {
                 });
             }
             Action::Downloaded { item, path, open } => {
-                self.downloads.insert(item.ref_id, path.clone())?;
+                self.downloads
+                    .record(item.ref_id, path.clone(), crate::sync::version(item))?;
                 if *open {
                     self.tx.send(Action::OpenFile(path.clone()))?;
                 }
@@ -205,6 +207,22 @@ impl App {
                     })
                 });
             }
+            Action::Sync(roots) => {
+                let (roots, dir) = (roots.clone(), self.download_dir.clone());
+                self.spawn(move |client, tx| {
+                    let mut downloads = Downloads::load(&client.base);
+                    let max_mb = sync::max_mb_from_env();
+                    let summary = sync::sync(client, &roots, &dir, &mut downloads, max_mb, |p| {
+                        let _ = tx.send(Action::Progress(p));
+                    })?;
+                    Ok(Action::Synced {
+                        summary: summary.text(max_mb),
+                        saved: summary.saved,
+                    })
+                });
+            }
+            // The sync wrote its own copy of the index; read it again.
+            Action::Synced { .. } => self.downloads = Downloads::load(&self.client.base),
             Action::Login => self.spawn(|client, _| {
                 if client.is_offline() {
                     // Going online: the saved session may well still work.

@@ -11,8 +11,6 @@ When a feature is built, tick it off here in the same commit.
 1. **Check the "show more" gap**: ILIAS can truncate long lists behind a "show more"
    button, and items behind it may currently be missing. See [Reading content](#reading-content).
 2. **What's new since my last visit**
-3. **Download / sync a whole folder or course**
-
 ## Reading content
 
 Read-only; safe to build and to try against ILIAS.
@@ -52,10 +50,12 @@ Read-only; safe to build and to try against ILIAS.
 
 Read-only; safe to build.
 
-- [ ] **Download / sync a whole folder or course** to disk, like
-  [PFERD](https://github.com/Garmelon/PFERD). Today: one file at a time.
-- [ ] **Detect updated files.** Re-download when the date or size in ILIAS changed. Today `d`
-  always fetches a fresh copy without comparing.
+- [x] **Sync whole courses or folders** (`S`, `Space` to mark several): files up to 50 MB,
+  only changed ones, your edits never overwritten.
+- [ ] **List what sync skipped** (the big files, the conflicts) instead of only counting them.
+- [ ] **Sync from the command line** (`ilias-tui sync URL…`), e.g. for cron.
+- [ ] **Sync through the fake ILIAS in tests.** Downloads bypass the `Pages` seam, so only
+  sync's rules are tested, not a whole run.
 - [ ] **Download progress bar and cancel.** Today there is only a spinner.
 - [ ] **Download queue.** Several downloads at once, with a list of what is running.
 - [x] **Mirror the course structure** in the download folder (`ILIAS/<course>/<folder>/…`).
@@ -118,8 +118,8 @@ front of every page request (only `src/ilias/write.rs` gets past it).
   variables.
 - [x] **Offline mode.** `--offline`, or automatic when ILIAS can't be reached: cached pages
   and saved files only, nothing is sent; `L` goes online.
-- [ ] **Download a whole course for offline use.** Offline only has what you opened
-  before.
+- [ ] **Offline pages for synced courses.** Sync saves the files, but offline mode only has
+  the pages you opened.
 - [ ] **Cache size limit / cleanup.** Today the cache only grows; only `ilias-tui logout`
   clears it.
 - [ ] **Several accounts or ILIAS installations** side by side. Today: one at a time via
