@@ -8,6 +8,8 @@ use crate::ilias::{Item, Page};
 #[derive(Debug, Clone)]
 pub enum Action {
     Quit,
+    /// A key or click was used up by an overlay; nothing else happens.
+    Handled,
     ToggleHelp,
     /// Fetch the page of `item` (`None` means "My courses"). `url` selects another tab of
     /// it. With `deep`, fetch everything below it recursively (the deep search).
@@ -55,9 +57,11 @@ pub enum Action {
     },
     /// Save the files of these courses or folders (see `sync.rs`).
     Sync(Vec<Item>),
-    /// A sync finished: what happened, and the ref ids of all files saved now.
+    /// A sync finished: what happened (one line), the files worth a look (by section) and
+    /// the ref ids of all files saved now.
     Synced {
         summary: String,
+        report: Vec<(String, Vec<String>)>,
         saved: Vec<u64>,
     },
     /// The app runs offline: only cached pages and saved files, nothing is sent.

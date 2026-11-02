@@ -223,7 +223,9 @@ and `openidconnect.php`.
 `S` saves all files of the selected course or folder into the download folder, in the same
 folders as on ILIAS (`~/Downloads/ILIAS/<course>/<folder>/…`). Mark several with `Space`
 first (they show `◉ sync`), then `S` syncs all of them. Progress shows in the status bar,
-and at the end a summary: new, updated, unchanged, skipped.
+and at the end a summary: new, updated, unchanged, skipped. If any files were skipped for
+their size, saved beside your edited copy, or failed, a **sync report** opens and lists
+them by name (`j`/`k` scrolls, any other key closes it).
 
 - **Only reasonably sized files:** up to 50 MB (`ILIAS_SYNC_MAX_MB`). Lecture recordings
   and other big files are skipped and counted.
@@ -238,6 +240,9 @@ and at the end a summary: new, updated, unchanged, skipped.
   isn't flooded. Nothing is half-written: a download goes to a new file first and only
   then replaces an unedited copy.
 
+- **Browsable offline:** every course and folder page sync reads is kept in the page
+  cache, so you can walk through a synced course offline and open its files.
+
 Sync only reads from ILIAS. It doesn't work offline.
 
 ## Offline
@@ -247,9 +252,9 @@ seen before:
 
 - **Starting:** if ILIAS can't be reached, it says so and starts offline. `--offline` (or
   `ILIAS_OFFLINE=1`) starts offline on purpose. The status bar shows an `OFFLINE` badge.
-- **Pages** you opened before show from the cache, as they were then, and are not
-  refreshed. Pages you never opened say "Not available offline". This covers tabs and
-  earlier deep search results too.
+- **Pages** you opened before, and every course and folder of a synced course, show from
+  the cache as they were then, and are not refreshed. Other pages say "Not available
+  offline". This covers tabs and earlier deep search results too.
 - **Saved files** (`✓ saved`) open as usual; other files can't be downloaded.
 - **Nothing is sent** to ILIAS, not even a session check. Favourites can't be changed.
 - **`L` goes online:** it checks the saved session (and only opens Chrome if that has

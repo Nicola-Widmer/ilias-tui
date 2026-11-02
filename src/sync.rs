@@ -8,6 +8,8 @@
 //! - Files you edited (size or modification time differ from right after the download) are
 //!   never overwritten; a newer ILIAS version is saved beside them instead.
 //! - Files you deleted stay deleted until they change on ILIAS.
+//! - Every course and folder page read on the way is cached, so synced courses can be
+//!   browsed offline.
 
 use std::path::{Path, PathBuf};
 use std::sync::atomic::{AtomicUsize, Ordering};
@@ -16,8 +18,9 @@ use std::thread;
 
 use color_eyre::Result;
 
+use crate::cache::Cache;
 use crate::downloads::{Downloads, Local, Saved};
-use crate::ilias::{Client, Item};
+use crate::ilias::{Client, Item, Page};
 
 /// Files bigger than this many MB are skipped unless `ILIAS_SYNC_MAX_MB` says otherwise.
 const DEFAULT_MAX_MB: f64 = 50.0;
@@ -102,67 +105,100 @@ pub fn plan(item: &Item, saved: Option<(&Saved, Local)>, max_mb: f64) -> Plan {
 pub struct Summary {
     pub new: usize,
     pub updated: usize,
-    /// Changed on ILIAS but edited by you; the new version was saved beside.
-    pub beside: usize,
     pub unchanged: usize,
     pub deleted: usize,
-    pub too_big: usize,
+    /// Changed on ILIAS but edited by you: where the new version was saved beside.
+    pub beside: Vec<PathBuf>,
+    /// Skipped for their size: `Course › Folder › File (107.9 MB)`.
+    pub too_big: Vec<String>,
+    /// `Course › Folder › File: error`.
     pub failed: Vec<String>,
     /// Ref ids of files that are saved now.
     pub saved: Vec<u64>,
 }
 
 impl Summary {
+    /// One line for the status bar.
     pub fn text(&self, max_mb: f64) -> String {
         let mut parts = vec![
             format!("{} new", self.new),
             format!("{} updated", self.updated),
         ];
-        if self.beside > 0 {
+        if !self.beside.is_empty() {
             parts.push(format!(
                 "{} edited by you (new version saved beside)",
-                self.beside
+                self.beside.len()
             ));
         }
         parts.push(format!("{} unchanged", self.unchanged));
         if self.deleted > 0 {
             parts.push(format!("{} deleted by you (left out)", self.deleted));
         }
-        if self.too_big > 0 {
-            parts.push(format!("{} over {max_mb} MB skipped", self.too_big));
+        if !self.too_big.is_empty() {
+            parts.push(format!("{} over {max_mb} MB skipped", self.too_big.len()));
         }
         if !self.failed.is_empty() {
-            parts.push(format!(
-                "{} failed: {}",
-                self.failed.len(),
-                self.failed.join("; ")
-            ));
+            parts.push(format!("{} failed", self.failed.len()));
         }
         format!("Synced: {}", parts.join(", "))
     }
+
+    /// The files worth a closer look, by section; empty if there are none. `dir` shortens
+    /// the paths of new versions to where they are below the download folder.
+    pub fn report(&self, dir: &Path, max_mb: f64) -> Vec<(String, Vec<String>)> {
+        let shorten = |path: &PathBuf| path.strip_prefix(dir).unwrap_or(path).display().to_string();
+        [
+            (
+                "Changed on ILIAS, kept your edited copy; new version saved as".to_string(),
+                self.beside.iter().map(shorten).collect(),
+            ),
+            (
+                format!("Skipped: bigger than {max_mb} MB"),
+                self.too_big.clone(),
+            ),
+            ("Failed".to_string(), self.failed.clone()),
+        ]
+        .into_iter()
+        .filter(|(_, lines): &(String, Vec<String>)| !lines.is_empty())
+        .collect()
+    }
 }
 
-/// Syncs every file below `roots` into `dir`. `progress` gets a status line now and then.
+/// Syncs every file below `roots` into `dir`. Every course and folder page read on the way
+/// goes into `cache`, so the synced courses can be browsed offline. `progress` gets a
+/// status line now and then.
 pub fn sync(
     client: &Client,
     roots: &[Item],
     dir: &Path,
     downloads: &mut Downloads,
+    cache: &Cache,
     max_mb: f64,
     progress: impl Fn(String) + Sync,
 ) -> Result<Summary> {
     let mut summary = Summary::default();
     let mut work: Vec<(Item, Plan)> = Vec::new();
+    let keep = |item: &Item, page: &Page| cache.put(&Cache::key(Some(&item.url), false), page);
     for root in roots {
-        let files = client.descendants(Some(root), |n| {
-            progress(format!("Sync: reading {} … {n} folders", root.title));
-        })?;
-        for item in files.into_iter().filter(|i| i.kind == "file") {
+        let files = client.descendants_with_pages(
+            Some(root),
+            |n| progress(format!("Sync: reading {} … {n} folders", root.title)),
+            &keep,
+        )?;
+        for mut item in files.into_iter().filter(|i| i.kind == "file") {
+            // Titles are paths below the root; name the course too.
+            item.title = format!("{} › {}", root.title, item.title);
             let saved = downloads.entry(item.ref_id).map(|s| (s, s.local()));
             match plan(&item, saved, max_mb) {
                 Plan::Unchanged => summary.unchanged += 1,
                 Plan::Deleted => summary.deleted += 1,
-                Plan::TooBig => summary.too_big += 1,
+                Plan::TooBig => {
+                    let size = item.properties.iter().find(|p| size_mb(p).is_some());
+                    summary.too_big.push(match size {
+                        Some(size) => format!("{} ({size})", item.title),
+                        None => item.title.clone(),
+                    });
+                }
                 Plan::Adopt => {
                     downloads.set_version(item.ref_id, version(&item))?;
                     summary.unchanged += 1;
@@ -184,9 +220,9 @@ pub fn sync(
                     let result = fetch(client, item, plan, dir, &downloads);
                     let mut summary = summary.lock().unwrap_or_else(PoisonError::into_inner);
                     match (result, plan) {
-                        (Ok(()), Plan::New) => summary.new += 1,
-                        (Ok(()), Plan::Update(_)) => summary.updated += 1,
-                        (Ok(()), _) => summary.beside += 1,
+                        (Ok(_), Plan::New) => summary.new += 1,
+                        (Ok(_), Plan::Update(_)) => summary.updated += 1,
+                        (Ok(path), _) => summary.beside.push(path),
                         (Err(e), _) => summary.failed.push(format!("{}: {e:#}", item.title)),
                     }
                     let n = done.fetch_add(1, Ordering::Relaxed) + 1;
@@ -203,14 +239,14 @@ pub fn sync(
     Ok(summary)
 }
 
-/// Downloads one file and puts it where `plan` says.
+/// Downloads one file and puts it where `plan` says; returns where it ended up.
 fn fetch(
     client: &Client,
     item: &Item,
     plan: &Plan,
     dir: &Path,
     downloads: &Mutex<&mut Downloads>,
-) -> Result<()> {
+) -> Result<PathBuf> {
     // Always into a new file first; nothing existing is touched until it is complete.
     let fresh = client.download(item, dir)?;
     let record = |path: PathBuf| {
@@ -222,7 +258,8 @@ fn fetch(
     match plan {
         Plan::Update(path) => {
             std::fs::rename(&fresh, path)?;
-            record(path.clone())
+            record(path.clone())?;
+            Ok(path.clone())
         }
         Plan::Beside(path) => {
             // Your edited file keeps its place and stays "edited"; only the version is new.
@@ -232,9 +269,13 @@ fn fetch(
             downloads
                 .lock()
                 .unwrap_or_else(PoisonError::into_inner)
-                .set_version(item.ref_id, version(item))
+                .set_version(item.ref_id, version(item))?;
+            Ok(beside)
         }
-        _ => record(fresh),
+        _ => {
+            record(fresh.clone())?;
+            Ok(fresh)
+        }
     }
 }
 
@@ -379,5 +420,85 @@ mod tests {
         // Unknown how it looked when saved: treated as edited, so never overwritten.
         assert_eq!(downloads.entry(9).unwrap().local(), Local::Edited);
         let _ = std::fs::remove_dir_all(dir);
+    }
+
+    #[test]
+    fn keeps_every_page_it_reads_for_offline_use() {
+        use crate::ilias::pages::{FakeIlias, reply};
+        use std::sync::Arc;
+        let folder = |id: u32, title: &str| {
+            format!(
+                r#"<div class="ilContainerListItemOuter"><a class="il_ContainerItemTitle" href="https://ilias.example/ilias/goto.php/fold/{id}">{title}</a></div>"#
+            )
+        };
+        let ilias = Arc::new(FakeIlias::new(move |url| {
+            let html = match url.path() {
+                "/ilias/goto.php/crs/1" => folder(2, "Unterlagen"),
+                "/ilias/goto.php/fold/2" => folder(3, "Woche 1"),
+                "/ilias/goto.php/fold/3" => String::new(),
+                other => return Err(color_eyre::eyre::eyre!("unexpected {other}")),
+            };
+            reply(url, &format!(r#"<div id="il_center_col">{html}</div>"#))
+        }));
+        let base = url::Url::parse("https://ilias.example/ilias/").unwrap();
+        let client = Client::with_pages(base, ilias);
+        let dir = std::env::temp_dir().join(format!("ilias-tui-synccache-{}", std::process::id()));
+        let cache = Cache::in_dir(dir.join("cache"));
+        let mut downloads = Downloads::in_file(dir.join("index.json"));
+        let course = Item {
+            kind: "crs".into(),
+            ref_id: 1,
+            title: "DEMO.101".into(),
+            url: "https://ilias.example/ilias/goto.php/crs/1".into(),
+            ..Item::default()
+        };
+        sync(
+            &client,
+            &[course],
+            &dir,
+            &mut downloads,
+            &cache,
+            50.0,
+            |_| {},
+        )
+        .unwrap();
+        // The same keys the TUI uses when it opens these pages (offline too).
+        for url in ["crs/1", "fold/2", "fold/3"] {
+            let key = Cache::key(
+                Some(&format!("https://ilias.example/ilias/goto.php/{url}")),
+                false,
+            );
+            assert!(cache.get(&key).is_some(), "{url} cached");
+        }
+        let _ = std::fs::remove_dir_all(dir);
+    }
+
+    #[test]
+    fn reports_what_deserves_a_look() {
+        let summary = Summary {
+            new: 3,
+            beside: vec![PathBuf::from("/dl/DEMO.101/Blatt 3 (ILIAS 2026-11-02).pdf")],
+            too_big: vec!["DEMO.101 › Aufzeichnungen › Lecture 1 (107.9 MB)".into()],
+            ..Summary::default()
+        };
+        let report = summary.report(Path::new("/dl"), 50.0);
+        assert_eq!(
+            report,
+            [
+                (
+                    "Changed on ILIAS, kept your edited copy; new version saved as".to_string(),
+                    vec!["DEMO.101/Blatt 3 (ILIAS 2026-11-02).pdf".to_string()]
+                ),
+                (
+                    "Skipped: bigger than 50 MB".to_string(),
+                    vec!["DEMO.101 › Aufzeichnungen › Lecture 1 (107.9 MB)".to_string()]
+                ),
+            ]
+        );
+        assert!(Summary::default().report(Path::new("/dl"), 50.0).is_empty());
+        assert_eq!(
+            summary.text(50.0),
+            "Synced: 3 new, 0 updated, 1 edited by you (new version saved beside), 0 unchanged, 1 over 50 MB skipped"
+        );
     }
 }

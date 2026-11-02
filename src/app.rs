@@ -14,7 +14,7 @@ use ratatui::{DefaultTerminal, Frame};
 
 use crate::action::Action;
 use crate::cache::Cache;
-use crate::components::{Browser, Component, Confirm, Filter, Help, StatusBar};
+use crate::components::{Browser, Component, Confirm, Filter, Help, Report, StatusBar};
 use crate::downloads::Downloads;
 use crate::ilias::{Client, Item, Page};
 use crate::{auth, open, session, sync};
@@ -25,6 +25,7 @@ pub struct App {
     downloads: Downloads,
     cache: Cache,
     confirm: Confirm,
+    report: Report,
     filter: Filter,
     browser: Browser,
     status_bar: StatusBar,
@@ -46,6 +47,7 @@ impl App {
             downloads,
             cache,
             confirm: Confirm::default(),
+            report: Report::default(),
             filter: Filter::default(),
             browser,
             status_bar: StatusBar::default(),
@@ -57,9 +59,10 @@ impl App {
     }
 
     /// Components from top-most to bottom-most; earlier ones get keys first.
-    fn components(&mut self) -> [&mut dyn Component; 5] {
+    fn components(&mut self) -> [&mut dyn Component; 6] {
         [
             &mut self.confirm,
+            &mut self.report,
             &mut self.help,
             &mut self.filter,
             &mut self.browser,
@@ -209,14 +212,17 @@ impl App {
             }
             Action::Sync(roots) => {
                 let (roots, dir) = (roots.clone(), self.download_dir.clone());
+                let cache = self.cache.clone();
                 self.spawn(move |client, tx| {
                     let mut downloads = Downloads::load(&client.base);
                     let max_mb = sync::max_mb_from_env();
-                    let summary = sync::sync(client, &roots, &dir, &mut downloads, max_mb, |p| {
-                        let _ = tx.send(Action::Progress(p));
-                    })?;
+                    let summary =
+                        sync::sync(client, &roots, &dir, &mut downloads, &cache, max_mb, |p| {
+                            let _ = tx.send(Action::Progress(p));
+                        })?;
                     Ok(Action::Synced {
                         summary: summary.text(max_mb),
+                        report: summary.report(&dir, max_mb),
                         saved: summary.saved,
                     })
                 });
@@ -304,6 +310,7 @@ impl App {
         }
         self.status_bar.draw(frame, status);
         self.help.draw(frame, area);
+        self.report.draw(frame, area);
         // Last, so the question is on top of everything.
         self.confirm.draw(frame, area);
     }

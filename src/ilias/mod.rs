@@ -209,8 +209,23 @@ impl Client {
         root: Option<&Item>,
         progress: impl Fn(usize) + Sync,
     ) -> Result<Vec<Item>> {
+        self.descendants_with_pages(root, progress, &|_, _| {})
+    }
+
+    /// Like [`Client::descendants`], and hands every container page it reads (the root's
+    /// included) to `pages`, e.g. to keep them for offline use.
+    pub fn descendants_with_pages(
+        &self,
+        root: Option<&Item>,
+        progress: impl Fn(usize) + Sync,
+        pages: &(dyn Fn(&Item, &Page) + Sync),
+    ) -> Result<Vec<Item>> {
         let top = match root {
-            Some(item) => self.children(item)?,
+            Some(item) => {
+                let page = self.page(item, None)?;
+                pages(item, &page);
+                page.items().cloned().collect()
+            }
             None => self.course_list()?,
         };
         // Categories lead out of the course into the rest of the repository; forum threads
@@ -230,7 +245,7 @@ impl Client {
         let done = || progress(fetched.fetch_add(1, Ordering::Relaxed) + 1);
         while !frontier.is_empty() {
             frontier.truncate(MAX_CRAWL.saturating_sub(children.len()));
-            let results = self.fetch_children(&frontier, &done)?;
+            let results = self.fetch_children(&frontier, &done, pages)?;
             frontier = results
                 .iter()
                 .flat_map(|(_, items)| items)
@@ -271,6 +286,7 @@ impl Client {
         &self,
         items: &[Item],
         done: &(dyn Fn() + Sync),
+        pages: &(dyn Fn(&Item, &Page) + Sync),
     ) -> Result<Vec<(u64, Vec<Item>)>> {
         let next = AtomicUsize::new(0);
         let results = Mutex::new(Vec::new());
@@ -278,7 +294,10 @@ impl Client {
             for _ in 0..PARALLEL.min(items.len()) {
                 scope.spawn(|| {
                     while let Some(item) = items.get(next.fetch_add(1, Ordering::Relaxed)) {
-                        let result = self.children(item).map(|c| (item.ref_id, c));
+                        let result = self.page(item, None).map(|page| {
+                            pages(item, &page);
+                            (item.ref_id, page.items().cloned().collect())
+                        });
                         done();
                         results
                             .lock()

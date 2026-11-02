@@ -95,7 +95,11 @@ impl Component for StatusBar {
                     Status::Done(text)
                 }
             }
-            Action::Ask { .. } | Action::Quit | Action::ToggleHelp | Action::Filter(_) => {
+            Action::Ask { .. }
+            | Action::Handled
+            | Action::Quit
+            | Action::ToggleHelp
+            | Action::Filter(_) => {
                 return None;
             }
         };

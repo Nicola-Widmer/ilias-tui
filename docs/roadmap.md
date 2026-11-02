@@ -52,7 +52,8 @@ Read-only; safe to build.
 
 - [x] **Sync whole courses or folders** (`S`, `Space` to mark several): files up to 50 MB,
   only changed ones, your edits never overwritten.
-- [ ] **List what sync skipped** (the big files, the conflicts) instead of only counting them.
+- [x] **Sync report** listing the skipped big files, new versions saved beside your edits,
+  and failures.
 - [ ] **Sync from the command line** (`ilias-tui sync URL…`), e.g. for cron.
 - [ ] **Sync through the fake ILIAS in tests.** Downloads bypass the `Pages` seam, so only
   sync's rules are tested, not a whole run.
@@ -118,8 +119,10 @@ front of every page request (only `src/ilias/write.rs` gets past it).
   variables.
 - [x] **Offline mode.** `--offline`, or automatic when ILIAS can't be reached: cached pages
   and saved files only, nothing is sent; `L` goes online.
-- [ ] **Offline pages for synced courses.** Sync saves the files, but offline mode only has
-  the pages you opened.
+- [x] **Offline pages for synced courses.** Sync caches every course and folder page it
+  reads.
+- [ ] **Offline tabs of synced courses** (Info, Members, …): sync caches only the content
+  page of each course and folder.
 - [ ] **Cache size limit / cleanup.** Today the cache only grows; only `ilias-tui logout`
   clears it.
 - [ ] **Several accounts or ILIAS installations** side by side. Today: one at a time via

@@ -5,12 +5,14 @@ mod browser;
 mod confirm;
 mod filter;
 mod help;
+mod report;
 mod status_bar;
 
 pub use browser::Browser;
 pub use confirm::Confirm;
 pub use filter::Filter;
 pub use help::Help;
+pub use report::Report;
 pub use status_bar::StatusBar;
 
 use ratatui::Frame;

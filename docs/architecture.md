@@ -319,6 +319,12 @@ at a time into fresh files, then replace or sit beside. The sync job writes the 
 itself (`Downloads::update` re-reads the file first, so it and the TUI don't drop each
 other's entries); `Synced` makes `App` read it again.
 
+The crawl uses `Client::descendants_with_pages`, which hands every course and folder page it
+reads to a callback; sync puts them in the page cache under the key the TUI uses when it
+opens that item (`Cache::key(item.url)`), so a synced course can be browsed offline. The
+`Summary` counts everything for the status bar and lists the files worth a look (`report`:
+skipped for size, saved beside, failed); the `Report` overlay shows them after the sync.
+
 My courses has no special case: on the first start with an empty cache it takes ~2–3 s
 (course list, dashboard and the To-Do exercises), later starts show the cached copy.
 
@@ -388,6 +394,7 @@ pages.
 | `Browser`   | stack of `Level { item, deep, page, items, visible, cursor, list }`, `query` | Tab bar, then the page laid out as rows: headings, wrapped text, items with icon and details. Only item rows can be selected. `Tab` loads another tab into the same level. Back = pop (no request, unless the level went out of date while hidden: then it reloads once). `r` refreshes the top level. Only responses for the page asked for last are applied. |
 | `StatusBar` | `Status` (idle/busy/done/info/error), start time | Spinner while busy, ✓ / ⚠ icons for results and errors; key hints on the right. |
 | `Help`      | `visible: bool`                          | Overlay drawn last, on top of everything. Keys come from `help::KEYS`, grouped into sections. |
+| `Report`    | the last sync's report lines, `scroll`   | Overlay after a sync that skipped, kept or failed files. `j`/`k` scroll, any other key closes. Keys it uses up return `Action::Handled`. |
 | `Confirm`   | `pending: Option<(question, Action)>`    | Yes/no dialog, first in the z-order. `Action::Ask { question, then }` opens it; `y` sends `then`, anything that cancels sends `Cancelled`. Every write goes through it. |
 
 ### Look
