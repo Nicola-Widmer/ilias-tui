@@ -10,9 +10,10 @@ use std::collections::{HashMap, HashSet};
 use std::fs::File;
 use std::io;
 use std::path::{Path, PathBuf};
-use std::sync::atomic::{AtomicUsize, Ordering};
+use std::sync::atomic::{AtomicBool, AtomicUsize, Ordering};
 use std::sync::{Arc, Mutex, PoisonError};
 use std::thread;
+use std::time::Duration;
 
 use color_eyre::{Result, eyre::bail};
 use cookie_store::CookieStore;
@@ -44,7 +45,12 @@ pub struct Client {
     jar: Arc<CookieStoreMutex>,
     /// `ILIAS_DRY_RUN`: favourites changes are only pretended.
     dry_run: bool,
+    /// Offline mode: nothing at all is sent; every request fails with [`OFFLINE`].
+    offline: AtomicBool,
 }
+
+/// The error of every request in offline mode.
+pub const OFFLINE: &str = "offline: not connected to ILIAS";
 
 impl Client {
     pub fn new(base: Url, cookies: CookieStore) -> Result<Self> {
@@ -52,6 +58,9 @@ impl Client {
         let http = reqwest::blocking::Client::builder()
             .cookie_provider(jar.clone())
             .user_agent(concat!("ilias-tui/", env!("CARGO_PKG_VERSION")))
+            // An unreachable server shows quickly (offline detection at startup); slow
+            // pages and big downloads still have all the time they need.
+            .connect_timeout(Duration::from_secs(8))
             .build()?;
         Ok(Self {
             base,
@@ -59,7 +68,24 @@ impl Client {
             http,
             jar,
             dry_run: write::dry_run_from_env(),
+            offline: AtomicBool::new(false),
         })
+    }
+
+    /// Offline mode: from now on nothing is sent to ILIAS.
+    pub fn set_offline(&self, offline: bool) {
+        self.offline.store(offline, Ordering::Relaxed);
+    }
+
+    pub fn is_offline(&self) -> bool {
+        self.offline.load(Ordering::Relaxed)
+    }
+
+    fn ensure_online(&self) -> Result<()> {
+        if self.is_offline() {
+            bail!(OFFLINE);
+        }
+        Ok(())
     }
 
     /// A client whose page requests go to `pages` (a fake ILIAS).
@@ -84,6 +110,7 @@ impl Client {
 
     /// The one place page requests leave the client. Only `write.rs` passes `write: true`.
     fn request(&self, url: &Url, write: bool) -> Result<Fetched> {
+        self.ensure_online()?;
         if !write && write::is_write(url) {
             bail!("refused to request {url}: it would change something on ILIAS");
         }
@@ -102,6 +129,7 @@ impl Client {
     /// Follows the OIDC redirects but stops right before the login code would be handed back
     /// to ILIAS, so no new ILIAS session is created.
     pub fn login_server_session_active(&self) -> Result<bool> {
+        self.ensure_online()?;
         let ilias_host = self.base.host_str().map(str::to_owned);
         let http = reqwest::blocking::Client::builder()
             .cookie_provider(self.jar.clone())
@@ -269,6 +297,7 @@ impl Client {
 
     /// Downloads a file object into `dir`, never overwriting existing files.
     pub fn download(&self, item: &Item, dir: &Path) -> Result<PathBuf> {
+        self.ensure_online()?;
         // Files listed in folders link straight to `cmd=sendfile`; otherwise use the permalink.
         let url = if item.url.contains("cmd=sendfile") {
             Url::parse(&item.url)?
@@ -566,5 +595,28 @@ mod tests {
             ]
         );
         assert_eq!(ilias.requests(&base()).len(), 3, "the forum is not crawled");
+    }
+
+    #[test]
+    fn offline_sends_nothing() {
+        let (client, ilias) = fake(|url| reply(url, "<p>ok</p>"));
+        client.set_offline(true);
+        let error = client
+            .get_authed(&client.url("goto.php/crs/1").unwrap())
+            .unwrap_err();
+        assert_eq!(error.to_string(), OFFLINE);
+        assert!(
+            client
+                .download(&Item::default(), Path::new("/nonexistent"))
+                .is_err()
+        );
+        assert!(ilias.requests(&base()).is_empty());
+
+        client.set_offline(false);
+        assert!(
+            client
+                .get_authed(&client.url("goto.php/crs/1").unwrap())
+                .is_ok()
+        );
     }
 }

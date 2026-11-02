@@ -68,6 +68,9 @@ impl App {
     }
 
     pub fn run(mut self, terminal: &mut DefaultTerminal) -> Result<()> {
+        if self.client.is_offline() {
+            self.tx.send(Action::Offline)?;
+        }
         self.tx.send(Action::Load {
             item: None,
             url: None,
@@ -109,6 +112,13 @@ impl App {
     }
 
     fn dispatch(&mut self, action: Action) -> Result<()> {
+        // Offline nothing can be changed on ILIAS; say so before asking the question.
+        if self.client.is_offline() && matches!(action, Action::Ask { .. }) {
+            self.tx.send(Action::Error(
+                "Offline: changes can't be sent to ILIAS. Press L to go online.".into(),
+            ))?;
+            return Ok(());
+        }
         match &action {
             Action::Quit => self.should_quit = true,
             Action::Load {
@@ -122,7 +132,21 @@ impl App {
                     url.as_deref().or(item.as_ref().map(|i| i.url.as_str())),
                     deep,
                 );
-                if let Some(page) = (!refresh).then(|| self.cache.get(&key)).flatten() {
+                if self.client.is_offline() {
+                    // Offline: whatever the cache has, never a request.
+                    self.tx.send(match self.cache.get(&key) {
+                        Some(page) => Action::Loaded {
+                            item,
+                            page,
+                            refresh,
+                            deep,
+                        },
+                        None => Action::Error(format!(
+                            "Not available offline: {} was not opened before. Press L to go online.",
+                            item.as_ref().map_or("My courses", |i| i.title.as_str())
+                        )),
+                    })?;
+                } else if let Some(page) = (!refresh).then(|| self.cache.get(&key)).flatten() {
                     // Show the cached copy now and fetch the current one in the background.
                     self.tx.send(Action::Loaded {
                         item: item.clone(),
@@ -182,6 +206,18 @@ impl App {
                 });
             }
             Action::Login => self.spawn(|client, _| {
+                if client.is_offline() {
+                    // Going online: the saved session may well still work.
+                    client.set_offline(false);
+                    match client.check_session() {
+                        Ok(true) => return Ok(Action::LoggedIn),
+                        Ok(false) => {}
+                        Err(e) => {
+                            client.set_offline(true);
+                            return Err(e.wrap_err("Still offline: ILIAS can't be reached"));
+                        }
+                    }
+                }
                 client.set_cookies(auth::browser_login(&client.base)?);
                 session::save(&client.base, &client.cookies())?;
                 Ok(Action::LoggedIn)
@@ -373,6 +409,57 @@ mod tests {
         ));
 
         app.cache.clear();
+        let _ = std::fs::remove_dir_all(dir);
+    }
+
+    #[test]
+    fn offline_shows_cached_pages_and_never_refreshes() {
+        let dir = std::env::temp_dir().join(format!("ilias-tui-offline-{}", std::process::id()));
+        let mut app = app(&dir);
+        app.client.set_offline(true);
+        let folder = |id: u64| Item {
+            kind: "fold".into(),
+            ref_id: id,
+            title: format!("Ordner {id}"),
+            url: format!("https://ilias.example/ilias/goto.php/fold/{id}"),
+            ..Default::default()
+        };
+        let cached = Page::from_items(vec![Item::default()]);
+        app.cache
+            .put(&Cache::key(Some(&folder(2).url), false), &cached);
+
+        // Cached: shown, and no background refresh queued (also not for `r`).
+        for refresh in [false, true] {
+            app.dispatch(Action::Load {
+                item: Some(folder(2)),
+                url: None,
+                refresh,
+                deep: false,
+            })
+            .unwrap();
+            assert!(
+                matches!(app.rx.try_recv(), Ok(Action::Loaded { ref page, .. }) if *page == cached)
+            );
+            assert!(app.rx.try_recv().is_err(), "nothing else queued");
+        }
+
+        // Never opened: a clear message instead of a request.
+        app.dispatch(load(Some(folder(3)))).unwrap();
+        let Ok(Action::Error(message)) = app.rx.try_recv() else {
+            panic!("expected an error");
+        };
+        assert!(
+            message.contains("Not available offline: Ordner 3"),
+            "{message}"
+        );
+
+        // Changing a favourite is refused before the question.
+        app.dispatch(Action::Ask {
+            question: "Add?".into(),
+            then: Box::new(Action::ToggleFavorite(folder(2))),
+        })
+        .unwrap();
+        assert!(matches!(app.rx.try_recv(), Ok(Action::Error(_))));
         let _ = std::fs::remove_dir_all(dir);
     }
 }

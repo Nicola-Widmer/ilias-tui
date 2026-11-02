@@ -750,7 +750,13 @@ impl Component for Browser {
             .border_style(Style::new().fg(theme::BORDER))
             .padding(Padding::horizontal(1));
         let Some(level) = self.stack.last_mut() else {
-            let loading = Paragraph::new("Loading your courses…")
+            // Nothing pending any more means it failed (e.g. offline without a cached copy);
+            // the status bar says why.
+            let message = match self.pending {
+                Some(_) => "Loading your courses…",
+                None => "My courses is not available",
+            };
+            let loading = Paragraph::new(message)
                 .style(theme::muted())
                 .centered()
                 .block(border);

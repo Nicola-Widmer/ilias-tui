@@ -116,8 +116,10 @@ front of every page request (only `src/ilias/write.rs` gets past it).
   terminals (`src/theme.rs`).
 - [ ] **Config file** for keys, download folder and theme. Today there are only environment
   variables.
-- [ ] **Offline mode.** Browse cached pages without a connection. Today they are shown, but
-  the background refresh fails with an error.
+- [x] **Offline mode.** `--offline`, or automatic when ILIAS can't be reached: cached pages
+  and saved files only, nothing is sent; `L` goes online.
+- [ ] **Download a whole course for offline use.** Offline only has what you opened
+  before.
 - [ ] **Cache size limit / cleanup.** Today the cache only grows; only `ilias-tui logout`
   clears it.
 - [ ] **Several accounts or ILIAS installations** side by side. Today: one at a time via

@@ -54,7 +54,7 @@ pub const KEYS: &[(&str, &[(&str, &str)])] = &[
     (
         "App",
         &[
-            ("L", "Log in again (opens Chrome)"),
+            ("L", "Log in again / go online (opens Chrome if needed)"),
             ("?", "Toggle this help"),
             ("q  Ctrl-c", "Quit"),
         ],

@@ -130,7 +130,8 @@ TUI starts.
 
 | Command               | What it does                                             |
 | --------------------- | -------------------------------------------------------- |
-| `ilias-tui`           | Start the TUI (logs in first if needed)                  |
+| `ilias-tui`           | Start the TUI (logs in first if needed; offline if ILIAS can't be reached) |
+| `ilias-tui --offline` | Start the TUI offline: cached pages and saved files only, nothing is sent |
 | `ilias-tui login`     | Force a fresh browser login                              |
 | `ilias-tui logout`    | Delete the saved session file                            |
 | `ilias-tui ls [URL] [--deep]` | Print a container's items as `kind<TAB>ref_id<TAB>title` (default: my courses). With `--deep`, print everything below it |
@@ -172,7 +173,7 @@ ilias-tui get goto.php/file/123456
 | `f`             | Add to / remove from your ILIAS favourites (asks first) |
 | `Tab` / `Shift-Tab` | Next / previous tab (Inhalt, Info, …); on My courses, in and out of the To-Do panel |
 | `r`             | Reload current list                             |
-| `L`             | Log in again (opens Chrome)                     |
+| `L`             | Log in again / go online (opens Chrome if needed) |
 | `?`             | Toggle help                                     |
 | `q` / `Ctrl-c`  | Quit                                            |
 
@@ -200,6 +201,7 @@ turns mouse support off.
 | `ILIAS_NERD_FONT`     | `1`. Set to `0` for plain Unicode icons |
 | `ILIAS_MOUSE`         | `1`. Set to `0` to turn off mouse support |
 | `ILIAS_CACHE`         | `1`. Set to `0` to turn off the page cache |
+| `ILIAS_OFFLINE`       | `0`. Set to `1` to always start offline (same as `--offline`) |
 | `ILIAS_DRY_RUN`       | `0`. Set to `1` to never send changes to ILIAS (favourites); the app only says what it would have done |
 
 The colours are tuned for **dark** terminal themes and use 24-bit colour, which almost every
@@ -209,6 +211,23 @@ WezTerm, Kitty and Alacritty do). To change them, edit
 
 To use another school's ILIAS, point `ILIAS_URL` at the folder that contains `login.php`
 and `openidconnect.php`.
+
+## Offline
+
+Without a connection (train, plane, ILIAS down), ilias-tui still works with what it has
+seen before:
+
+- **Starting:** if ILIAS can't be reached, it says so and starts offline. `--offline` (or
+  `ILIAS_OFFLINE=1`) starts offline on purpose. The status bar shows an `OFFLINE` badge.
+- **Pages** you opened before show from the cache, as they were then, and are not
+  refreshed. Pages you never opened say "Not available offline". This covers tabs and
+  earlier deep search results too.
+- **Saved files** (`✓ saved`) open as usual; other files can't be downloaded.
+- **Nothing is sent** to ILIAS, not even a session check. Favourites can't be changed.
+- **`L` goes online:** it checks the saved session (and only opens Chrome if that has
+  expired). Then the page on screen reloads.
+
+Cached pages are kept for 30 days, and only if the cache is on (`ILIAS_CACHE` not `0`).
 
 ## How long does a login last?
 

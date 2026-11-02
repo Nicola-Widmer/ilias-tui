@@ -53,7 +53,9 @@ pub enum Action {
         item: Item,
         dry_run: bool,
     },
-    /// Run the interactive browser login.
+    /// The app runs offline: only cached pages and saved files, nothing is sent.
+    Offline,
+    /// Run the interactive browser login (offline: first try the saved session).
     Login,
     LoggedIn,
     /// Intermediate status of a running job.

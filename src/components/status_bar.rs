@@ -4,7 +4,7 @@ use std::time::Instant;
 
 use ratatui::Frame;
 use ratatui::layout::{Constraint, Layout, Rect};
-use ratatui::style::{Color, Style};
+use ratatui::style::{Color, Modifier, Style};
 use ratatui::text::{Line, Span};
 use ratatui::widgets::Paragraph;
 
@@ -24,6 +24,8 @@ enum Status {
 pub struct StatusBar {
     status: Status,
     started: Instant,
+    /// Shown as a badge until the app is online again.
+    offline: bool,
 }
 
 impl Default for StatusBar {
@@ -31,6 +33,7 @@ impl Default for StatusBar {
         Self {
             status: Status::Idle,
             started: Instant::now(),
+            offline: false,
         }
     }
 }
@@ -61,7 +64,16 @@ impl Component for StatusBar {
                 Status::Info(format!("Opened {} in your browser", item.title))
             }
             Action::Login => Status::Busy("Complete the login in the Chrome window…".into()),
-            Action::LoggedIn => Status::Done("Logged in".into()),
+            Action::LoggedIn => {
+                self.offline = false;
+                Status::Done("Logged in".into())
+            }
+            Action::Offline => {
+                self.offline = true;
+                Status::Warning(
+                    "Offline: showing cached pages and saved files. L goes online.".into(),
+                )
+            }
             Action::Error(e) => Status::Error(e.clone()),
             Action::Cancelled => Status::Info("Cancelled; nothing was sent to ILIAS".into()),
             Action::ToggleFavorite(_) => Status::Busy("Updating your favourites…".into()),
@@ -87,7 +99,7 @@ impl Component for StatusBar {
     }
 
     fn draw(&mut self, frame: &mut Frame, area: Rect) {
-        let hints: Vec<Span> = HINTS
+        let mut hints: Vec<Span> = HINTS
             .iter()
             .flat_map(|(key, label)| {
                 [
@@ -96,6 +108,14 @@ impl Component for StatusBar {
                 ]
             })
             .collect();
+        if self.offline {
+            let badge = Style::new()
+                .fg(theme::BAR_BG)
+                .bg(theme::YELLOW)
+                .add_modifier(Modifier::BOLD);
+            hints.insert(0, Span::styled(" OFFLINE ", badge));
+            hints.insert(1, Span::raw(" "));
+        }
         let hints = Line::from(hints);
         let [left, right] = Layout::horizontal([
             Constraint::Fill(1),

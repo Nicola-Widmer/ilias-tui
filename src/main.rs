@@ -25,7 +25,9 @@ const USAGE: &str = "\
 ilias-tui — browse ILIAS courses from the terminal
 
 USAGE:
-    ilias-tui            Start the TUI (logs in first if needed)
+    ilias-tui            Start the TUI (logs in first if needed; starts offline
+                         with cached pages if ILIAS can't be reached)
+    ilias-tui --offline  Start the TUI offline: cached pages and saved files only
     ilias-tui login      Force a fresh browser login
     ilias-tui logout     Delete the saved session file
     ilias-tui show URL   Print the parsed page (tabs, headings, text, items)
@@ -41,7 +43,8 @@ ENVIRONMENT:
     ILIAS_DOWNLOAD_DIR   Where files are saved (default: ~/Downloads/ILIAS)
     ILIAS_NERD_FONT=0    Plain Unicode icons instead of Nerd Font glyphs
     ILIAS_MOUSE=0        Turn off mouse support
-    ILIAS_CACHE=0        Turn off the page cache";
+    ILIAS_CACHE=0        Turn off the page cache
+    ILIAS_OFFLINE=1      Same as --offline";
 
 fn main() -> Result<()> {
     color_eyre::install()?;
@@ -53,8 +56,13 @@ fn main() -> Result<()> {
         .collect::<Vec<_>>()
         .as_slice()
     {
-        [] => {
-            let client = connect(&base, false)?;
+        [] | ["--offline"] => {
+            let offline = args.first().is_some_and(|a| a == "--offline")
+                || matches!(
+                    std::env::var("ILIAS_OFFLINE").as_deref(),
+                    Ok("1" | "true" | "yes" | "on")
+                );
+            let client = connect_or_offline(&base, offline)?;
             let mut terminal = ratatui::init();
             let mouse = mouse_enabled();
             if mouse {
@@ -238,6 +246,32 @@ fn download_dir() -> PathBuf {
                 .unwrap_or_else(|| PathBuf::from("."))
                 .join("ILIAS")
         })
+}
+
+/// For the TUI: like [`connect`], but if ILIAS can't be reached (or `offline` is asked
+/// for), returns a client in offline mode that sends nothing; the TUI then shows cached
+/// pages only.
+fn connect_or_offline(base: &Url, offline: bool) -> Result<Client> {
+    let client = Client::new(base.clone(), session::load(base))?;
+    if offline {
+        client.set_offline(true);
+        return Ok(client);
+    }
+    match client.check_session() {
+        Ok(true) => {
+            session::save(base, &client.cookies())?;
+            Ok(client)
+        }
+        Ok(false) => connect(base, true),
+        Err(e) => {
+            eprintln!(
+                "Can't reach ILIAS ({}). Starting offline with your cached pages.",
+                e.root_cause()
+            );
+            client.set_offline(true);
+            Ok(client)
+        }
+    }
 }
 
 /// Restores the saved session, refreshing it silently via Keycloak, and falls back to

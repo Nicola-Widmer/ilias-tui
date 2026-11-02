@@ -299,6 +299,15 @@ Components never touch the network and never call each other. They only:
 
 `App::dispatch(Load { item, url, refresh, deep })` decides where a page comes from:
 
+**Offline mode** (`Client::set_offline`): every request (`request`, `download`, the
+Keycloak probe) fails with `OFFLINE` before anything is sent. `main::connect_or_offline`
+turns it on for `--offline` / `ILIAS_OFFLINE=1`, or when the session check can't reach ILIAS
+(an 8 s connect timeout keeps that quick). `App` then answers every `Load` from the cache,
+also `refresh: true` ones, with no background refresh, and an `Error` if the page was never
+cached; it refuses `Ask` (writes) up front. `Login` first turns offline off and tries the
+session check, and only opens Chrome if the session expired; if ILIAS still can't be
+reached it goes back to offline.
+
 My courses has no special case: on the first start with an empty cache it takes ~2–3 s
 (course list, dashboard and the To-Do exercises), later starts show the cached copy.
 
