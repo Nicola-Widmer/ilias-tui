@@ -146,7 +146,12 @@ impl App {
                 );
                 if self.client.is_offline() {
                     // Offline: whatever the cache has, never a request.
-                    self.tx.send(match self.cache.get(&key) {
+                    let cached = if deep {
+                        self.cache.descendants(item.as_ref()).map(Page::from_items)
+                    } else {
+                        self.cache.get(&key)
+                    };
+                    self.tx.send(match cached {
                         Some(page) => Action::Loaded {
                             item,
                             page,
@@ -471,6 +476,65 @@ mod tests {
             app.rx.try_recv(),
             Ok(Action::Load { refresh: true, .. })
         ));
+
+        app.cache.clear();
+        let _ = std::fs::remove_dir_all(dir);
+    }
+
+    #[test]
+    fn offline_deep_search_walks_the_cached_pages() {
+        let dir = std::env::temp_dir().join(format!("ilias-tui-deep-{}", std::process::id()));
+        let mut app = app(&dir);
+        app.client.set_offline(true);
+        let item = |kind: &str, id: u64, title: &str| Item {
+            kind: kind.into(),
+            ref_id: id,
+            title: title.into(),
+            url: format!("https://ilias.example/ilias/goto.php/{kind}/{id}"),
+            ..Default::default()
+        };
+        let course = item("crs", 1, "DEMO");
+        let put = |app: &App, of: &Item, items: Vec<Item>| {
+            app.cache
+                .put(&Cache::key(Some(&of.url), false), &Page::from_items(items))
+        };
+        put(
+            &app,
+            &course,
+            vec![item("fold", 2, "Woche 1"), item("fold", 4, "Woche 2")],
+        );
+        put(
+            &app,
+            &item("fold", 2, "Woche 1"),
+            vec![item("file", 3, "Folien")],
+        );
+
+        app.dispatch(Action::Load {
+            item: Some(course),
+            url: None,
+            refresh: false,
+            deep: true,
+        })
+        .unwrap();
+        let Ok(Action::Loaded {
+            page, deep: true, ..
+        }) = app.rx.try_recv()
+        else {
+            panic!("expected the search results");
+        };
+        let titles: Vec<String> = page.items().map(|i| i.title.clone()).collect();
+        // Woche 2 was never opened: listed, but nothing below it.
+        assert_eq!(titles, ["Woche 1", "Woche 1 › Folien", "Woche 2"]);
+
+        // A course whose page isn't cached can't be searched.
+        app.dispatch(Action::Load {
+            item: Some(item("crs", 9, "Anderes")),
+            url: None,
+            refresh: false,
+            deep: true,
+        })
+        .unwrap();
+        assert!(matches!(app.rx.try_recv(), Ok(Action::Error(_))));
 
         app.cache.clear();
         let _ = std::fs::remove_dir_all(dir);

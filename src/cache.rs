@@ -9,7 +9,7 @@ use std::time::{Duration, SystemTime};
 
 use url::Url;
 
-use crate::ilias::Page;
+use crate::ilias::{self, Item, Page};
 use crate::session;
 
 /// Cached pages older than this are deleted; course pages rarely matter after a month.
@@ -59,6 +59,19 @@ impl Cache {
             (h ^ b as u64).wrapping_mul(0x100000001b3)
         });
         Some(self.dir.as_ref()?.join(format!("{hash:016x}.json")))
+    }
+
+    /// Deep search without ILIAS: everything below `root` (`None` = My courses) that is in
+    /// the cache, from synced or opened pages. `None` if `root`'s own page isn't cached.
+    pub fn descendants(&self, root: Option<&Item>) -> Option<Vec<Item>> {
+        let page = |url: Option<&str>| self.get(&Self::key(url, false));
+        let top = page(root.map(|r| r.url.as_str()))?
+            .items()
+            .cloned()
+            .collect();
+        Some(ilias::walk(root, top, |item| {
+            Some(page(Some(&item.url))?.items().cloned().collect())
+        }))
     }
 
     pub fn get(&self, key: &str) -> Option<Page> {

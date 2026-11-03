@@ -256,7 +256,9 @@ seen before:
   `ILIAS_OFFLINE=1`) starts offline on purpose. The status bar shows an `OFFLINE` badge.
 - **Pages** you opened before, and every course and folder of a synced course, show from
   the cache as they were then, and are not refreshed. Other pages say "Not available
-  offline". This covers tabs and earlier deep search results too.
+  offline". This covers tabs too: switching tabs online also shows the cached copy first.
+- **Deep search** (`s`) searches the cached pages below the page on screen: a synced
+  course completely, otherwise the folders you opened before.
 - **Saved files** (`✓ saved`) open as usual; other files can't be downloaded.
 - **Nothing is sent** to ILIAS, not even a session check. Favourites can't be changed.
 - **`L` goes online:** it checks the saved session (and only opens Chrome if that has

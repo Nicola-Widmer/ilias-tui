@@ -228,11 +228,6 @@ impl Client {
             }
             None => self.course_list()?,
         };
-        // Categories lead out of the course into the rest of the repository; forum threads
-        // hold posts, not files.
-        let crawlable =
-            |i: &Item| i.is_container() && !matches!(i.kind.as_str(), "cat" | "frm" | "thr");
-
         // 1. Fetch every container below `root`, one tree level at a time, in parallel.
         let mut queued: HashSet<u64> = root.map(|r| r.ref_id).into_iter().collect();
         let mut children: HashMap<u64, Vec<Item>> = HashMap::new();
@@ -256,28 +251,7 @@ impl Client {
         }
 
         // 2. Walk the tree in display order, turning titles into paths.
-        let mut seen: HashSet<u64> = root.map(|r| r.ref_id).into_iter().collect();
-        let mut stack: Vec<(String, Item)> =
-            top.into_iter().rev().map(|i| (String::new(), i)).collect();
-        let mut found = Vec::new();
-        while let Some((parent, item)) = stack.pop() {
-            if !seen.insert(item.ref_id) {
-                continue;
-            }
-            let path = if parent.is_empty() {
-                item.title.clone()
-            } else {
-                format!("{parent} › {}", item.title)
-            };
-            if let Some(items) = children.get(&item.ref_id) {
-                stack.extend(items.iter().rev().map(|c| (path.clone(), c.clone())));
-            }
-            found.push(Item {
-                title: path,
-                ..item
-            });
-        }
-        Ok(found)
+        Ok(walk(root, top, |item| children.get(&item.ref_id).cloned()))
     }
 
     /// Fetches the children of all `items`, `PARALLEL` requests at a time. ILIAS handles
@@ -426,6 +400,44 @@ pub(crate) fn unique_path(dir: &Path, name: &str) -> PathBuf {
         .map(|n| dir.join(format!("{stem} ({n}){ext}")))
         .find(|p| !p.exists())
         .unwrap()
+}
+
+/// Containers whose children deep search and sync look at. Categories lead out of the
+/// course into the rest of the repository; forum threads hold posts, not files.
+pub fn crawlable(item: &Item) -> bool {
+    item.is_container() && !matches!(item.kind.as_str(), "cat" | "frm" | "thr")
+}
+
+/// Everything below `root` in display order, starting from its items `top`; `children`
+/// gives the items of a crawlable container, if known. Titles become paths relative to
+/// `root`, e.g. `Unterlagen › Woche 3 › Folien.pdf`.
+pub fn walk(
+    root: Option<&Item>,
+    top: Vec<Item>,
+    children: impl Fn(&Item) -> Option<Vec<Item>>,
+) -> Vec<Item> {
+    let mut seen: HashSet<u64> = root.map(|r| r.ref_id).into_iter().collect();
+    let mut stack: Vec<(String, Item)> =
+        top.into_iter().rev().map(|i| (String::new(), i)).collect();
+    let mut found = Vec::new();
+    while let Some((parent, item)) = stack.pop() {
+        if !seen.insert(item.ref_id) {
+            continue;
+        }
+        let path = if parent.is_empty() {
+            item.title.clone()
+        } else {
+            format!("{parent} › {}", item.title)
+        };
+        if let Some(items) = crawlable(&item).then(|| children(&item)).flatten() {
+            stack.extend(items.into_iter().rev().map(|c| (path.clone(), c)));
+        }
+        found.push(Item {
+            title: path,
+            ..item
+        });
+    }
+    found
 }
 
 #[cfg(test)]

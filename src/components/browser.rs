@@ -497,7 +497,7 @@ impl Browser {
                 Some(Action::Load {
                     item: level.item.clone(),
                     url: Some(tab.url.clone()),
-                    refresh: true,
+                    refresh: false,
                     deep: false,
                 })
             }
@@ -519,7 +519,7 @@ impl Browser {
         Some(Action::Load {
             item: level.item.clone(),
             url: Some(tabs.get(next)?.url.clone()),
-            refresh: true,
+            refresh: false,
             deep: false,
         })
     }
@@ -730,6 +730,16 @@ impl Component for Browser {
                 self.pending = None;
                 match self.stack.last_mut() {
                     Some(level) if *refresh => level.refresh(page, &self.query),
+                    // Another tab of the page on screen (cached or fetched) takes its place.
+                    Some(level)
+                        if level.deep == *deep
+                            && level.item.as_ref().map(|i| i.ref_id)
+                                == item.as_ref().map(|i| i.ref_id) =>
+                    {
+                        self.query.clear();
+                        *level = Level::new(item.clone(), *deep, page.clone());
+                        return Some(Action::Filter(String::new()));
+                    }
                     _ => {
                         self.query.clear();
                         self.todo_focus = false;
@@ -1459,8 +1469,18 @@ mod tests {
 
         let tab = browser.handle_key_event(KeyCode::Tab.into());
         assert!(
-            matches!(tab, Some(Action::Load { url: Some(ref u), refresh: true, .. }) if u == "u2")
+            matches!(tab, Some(Action::Load { url: Some(ref u), refresh: false, .. }) if u == "u2")
         );
+        // The other tab (here from the cache) replaces the page instead of opening on top.
+        let info = Page::from_items(vec![item("file", 10, "Syllabus")]);
+        load(
+            &mut browser,
+            Some(item("crs", 7, "DEMO")),
+            info.clone(),
+            false,
+        );
+        assert_eq!(browser.stack.len(), 1);
+        assert_eq!(browser.current().unwrap().page, info);
     }
 
     #[test]

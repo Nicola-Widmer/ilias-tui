@@ -305,7 +305,8 @@ Keycloak probe) fails with `OFFLINE` before anything is sent. `main::connect_or_
 turns it on for `--offline` / `ILIAS_OFFLINE=1`, or when the session check can't reach ILIAS
 (an 8 s connect timeout keeps that quick). `App` then answers every `Load` from the cache,
 also `refresh: true` ones, with no background refresh, and an `Error` if the page was never
-cached; it refuses `Ask` (writes) up front. `Login` first turns offline off and tries the
+cached. A deep search walks the cached pages instead (`Cache::descendants`, sharing
+`ilias::walk` with `Client::descendants`), so it finds everything below a synced course; it refuses `Ask` (writes) up front. `Login` first turns offline off and tries the
 session check, and only opens Chrome if the session expired; if ILIAS still can't be
 reached it goes back to offline.
 

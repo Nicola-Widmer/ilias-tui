@@ -121,6 +121,7 @@ front of every page request (only `src/ilias/write.rs` gets past it).
   and saved files only, nothing is sent; `L` goes online.
 - [x] **Offline pages for synced courses.** Sync caches every course and folder page it
   reads.
+- [x] **Offline deep search** over the cached pages (complete for synced courses).
 - [ ] **Offline tabs of synced courses** (Info, Members, …): sync caches only the content
   page of each course and folder.
 - [ ] **Cache size limit / cleanup.** Today the cache only grows; only `ilias-tui logout`
