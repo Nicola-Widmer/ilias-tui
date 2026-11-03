@@ -54,16 +54,24 @@ impl Component for Confirm {
     }
 
     fn draw(&mut self, frame: &mut Frame, area: Rect) {
-        let Some((question, _)) = &self.pending else {
+        let Some((question, then)) = &self.pending else {
             return;
+        };
+        // Sync only reads from ILIAS; everything else asked here changes it.
+        let (title, color) = match then {
+            Action::Sync(_) => (format!(" {}  Sync ", theme::sync()), theme::ACCENT),
+            _ => (
+                format!(" {}  Changes ILIAS ", theme::warning()),
+                theme::YELLOW,
+            ),
         };
         let area = area.centered(Constraint::Max(64), Constraint::Length(7));
         let block = Block::bordered()
             .border_type(BorderType::Rounded)
-            .border_style(Style::new().fg(theme::YELLOW))
+            .border_style(Style::new().fg(color))
             .title(Line::styled(
-                format!(" {}  Changes ILIAS ", theme::warning()),
-                Style::new().fg(theme::YELLOW).add_modifier(Modifier::BOLD),
+                title,
+                Style::new().fg(color).add_modifier(Modifier::BOLD),
             ))
             .padding(Padding::horizontal(2))
             .style(Style::new().bg(theme::BAR_BG));
@@ -96,6 +104,23 @@ mod tests {
             question: "Add “DEMO” to your ILIAS favourites?".into(),
             then: Box::new(Action::ToggleFavorite(Item::default())),
         });
+    }
+
+    #[test]
+    fn sync_questions_are_not_titled_as_changes() {
+        let mut confirm = Confirm::default();
+        confirm.update(&Action::Ask {
+            question: "Sync all 2 courses?".into(),
+            then: Box::new(Action::Sync(vec![])),
+        });
+        let mut terminal =
+            ratatui::Terminal::new(ratatui::backend::TestBackend::new(80, 12)).unwrap();
+        terminal.draw(|f| confirm.draw(f, f.area())).unwrap();
+        let screen = format!("{:?}", terminal.backend().buffer());
+        assert!(
+            screen.contains("Sync") && !screen.contains("Changes ILIAS"),
+            "{screen}"
+        );
     }
 
     #[test]

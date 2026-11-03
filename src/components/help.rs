@@ -46,6 +46,7 @@ pub const KEYS: &[(&str, &[(&str, &str)])] = &[
                 "S",
                 "Sync files (≤ 50 MB) of the marked or selected courses",
             ),
+            ("A", "Sync all courses in My courses (asks first)"),
         ],
     ),
     (
