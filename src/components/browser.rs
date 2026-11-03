@@ -426,6 +426,28 @@ impl Browser {
         self.stack.last()
     }
 
+    /// `A`: asks before syncing every course in My courses.
+    fn sync_all(&self) -> Action {
+        let courses: Vec<Item> = self
+            .stack
+            .iter()
+            .find(|l| l.item.is_none() && !l.deep)
+            .map(|l| l.items.iter().filter(|i| syncable(i)).cloned().collect())
+            .unwrap_or_default();
+        if courses.is_empty() {
+            return Action::Error("No courses to sync: My courses is empty or not loaded".into());
+        }
+        let n = courses.len();
+        Action::Ask {
+            question: format!(
+                "Sync all {n} course{} in My courses? Saves every file up to {} MB.",
+                if n == 1 { "" } else { "s" },
+                crate::sync::max_mb_from_env()
+            ),
+            then: Box::new(Action::Sync(courses)),
+        }
+    }
+
     fn open(&self, item: &Item) -> Action {
         if item.is_container() {
             Action::Load {
@@ -549,6 +571,9 @@ impl Component for Browser {
                 self.todo.select(Some(0));
             }
             return None;
+        }
+        if key.code == KeyCode::Char('A') {
+            return Some(self.sync_all());
         }
         let level = self.stack.last_mut()?;
         match key.code {
@@ -1141,6 +1166,37 @@ mod tests {
             refresh: false,
             deep,
         });
+    }
+
+    #[test]
+    fn a_asks_before_syncing_all_courses_from_anywhere() {
+        let mut browser = Browser::new(HashSet::new());
+        assert!(matches!(
+            browser.handle_key_event(KeyCode::Char('A').into()),
+            Some(Action::Error(_))
+        ));
+
+        let (a, b) = (item("crs", 1, "Algebra"), item("crs", 2, "Biologie"));
+        let courses = vec![a.clone(), item("webr", 3, "Link"), b];
+        load(&mut browser, None, Page::from_items(courses), false);
+        load(
+            &mut browser,
+            Some(a),
+            Page::from_items(vec![item("fold", 4, "Woche 1")]),
+            false,
+        );
+
+        let Some(Action::Ask { question, then }) =
+            browser.handle_key_event(KeyCode::Char('A').into())
+        else {
+            panic!("expected a question");
+        };
+        assert!(question.starts_with("Sync all 2 courses"), "{question}");
+        let Action::Sync(roots) = *then else {
+            panic!("expected a sync");
+        };
+        let ids: Vec<u64> = roots.iter().map(|r| r.ref_id).collect();
+        assert_eq!(ids, [1, 2]);
     }
 
     fn screen(browser: &mut Browser) -> String {

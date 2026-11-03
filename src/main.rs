@@ -3,6 +3,7 @@ mod app;
 mod auth;
 mod cache;
 mod components;
+mod config;
 mod downloads;
 mod icons;
 mod ilias;
@@ -41,7 +42,8 @@ USAGE:
 
 ENVIRONMENT:
     ILIAS_URL            ILIAS root URL (default: https://elearning.hslu.ch/ilias/)
-    ILIAS_DOWNLOAD_DIR   Where files are saved (default: ~/Downloads/ILIAS)
+    ILIAS_DOWNLOAD_DIR   Where files are saved (default: ~/Downloads/ILIAS, or what
+                         you chose in the settings page, c)
     ILIAS_NERD_FONT=0    Plain Unicode icons instead of Nerd Font glyphs
     ILIAS_MOUSE=0        Turn off mouse support
     ILIAS_CACHE=0        Turn off the page cache
@@ -75,7 +77,7 @@ fn main() -> Result<()> {
                     hook(info);
                 }));
             }
-            let result = app::App::new(client, download_dir()).run(&mut terminal);
+            let result = app::App::new(client, config::Config::load()).run(&mut terminal);
             if mouse {
                 execute!(std::io::stdout(), DisableMouseCapture)?;
             }
@@ -239,14 +241,7 @@ fn base_url() -> Result<Url> {
 }
 
 fn download_dir() -> PathBuf {
-    std::env::var_os("ILIAS_DOWNLOAD_DIR")
-        .map(PathBuf::from)
-        .unwrap_or_else(|| {
-            directories::UserDirs::new()
-                .and_then(|d| d.download_dir().map(|p| p.to_path_buf()))
-                .unwrap_or_else(|| PathBuf::from("."))
-                .join("ILIAS")
-        })
+    config::Config::load().download_dir()
 }
 
 /// For the TUI: like [`connect`], but if ILIAS can't be reached (or `offline` is asked

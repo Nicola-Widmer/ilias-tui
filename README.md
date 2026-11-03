@@ -63,7 +63,7 @@ What it does:
   `~/Downloads/ILIAS/DEMO.101/Unterlagen/Woche 3/Folien.pdf`. After that, the saved copy
   opens right away; saved files are marked `✓ saved`. (`ilias-tui get` only knows the
   file, not its folders, so it saves directly into `~/Downloads/ILIAS`.)
-- **Syncs whole courses** (`S`, or mark several with `Space`): every file up to 50 MB,
+- **Syncs whole courses** (`S`, mark several with `Space`, or all at once with `A`): every file up to 50 MB,
   in ILIAS's folder structure, and later only what changed. Files you edited (say, an
   annotated PDF) are never overwritten; see [Sync](#sync).
 - Opens everything else (tests, exercises, …) in your normal web browser.
@@ -174,6 +174,7 @@ ilias-tui get goto.php/file/123456
 | `d`             | Download a fresh copy without opening it        |
 | `Space`         | Mark a course or folder for sync                |
 | `S`             | Sync the marked courses (or the selected one)   |
+| `A`             | Sync all courses in My courses (asks first)     |
 | `o`             | Open selected item in your web browser          |
 | `f`             | Add to / remove from your ILIAS favourites (asks first) |
 | `Tab` / `Shift-Tab` | Next / previous tab (Inhalt, Info, …); on My courses, in and out of the To-Do panel |
@@ -202,7 +203,7 @@ turns mouse support off.
 | Environment variable  | Default                              |
 | --------------------- | ------------------------------------ |
 | `ILIAS_URL`           | `https://elearning.hslu.ch/ilias/`   |
-| `ILIAS_DOWNLOAD_DIR`  | `~/Downloads/ILIAS`                  |
+| `ILIAS_DOWNLOAD_DIR`  | `~/Downloads/ILIAS`. Also settable in the app: press `c` (the variable wins at startup) |
 | `ILIAS_NERD_FONT`     | `1`. Set to `0` for plain Unicode icons |
 | `ILIAS_MOUSE`         | `1`. Set to `0` to turn off mouse support |
 | `ILIAS_CACHE`         | `1`. Set to `0` to turn off the page cache |
@@ -222,7 +223,8 @@ and `openidconnect.php`.
 
 `S` saves all files of the selected course or folder into the download folder, in the same
 folders as on ILIAS (`~/Downloads/ILIAS/<course>/<folder>/…`). Mark several with `Space`
-first (they show `◉ sync`), then `S` syncs all of them. Progress shows in the status bar,
+first (they show `◉ sync`), then `S` syncs all of them. `A` syncs every course in My
+courses, after asking. Progress shows in the status bar,
 and at the end a summary: new, updated, unchanged, skipped. If any files were skipped for
 their size, saved beside your edited copy, or failed, a **sync report** opens and lists
 them by name (`j`/`k` scrolls, any other key closes it).
