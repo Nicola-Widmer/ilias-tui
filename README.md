@@ -202,7 +202,7 @@ turns mouse support off.
 | Environment variable  | Default                              |
 | --------------------- | ------------------------------------ |
 | `ILIAS_URL`           | `https://elearning.hslu.ch/ilias/`   |
-| `ILIAS_DOWNLOAD_DIR`  | `~/Downloads/ILIAS`                  |
+| `ILIAS_DOWNLOAD_DIR`  | `~/Downloads/ILIAS`. Also settable in the app: press `c` (the variable wins at startup) |
 | `ILIAS_NERD_FONT`     | `1`. Set to `0` for plain Unicode icons |
 | `ILIAS_MOUSE`         | `1`. Set to `0` to turn off mouse support |
 | `ILIAS_CACHE`         | `1`. Set to `0` to turn off the page cache |

@@ -62,6 +62,10 @@ pub fn empty_folder() -> &'static str {
     glyph("\u{f115}", "∅") // folder-open-o
 }
 
+pub fn gear() -> &'static str {
+    glyph("\u{f013}", "⚙") // cog
+}
+
 pub fn keyboard() -> &'static str {
     glyph("\u{f11c}", "⌨")
 }

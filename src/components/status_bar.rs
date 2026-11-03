@@ -55,6 +55,9 @@ impl Component for StatusBar {
             Action::Progress(text) => Status::Busy(text.clone()),
             Action::Download { item, .. } => Status::Busy(format!("Downloading {}…", item.title)),
             Action::Downloaded { path, .. } => Status::Done(format!("Saved {}", path.display())),
+            Action::DownloadDirSet(dir) => {
+                Status::Done(format!("Files now go to {}", crate::config::display(dir)))
+            }
             Action::OpenFile(path) if open::is_risky(path) => Status::Warning(format!(
                 "Not opened: {} could run code. Shown in your file manager instead.",
                 path.file_name().unwrap_or_default().to_string_lossy()
@@ -99,6 +102,8 @@ impl Component for StatusBar {
             | Action::Handled
             | Action::Quit
             | Action::ToggleHelp
+            | Action::ToggleSettings
+            | Action::SetDownloadDir(_)
             | Action::Filter(_) => {
                 return None;
             }

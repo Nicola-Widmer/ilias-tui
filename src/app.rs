@@ -14,13 +14,15 @@ use ratatui::{DefaultTerminal, Frame};
 
 use crate::action::Action;
 use crate::cache::Cache;
-use crate::components::{Browser, Component, Confirm, Filter, Help, Report, StatusBar};
+use crate::components::{Browser, Component, Confirm, Filter, Help, Report, Settings, StatusBar};
+use crate::config::Config;
 use crate::downloads::Downloads;
 use crate::ilias::{Client, Item, Page};
 use crate::{auth, open, session, sync};
 
 pub struct App {
     client: Arc<Client>,
+    config: Config,
     download_dir: PathBuf,
     downloads: Downloads,
     cache: Cache,
@@ -30,19 +32,23 @@ pub struct App {
     browser: Browser,
     status_bar: StatusBar,
     help: Help,
+    settings: Settings,
     tx: Sender<Action>,
     rx: Receiver<Action>,
     should_quit: bool,
 }
 
 impl App {
-    pub fn new(client: Client, download_dir: PathBuf) -> Self {
+    pub fn new(client: Client, config: Config) -> Self {
         let (tx, rx) = mpsc::channel();
         let downloads = Downloads::load(&client.base);
         let cache = Cache::new(&client.base);
         let browser = Browser::new(downloads.saved().collect());
+        let download_dir = config.download_dir();
+        let settings = Settings::new(download_dir.clone(), config.download_dir.is_some());
         Self {
             client: Arc::new(client),
+            config,
             download_dir,
             downloads,
             cache,
@@ -52,6 +58,7 @@ impl App {
             browser,
             status_bar: StatusBar::default(),
             help: Help::default(),
+            settings,
             tx,
             rx,
             should_quit: false,
@@ -59,11 +66,12 @@ impl App {
     }
 
     /// Components from top-most to bottom-most; earlier ones get keys first.
-    fn components(&mut self) -> [&mut dyn Component; 6] {
+    fn components(&mut self) -> [&mut dyn Component; 7] {
         [
             &mut self.confirm,
             &mut self.report,
             &mut self.help,
+            &mut self.settings,
             &mut self.filter,
             &mut self.browser,
             &mut self.status_bar,
@@ -229,6 +237,14 @@ impl App {
             }
             // The sync wrote its own copy of the index; read it again.
             Action::Synced { .. } => self.downloads = Downloads::load(&self.client.base),
+            Action::SetDownloadDir(dir) => {
+                self.config.download_dir.clone_from(dir);
+                self.config.save()?;
+                // Chosen here, it applies now, even over ILIAS_DOWNLOAD_DIR.
+                self.download_dir = dir.clone().unwrap_or_else(|| self.config.download_dir());
+                self.tx
+                    .send(Action::DownloadDirSet(self.download_dir.clone()))?;
+            }
             Action::Login => self.spawn(|client, _| {
                 if client.is_offline() {
                     // Going online: the saved session may well still work.
@@ -309,6 +325,7 @@ impl App {
             self.filter.draw(frame, filter);
         }
         self.status_bar.draw(frame, status);
+        self.settings.draw(frame, area);
         self.help.draw(frame, area);
         self.report.draw(frame, area);
         // Last, so the question is on top of everything.
@@ -329,7 +346,7 @@ mod tests {
             Err(color_eyre::eyre::eyre!("offline: {url}"))
         });
         let client = Client::with_pages(base, std::sync::Arc::new(offline));
-        let mut app = App::new(client, PathBuf::from("/tmp"));
+        let mut app = App::new(client, Config::default());
         app.cache = Cache::in_dir(cache_dir.to_path_buf());
         app
     }
@@ -403,6 +420,28 @@ mod tests {
         // "n" closes it without sending anything.
         let answer = app.handle_key(key(KeyCode::Char('n')));
         assert!(matches!(answer, Some(Action::Cancelled)));
+        let _ = std::fs::remove_dir_all(dir);
+    }
+
+    #[test]
+    fn c_shows_the_settings_page() {
+        let dir = std::env::temp_dir().join(format!("ilias-tui-settings-{}", std::process::id()));
+        let mut app = app(&dir);
+        show_my_courses(&mut app);
+        let open = app
+            .handle_key(KeyCode::Char('c').into())
+            .expect("c opens settings");
+        app.dispatch(open).unwrap();
+
+        let mut terminal =
+            ratatui::Terminal::new(ratatui::backend::TestBackend::new(100, 20)).unwrap();
+        terminal.draw(|frame| app.draw(frame)).unwrap();
+        let screen = format!("{:?}", terminal.backend().buffer());
+        assert!(screen.contains("Download folder"), "{screen}");
+
+        // `q` closes the page instead of quitting.
+        let close = app.handle_key(KeyCode::Char('q').into());
+        assert!(matches!(close, Some(Action::ToggleSettings)));
         let _ = std::fs::remove_dir_all(dir);
     }
 

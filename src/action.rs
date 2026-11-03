@@ -11,6 +11,11 @@ pub enum Action {
     /// A key or click was used up by an overlay; nothing else happens.
     Handled,
     ToggleHelp,
+    ToggleSettings,
+    /// Save files in this folder from now on (`None`: back to the default).
+    SetDownloadDir(Option<PathBuf>),
+    /// The folder files are saved in now.
+    DownloadDirSet(PathBuf),
     /// Fetch the page of `item` (`None` means "My courses"). `url` selects another tab of
     /// it. With `deep`, fetch everything below it recursively (the deep search).
     Load {
