@@ -1,4 +1,5 @@
-//! The settings page, toggled with `c`. Changes are saved right away (see `config.rs`).
+//! The settings page, toggled with `c`: every setting of `config.rs`, one per row. Changes
+//! are saved right away; environment variables (`ILIAS_*`) still win over them.
 
 use std::path::PathBuf;
 
@@ -11,44 +12,231 @@ use ratatui::widgets::{Block, BorderType, Clear, Padding, Paragraph, Wrap};
 
 use super::Component;
 use crate::action::Action;
-use crate::{config, theme};
+use crate::config::{self, Config};
+use crate::theme;
+
+/// One row of the page.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+enum Field {
+    DownloadDir,
+    SyncMaxMb,
+    MissingOnly,
+    NerdFont,
+    Mouse,
+    Cache,
+    Offline,
+    DryRun,
+    Url,
+}
+
+const FIELDS: [Field; 9] = [
+    Field::DownloadDir,
+    Field::SyncMaxMb,
+    Field::MissingOnly,
+    Field::NerdFont,
+    Field::Mouse,
+    Field::Cache,
+    Field::Offline,
+    Field::DryRun,
+    Field::Url,
+];
+
+impl Field {
+    fn label(self) -> &'static str {
+        match self {
+            Field::DownloadDir => "Download folder",
+            Field::SyncMaxMb => "Sync size limit",
+            Field::MissingOnly => "Sync missing files only",
+            Field::NerdFont => "Nerd Font icons",
+            Field::Mouse => "Mouse support",
+            Field::Cache => "Page cache",
+            Field::Offline => "Always start offline",
+            Field::DryRun => "Dry run",
+            Field::Url => "ILIAS URL",
+        }
+    }
+
+    fn help(self) -> &'static str {
+        match self {
+            Field::DownloadDir => "Where downloaded and synced files are saved.",
+            Field::SyncMaxMb => "Sync skips files bigger than this (lecture recordings).",
+            Field::MissingOnly => {
+                "Sync downloads every file that isn't on disk, also the ones you deleted. \
+                 Files you have are never replaced, and no new versions are saved beside them."
+            }
+            Field::NerdFont => "Off: plain Unicode symbols, for fonts without Nerd Font glyphs.",
+            Field::Mouse => "Off: the terminal's own text selection works without a modifier key.",
+            Field::Cache => "Keeps opened pages for instant display and offline use.",
+            Field::Offline => "Start with cached pages and saved files only (L goes online).",
+            Field::DryRun => "Never send favourites changes; only say what would have happened.",
+            Field::Url => "The ILIAS root, the folder that contains login.php.",
+        }
+    }
+
+    /// The environment variable that wins over this setting.
+    fn env(self) -> &'static str {
+        match self {
+            Field::DownloadDir => "ILIAS_DOWNLOAD_DIR",
+            Field::SyncMaxMb => "ILIAS_SYNC_MAX_MB",
+            Field::MissingOnly => "",
+            Field::NerdFont => "ILIAS_NERD_FONT",
+            Field::Mouse => "ILIAS_MOUSE",
+            Field::Cache => "ILIAS_CACHE",
+            Field::Offline => "ILIAS_OFFLINE",
+            Field::DryRun => "ILIAS_DRY_RUN",
+            Field::Url => "ILIAS_URL",
+        }
+    }
+
+    /// Changes take effect only after a restart.
+    fn at_next_start(self) -> bool {
+        matches!(
+            self,
+            Field::Mouse | Field::Cache | Field::Offline | Field::Url
+        )
+    }
+
+    /// On/off, for the toggles; `None` for the rows that are typed.
+    fn toggle(self, config: &Config) -> Option<bool> {
+        Some(match self {
+            Field::MissingOnly => config.missing_only,
+            Field::NerdFont => config.nerd_font(),
+            Field::Mouse => config.mouse(),
+            Field::Cache => config.cache(),
+            Field::Offline => config.offline(),
+            Field::DryRun => config.dry_run(),
+            Field::DownloadDir | Field::SyncMaxMb | Field::Url => return None,
+        })
+    }
+
+    fn set_toggle(self, config: &mut Config, on: bool) {
+        match self {
+            Field::MissingOnly => config.missing_only = on,
+            Field::NerdFont => config.nerd_font = Some(on),
+            Field::Mouse => config.mouse = Some(on),
+            Field::Cache => config.cache = Some(on),
+            Field::Offline => config.offline = on,
+            Field::DryRun => config.dry_run = on,
+            Field::DownloadDir | Field::SyncMaxMb | Field::Url => {}
+        }
+    }
+
+    /// Chosen here, i.e. not the default.
+    fn is_custom(self, config: &Config) -> bool {
+        match self {
+            Field::DownloadDir => config.download_dir.is_some(),
+            Field::SyncMaxMb => config.sync_max_mb.is_some(),
+            Field::MissingOnly => config.missing_only,
+            Field::NerdFont => config.nerd_font.is_some(),
+            Field::Mouse => config.mouse.is_some(),
+            Field::Cache => config.cache.is_some(),
+            Field::Offline => config.offline,
+            Field::DryRun => config.dry_run,
+            Field::Url => config.url.is_some(),
+        }
+    }
+
+    fn reset(self, config: &mut Config) {
+        let default = Config::default();
+        match self {
+            Field::DownloadDir => config.download_dir = default.download_dir,
+            Field::SyncMaxMb => config.sync_max_mb = default.sync_max_mb,
+            Field::MissingOnly => config.missing_only = default.missing_only,
+            Field::NerdFont => config.nerd_font = default.nerd_font,
+            Field::Mouse => config.mouse = default.mouse,
+            Field::Cache => config.cache = default.cache,
+            Field::Offline => config.offline = default.offline,
+            Field::DryRun => config.dry_run = default.dry_run,
+            Field::Url => config.url = default.url,
+        }
+    }
+
+    /// Stores what was typed into a text row.
+    fn parse(self, config: &mut Config, input: &str) -> Result<(), String> {
+        match self {
+            Field::DownloadDir => config.download_dir = Some(config::parse_dir(input)?),
+            Field::SyncMaxMb => config.sync_max_mb = Some(config::parse_mb(input)?),
+            Field::Url => config.url = Some(config::parse_url(input)?),
+            _ => {}
+        }
+        Ok(())
+    }
+}
 
 pub struct Settings {
     visible: bool,
-    /// Where files go now.
+    config: Config,
+    /// Where files go now (chosen here, the env variable or the default).
     download_dir: PathBuf,
-    /// Whether the folder was chosen here (otherwise it's the default or the env variable).
-    custom: bool,
-    /// `ILIAS_DOWNLOAD_DIR` is set, so it wins at the next start.
-    env: bool,
-    /// The folder being typed, while editing.
+    /// The row that is selected.
+    selected: usize,
+    /// The value being typed, while editing.
     input: Option<String>,
     error: Option<String>,
 }
 
 impl Settings {
-    pub fn new(download_dir: PathBuf, custom: bool) -> Self {
+    pub fn new(config: Config, download_dir: PathBuf) -> Self {
         Self {
             visible: false,
+            config,
             download_dir,
-            custom,
-            env: std::env::var_os("ILIAS_DOWNLOAD_DIR").is_some(),
+            selected: 0,
             input: None,
             error: None,
         }
     }
 
+    fn field(&self) -> Field {
+        FIELDS[self.selected]
+    }
+
+    /// The value as shown (what applies, environment variables included).
+    fn value(&self, field: Field) -> String {
+        if let Some(on) = field.toggle(&self.config) {
+            return if on { "on" } else { "off" }.into();
+        }
+        match field {
+            Field::DownloadDir => config::display(&self.download_dir),
+            Field::SyncMaxMb => format!("{} MB", self.config.sync_max_mb()),
+            Field::Url => self.config.url(),
+            _ => String::new(),
+        }
+    }
+
+    /// What editing a text row starts with.
+    fn initial_input(&self, field: Field) -> String {
+        match field {
+            Field::SyncMaxMb => self.config.sync_max_mb().to_string(),
+            _ => self.value(field),
+        }
+    }
+
+    fn changed(&self, change: impl FnOnce(&mut Config)) -> Action {
+        let mut config = self.config.clone();
+        change(&mut config);
+        if config == self.config {
+            Action::Handled
+        } else {
+            Action::SetConfig(config)
+        }
+    }
+
     fn edit_key(&mut self, key: KeyEvent) -> Option<Action> {
+        let field = self.field();
         let input = self.input.as_mut()?;
         match key.code {
             KeyCode::Esc => self.input = None,
-            KeyCode::Enter => match config::parse_dir(input) {
-                Ok(dir) => {
-                    self.input = None;
-                    return Some(Action::SetDownloadDir(Some(dir)));
+            KeyCode::Enter => {
+                let mut config = self.config.clone();
+                match field.parse(&mut config, input) {
+                    Ok(()) => {
+                        self.input = None;
+                        return Some(self.changed(|c| *c = config));
+                    }
+                    Err(e) => self.error = Some(e),
                 }
-                Err(e) => self.error = Some(e),
-            },
+            }
             KeyCode::Backspace => {
                 input.pop();
             }
@@ -68,20 +256,32 @@ impl Component for Settings {
         if self.input.is_some() {
             return self.edit_key(key);
         }
+        let field = self.field();
         // While open, the page swallows every key.
         Some(match key.code {
-            KeyCode::Enter | KeyCode::Char('e') => {
-                self.input = Some(config::display(&self.download_dir));
+            KeyCode::Down | KeyCode::Char('j') | KeyCode::Tab => {
+                self.selected = (self.selected + 1) % FIELDS.len();
                 Action::Handled
             }
-            KeyCode::Char('r') if self.custom => Action::SetDownloadDir(None),
+            KeyCode::Up | KeyCode::Char('k') | KeyCode::BackTab => {
+                self.selected = (self.selected + FIELDS.len() - 1) % FIELDS.len();
+                Action::Handled
+            }
+            KeyCode::Enter | KeyCode::Char(' ' | 'e') => match field.toggle(&self.config) {
+                Some(on) => self.changed(|c| field.set_toggle(c, !on)),
+                None => {
+                    self.input = Some(self.initial_input(field));
+                    Action::Handled
+                }
+            },
+            KeyCode::Char('r') => self.changed(|c| field.reset(c)),
             KeyCode::Esc | KeyCode::Char('c' | 'q') => Action::ToggleSettings,
             _ => Action::Handled,
         })
     }
 
     fn handle_mouse_event(&mut self, mouse: MouseEvent) -> Option<Action> {
-        // A click closes the page (unless a folder is being typed).
+        // A click closes the page (unless a value is being typed).
         (self.visible && self.input.is_none() && matches!(mouse.kind, MouseEventKind::Down(_)))
             .then_some(Action::ToggleSettings)
     }
@@ -93,7 +293,7 @@ impl Component for Settings {
                 self.input = None;
                 self.error = None;
             }
-            Action::SetDownloadDir(dir) => self.custom = dir.is_some(),
+            Action::SetConfig(config) => self.config = config.clone(),
             Action::DownloadDirSet(dir) => self.download_dir.clone_from(dir),
             _ => {}
         }
@@ -104,39 +304,71 @@ impl Component for Settings {
         if !self.visible {
             return;
         }
-        let mut text = vec![Line::styled(
-            "Download folder",
-            Style::new().fg(theme::YELLOW).add_modifier(Modifier::BOLD),
-        )];
-        match &self.input {
-            Some(input) => text.push(Line::from(vec![
-                Span::styled(format!("  {input}"), Style::new().fg(theme::FG)),
-                Span::styled("▏", Style::new().fg(theme::ACCENT)),
-            ])),
-            None => text.push(Line::from(vec![
-                Span::styled(
-                    format!("  {}", config::display(&self.download_dir)),
-                    Style::new().fg(theme::FG),
-                ),
-                Span::styled(if self.custom { "" } else { "  (default)" }, theme::muted()),
-            ])),
+        let label_width = FIELDS.iter().map(|f| f.label().len()).max().unwrap_or(0);
+        let mut text = Vec::new();
+        for (i, &field) in FIELDS.iter().enumerate() {
+            let selected = i == self.selected;
+            let label_style = if selected {
+                theme::accent_bold()
+            } else {
+                Style::new().fg(theme::FG)
+            };
+            let mut spans = vec![
+                Span::styled(if selected { "› " } else { "  " }, theme::accent_bold()),
+                Span::styled(format!("{:label_width$}  ", field.label()), label_style),
+            ];
+            match (&self.input, selected) {
+                (Some(input), true) => {
+                    spans.push(Span::styled(input.clone(), Style::new().fg(theme::FG)));
+                    spans.push(Span::styled("▏", Style::new().fg(theme::ACCENT)));
+                }
+                _ => {
+                    let value = self.value(field);
+                    let color = match field.toggle(&self.config) {
+                        Some(true) => theme::GREEN,
+                        Some(false) => theme::RED,
+                        None => theme::FG,
+                    };
+                    spans.push(Span::styled(
+                        value,
+                        Style::new().fg(color).add_modifier(Modifier::BOLD),
+                    ));
+                    if !field.is_custom(&self.config) {
+                        spans.push(Span::styled("  (default)", theme::muted()));
+                    }
+                }
+            }
+            text.push(Line::from(spans));
         }
-        if self.env {
+
+        // About the selected row.
+        let field = self.field();
+        text.push(Line::default());
+        text.push(Line::styled(field.help(), theme::muted()));
+        if field.at_next_start() {
+            text.push(Line::styled("Applies at the next start.", theme::muted()));
+        }
+        if !field.env().is_empty() && std::env::var_os(field.env()).is_some() {
             text.push(Line::styled(
-                "  ILIAS_DOWNLOAD_DIR is set: it wins again at the next start.",
+                if field == Field::DownloadDir {
+                    format!("{} is set: it wins again at the next start.", field.env())
+                } else {
+                    format!("{} is set: it wins over this setting.", field.env())
+                },
                 Style::new().fg(theme::YELLOW),
             ));
         }
         if let Some(error) = &self.error {
-            text.push(Line::styled(
-                format!("  {error}"),
-                Style::new().fg(theme::RED),
-            ));
+            text.push(Line::styled(error.clone(), Style::new().fg(theme::RED)));
         }
-        let hint = match (&self.input, self.custom) {
-            (Some(_), _) => " ↵ save  esc cancel ",
-            (None, true) => " ↵ change  r reset  esc close ",
-            (None, false) => " ↵ change  esc close ",
+
+        let custom = field.is_custom(&self.config);
+        let hint = match (&self.input, field.toggle(&self.config).is_some(), custom) {
+            (Some(_), _, _) => " ↵ save  esc cancel ",
+            (None, true, true) => " ↑↓ choose  ↵ toggle  r reset  esc close ",
+            (None, true, false) => " ↑↓ choose  ↵ toggle  esc close ",
+            (None, false, true) => " ↑↓ choose  ↵ change  r reset  esc close ",
+            (None, false, false) => " ↑↓ choose  ↵ change  esc close ",
         };
         let block = Block::bordered()
             .border_type(BorderType::Rounded)
@@ -149,9 +381,9 @@ impl Component for Settings {
             .padding(Padding::uniform(1))
             .style(Style::new().bg(theme::BAR_BG));
         let paragraph = Paragraph::new(text).wrap(Wrap { trim: false }).block(block);
-        // Long folders wrap: make the box tall enough for every wrapped line
+        // Long values wrap: make the box tall enough for every wrapped line
         // (the width inside the borders and padding is 4 less).
-        let width = area.width.min(76);
+        let width = area.width.min(80);
         let height = paragraph.line_count(width.saturating_sub(4)) as u16;
         let area = area.centered(Constraint::Length(width), Constraint::Length(height));
         frame.render_widget(Clear, area);
@@ -171,9 +403,8 @@ mod tests {
         action
     }
 
-    #[test]
-    fn typing_a_folder_sets_it() {
-        let mut s = Settings::new(PathBuf::from("/old"), false);
+    fn open() -> Settings {
+        let mut s = Settings::new(Config::default(), PathBuf::from("/old"));
         assert!(
             key(&mut s, KeyCode::Char('x')).is_none(),
             "closed: keys pass"
@@ -183,6 +414,18 @@ mod tests {
             Some(Action::ToggleSettings)
         ));
         assert!(s.visible);
+        s
+    }
+
+    fn select(s: &mut Settings, field: Field) {
+        while s.field() != field {
+            key(s, KeyCode::Down);
+        }
+    }
+
+    #[test]
+    fn typing_a_folder_sets_it() {
+        let mut s = open();
         assert!(
             matches!(key(&mut s, KeyCode::Char('r')), Some(Action::Handled)),
             "no reset of the default"
@@ -200,13 +443,13 @@ mod tests {
         key(&mut s, KeyCode::Char('q'));
         let set = key(&mut s, KeyCode::Enter);
         assert!(
-            matches!(set, Some(Action::SetDownloadDir(Some(ref d))) if d == &PathBuf::from("/newq"))
+            matches!(set, Some(Action::SetConfig(ref c)) if c.download_dir == Some(PathBuf::from("/newq")))
         );
-        assert!(s.custom && s.input.is_none());
+        assert!(s.input.is_none());
 
         assert!(matches!(
             key(&mut s, KeyCode::Char('r')),
-            Some(Action::SetDownloadDir(None))
+            Some(Action::SetConfig(ref c)) if c.download_dir.is_none()
         ));
         assert!(matches!(
             key(&mut s, KeyCode::Esc),
@@ -216,22 +459,77 @@ mod tests {
     }
 
     #[test]
-    fn long_folders_are_shown_in_full() {
+    fn toggles_flip_and_reset() {
+        let mut s = open();
+        select(&mut s, Field::MissingOnly);
+        let on = key(&mut s, KeyCode::Char(' '));
+        assert!(matches!(on, Some(Action::SetConfig(ref c)) if c.missing_only));
+        assert!(s.config.missing_only);
+        let off = key(&mut s, KeyCode::Char('r'));
+        assert!(matches!(off, Some(Action::SetConfig(ref c)) if !c.missing_only));
+        // Up from the first row wraps to the last.
+        select(&mut s, Field::DownloadDir);
+        key(&mut s, KeyCode::Up);
+        assert_eq!(s.field(), Field::Url);
+    }
+
+    #[test]
+    fn every_toggle_flips_and_resets() {
+        let mut s = open();
+        for field in FIELDS {
+            let Some(before) = field.toggle(&s.config) else {
+                continue;
+            };
+            // A variable set in this shell would win; nothing to see then.
+            if !field.env().is_empty() && std::env::var_os(field.env()).is_some() {
+                continue;
+            }
+            select(&mut s, field);
+            assert!(matches!(
+                key(&mut s, KeyCode::Enter),
+                Some(Action::SetConfig(_))
+            ));
+            assert_eq!(field.toggle(&s.config), Some(!before), "{field:?}");
+            assert!(field.is_custom(&s.config), "{field:?}");
+            key(&mut s, KeyCode::Char('r'));
+            assert_eq!(field.toggle(&s.config), Some(before), "{field:?}");
+            assert!(!field.is_custom(&s.config), "{field:?}");
+        }
+        assert_eq!(s.config, Config::default());
+    }
+
+    #[test]
+    fn the_size_limit_must_be_a_number() {
+        let mut s = open();
+        select(&mut s, Field::SyncMaxMb);
+        key(&mut s, KeyCode::Enter);
+        s.input = Some("lots".into());
+        assert!(matches!(key(&mut s, KeyCode::Enter), Some(Action::Handled)));
+        assert!(s.error.is_some() && s.input.is_some());
+        s.input = Some("120".into());
+        let set = key(&mut s, KeyCode::Enter);
+        assert!(matches!(set, Some(Action::SetConfig(ref c)) if c.sync_max_mb == Some(120.0)));
+    }
+
+    #[test]
+    fn every_setting_is_shown() {
         let dir = format!("/{}/end-of-path", "very-long-folder-name/".repeat(8));
-        let mut s = Settings::new(PathBuf::from(&dir), true);
+        let mut s = Settings::new(Config::default(), PathBuf::from(&dir));
         key(&mut s, KeyCode::Char('c'));
         let mut terminal =
-            ratatui::Terminal::new(ratatui::backend::TestBackend::new(80, 30)).unwrap();
+            ratatui::Terminal::new(ratatui::backend::TestBackend::new(80, 40)).unwrap();
         terminal.draw(|frame| s.draw(frame, frame.area())).unwrap();
         let screen = format!("{:?}", terminal.backend().buffer());
         assert!(screen.contains("end-of-path"), "{screen}");
         assert!(screen.contains("esc close"), "{screen}");
+        for field in FIELDS {
+            assert!(screen.contains(field.label()), "{screen}");
+        }
     }
 
     #[test]
     fn relative_folders_are_refused() {
-        let mut s = Settings::new(PathBuf::from("/old"), false);
-        key(&mut s, KeyCode::Char('c'));
+        let mut s = open();
         key(&mut s, KeyCode::Enter);
         s.input = Some("Uni".into());
         assert!(matches!(key(&mut s, KeyCode::Enter), Some(Action::Handled)));

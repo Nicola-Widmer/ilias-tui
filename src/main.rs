@@ -12,16 +12,12 @@ mod session;
 mod sync;
 mod theme;
 
-use std::path::PathBuf;
-
 use color_eyre::{Result, eyre::bail};
 use ratatui::crossterm::event::{DisableMouseCapture, EnableMouseCapture};
 use ratatui::crossterm::execute;
 use url::Url;
 
 use crate::ilias::Client;
-
-const DEFAULT_URL: &str = "https://elearning.hslu.ch/ilias/";
 
 const USAGE: &str = "\
 ilias-tui — browse ILIAS courses from the terminal
@@ -40,18 +36,19 @@ USAGE:
     ilias-tui get URL…   Download files (e.g. goto.php/file/123) to the download dir
     ilias-tui todo       Print assignments still to hand in, soonest first
 
-ENVIRONMENT:
+ENVIRONMENT (each wins over the settings page, c):
     ILIAS_URL            ILIAS root URL (default: https://elearning.hslu.ch/ilias/)
-    ILIAS_DOWNLOAD_DIR   Where files are saved (default: ~/Downloads/ILIAS, or what
-                         you chose in the settings page, c)
+    ILIAS_DOWNLOAD_DIR   Where files are saved (default: ~/Downloads/ILIAS)
     ILIAS_NERD_FONT=0    Plain Unicode icons instead of Nerd Font glyphs
     ILIAS_MOUSE=0        Turn off mouse support
     ILIAS_CACHE=0        Turn off the page cache
+    ILIAS_SYNC_MAX_MB    Sync skips files bigger than this (default: 50)
     ILIAS_OFFLINE=1      Same as --offline";
 
 fn main() -> Result<()> {
     color_eyre::install()?;
-    let base = base_url()?;
+    let config = config::Config::load();
+    let base = Url::parse(&config.url())?;
     let args: Vec<String> = std::env::args().skip(1).collect();
     match args
         .iter()
@@ -60,14 +57,10 @@ fn main() -> Result<()> {
         .as_slice()
     {
         [] | ["--offline"] => {
-            let offline = args.first().is_some_and(|a| a == "--offline")
-                || matches!(
-                    std::env::var("ILIAS_OFFLINE").as_deref(),
-                    Ok("1" | "true" | "yes" | "on")
-                );
+            let offline = args.first().is_some_and(|a| a == "--offline") || config.offline();
             let client = connect_or_offline(&base, offline)?;
             let mut terminal = ratatui::init();
-            let mouse = mouse_enabled();
+            let mouse = config.mouse();
             if mouse {
                 execute!(std::io::stdout(), EnableMouseCapture)?;
                 // ratatui's own panic hook restores the screen; also give the mouse back.
@@ -77,7 +70,7 @@ fn main() -> Result<()> {
                     hook(info);
                 }));
             }
-            let result = app::App::new(client, config::Config::load()).run(&mut terminal);
+            let result = app::App::new(client, config).run(&mut terminal);
             if mouse {
                 execute!(std::io::stdout(), DisableMouseCapture)?;
             }
@@ -178,7 +171,7 @@ fn main() -> Result<()> {
         }
         ["get", urls @ ..] if !urls.is_empty() => {
             let client = connect(&base, false)?;
-            let dir = download_dir();
+            let dir = config.download_dir();
             let mut downloads = downloads::Downloads::load(&base);
             for url in urls {
                 let item = item_from_url(&base, url)?;
@@ -221,27 +214,6 @@ fn item_from_url(base: &Url, url: &str) -> Result<ilias::Item> {
         url: url.into(),
         ..Default::default()
     })
-}
-
-/// Mouse support is on unless `ILIAS_MOUSE=0`. While it's on, the terminal's own text
-/// selection needs a modifier (Option in iTerm2/Terminal.app, Shift in most others).
-fn mouse_enabled() -> bool {
-    !matches!(
-        std::env::var("ILIAS_MOUSE").as_deref(),
-        Ok("0" | "false" | "no" | "off")
-    )
-}
-
-fn base_url() -> Result<Url> {
-    let mut url = std::env::var("ILIAS_URL").unwrap_or_else(|_| DEFAULT_URL.into());
-    if !url.ends_with('/') {
-        url.push('/');
-    }
-    Ok(Url::parse(&url)?)
-}
-
-fn download_dir() -> PathBuf {
-    config::Config::load().download_dir()
 }
 
 /// For the TUI: like [`connect`], but if ILIAS can't be reached (or `offline` is asked

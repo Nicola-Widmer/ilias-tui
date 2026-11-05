@@ -65,7 +65,6 @@ impl Component for Confirm {
                 theme::YELLOW,
             ),
         };
-        let area = area.centered(Constraint::Max(64), Constraint::Length(7));
         let block = Block::bordered()
             .border_type(BorderType::Rounded)
             .border_style(Style::new().fg(color))
@@ -86,11 +85,14 @@ impl Component for Confirm {
                 Span::styled("no", theme::muted()),
             ]),
         ];
+        let paragraph = Paragraph::new(text).wrap(Wrap { trim: true }).block(block);
+        // Long questions wrap: make the box tall enough that the y/n line stays visible
+        // (the width inside the borders and padding is 6 less).
+        let width = area.width.min(64);
+        let height = paragraph.line_count(width.saturating_sub(6)) as u16;
+        let area = area.centered(Constraint::Length(width), Constraint::Length(height));
         frame.render_widget(Clear, area);
-        frame.render_widget(
-            Paragraph::new(text).wrap(Wrap { trim: true }).block(block),
-            area,
-        );
+        frame.render_widget(paragraph, area);
     }
 }
 
@@ -121,6 +123,28 @@ mod tests {
             screen.contains("Sync") && !screen.contains("Changes ILIAS"),
             "{screen}"
         );
+    }
+
+    #[test]
+    fn long_questions_still_show_the_answers() {
+        let mut confirm = Confirm::default();
+        let rules = crate::sync::Rules {
+            max_mb: 50.0,
+            missing_only: true,
+        };
+        confirm.update(&Action::Ask {
+            question: format!("Sync all 17 courses in My courses? {}", rules.describe()),
+            then: Box::new(Action::Sync(vec![])),
+        });
+        for width in [100, 50] {
+            let mut terminal =
+                ratatui::Terminal::new(ratatui::backend::TestBackend::new(width, 20)).unwrap();
+            terminal.draw(|f| confirm.draw(f, f.area())).unwrap();
+            let screen = format!("{:?}", terminal.backend().buffer());
+            // The whole question (its last word) and the answers below it.
+            assert!(screen.contains("are."), "{screen}");
+            assert!(screen.contains("y yes"), "{screen}");
+        }
     }
 
     #[test]

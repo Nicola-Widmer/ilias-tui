@@ -1,10 +1,10 @@
 //! Icons per object type and file extension.
 //!
 //! Uses Font Awesome glyphs (`nf-fa-*`), which every [Nerd Font](https://www.nerdfonts.com)
-//! contains. Set `ILIAS_NERD_FONT=0` for plain Unicode symbols if your terminal font has no
-//! Nerd Font glyphs.
+//! contains. Turn them off in the settings (`c`) or with `ILIAS_NERD_FONT=0` for plain Unicode
+//! symbols if your terminal font has no Nerd Font glyphs.
 
-use std::sync::OnceLock;
+use std::sync::atomic::{AtomicBool, Ordering};
 
 use ratatui::style::Color;
 
@@ -12,14 +12,15 @@ use crate::theme::*;
 
 use crate::ilias::Item;
 
+static NERD_FONT: AtomicBool = AtomicBool::new(true);
+
 pub fn nerd_font() -> bool {
-    static ENABLED: OnceLock<bool> = OnceLock::new();
-    *ENABLED.get_or_init(|| {
-        !matches!(
-            std::env::var("ILIAS_NERD_FONT").as_deref(),
-            Ok("0" | "false" | "no" | "off")
-        )
-    })
+    NERD_FONT.load(Ordering::Relaxed)
+}
+
+/// Switches between Nerd Font glyphs and plain symbols (from the settings).
+pub fn set_nerd_font(on: bool) {
+    NERD_FONT.store(on, Ordering::Relaxed);
 }
 
 /// Glyph and colour for an item.

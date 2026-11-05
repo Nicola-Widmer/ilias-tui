@@ -103,7 +103,7 @@ impl Component for StatusBar {
             | Action::Quit
             | Action::ToggleHelp
             | Action::ToggleSettings
-            | Action::SetDownloadDir(_)
+            | Action::SetConfig(_)
             | Action::Filter(_) => {
                 return None;
             }

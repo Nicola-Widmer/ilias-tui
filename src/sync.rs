@@ -1,13 +1,15 @@
 //! Sync: saves the files of whole courses or folders into the download folder, in ILIAS's
 //! folder structure, and keeps them up to date.
 //!
-//! - Only files up to a size limit (default 50 MB, `ILIAS_SYNC_MAX_MB`); bigger ones (lecture
-//!   recordings) are skipped and counted.
+//! - Only files up to a size limit (default 50 MB, settings or `ILIAS_SYNC_MAX_MB`); bigger
+//!   ones (lecture recordings) are skipped and counted.
 //! - A file is fetched again only if its version on ILIAS (size and date in the folder
 //!   listing) changed, so an unchanged course costs just the folder pages.
 //! - Files you edited (size or modification time differ from right after the download) are
 //!   never overwritten; a newer ILIAS version is saved beside them instead.
 //! - Files you deleted stay deleted until they change on ILIAS.
+//! - With "missing files only" (settings), it's simpler: every file that isn't on disk is
+//!   downloaded (also the ones you deleted), and every file that is stays as it is.
 //! - Every course and folder page read on the way is cached, so synced courses can be
 //!   browsed offline.
 
@@ -22,18 +24,43 @@ use crate::cache::Cache;
 use crate::downloads::{Downloads, Local, Saved};
 use crate::ilias::{Client, Item, Page};
 
-/// Files bigger than this many MB are skipped unless `ILIAS_SYNC_MAX_MB` says otherwise.
-const DEFAULT_MAX_MB: f64 = 50.0;
-
 /// Downloads running at the same time; polite to the server, still much faster than one.
 const PARALLEL: usize = 3;
 
-pub fn max_mb_from_env() -> f64 {
-    std::env::var("ILIAS_SYNC_MAX_MB")
-        .ok()
-        .and_then(|v| v.parse().ok())
-        .filter(|mb: &f64| *mb > 0.0)
-        .unwrap_or(DEFAULT_MAX_MB)
+/// How sync decides, from the settings.
+#[derive(Debug, Clone, Copy, PartialEq)]
+pub struct Rules {
+    /// Files bigger than this many MB are skipped.
+    pub max_mb: f64,
+    /// Fetch only files missing on disk (deleted ones too); never touch existing ones.
+    pub missing_only: bool,
+}
+
+impl Rules {
+    pub fn new(config: &crate::config::Config) -> Self {
+        Self {
+            max_mb: config.sync_max_mb(),
+            missing_only: config.missing_only,
+        }
+    }
+
+    /// What sync will do, for the question before syncing everything.
+    pub fn describe(&self) -> String {
+        if self.missing_only {
+            format!(
+                "Saves every missing file up to {} MB (also ones you deleted); files you have stay as they are.",
+                self.max_mb
+            )
+        } else {
+            format!("Saves every file up to {} MB.", self.max_mb)
+        }
+    }
+}
+
+impl Default for Rules {
+    fn default() -> Self {
+        Self::new(&crate::config::Config::default())
+    }
 }
 
 /// What sync does with one file.
@@ -79,13 +106,13 @@ fn size_mb(property: &str) -> Option<f64> {
 }
 
 /// Decides what to do with `item`, given what was saved before and how the file on disk is.
-pub fn plan(item: &Item, saved: Option<(&Saved, Local)>, max_mb: f64) -> Plan {
+pub fn plan(item: &Item, saved: Option<(&Saved, Local)>, rules: Rules) -> Plan {
     let version = version(item);
     let too_big = item
         .properties
         .iter()
         .find_map(|p| size_mb(p))
-        .is_some_and(|mb| mb > max_mb);
+        .is_some_and(|mb| mb > rules.max_mb);
     let fetch = |plan| if too_big { Plan::TooBig } else { plan };
     let Some((saved, local)) = saved else {
         return fetch(Plan::New);
@@ -93,6 +120,8 @@ pub fn plan(item: &Item, saved: Option<(&Saved, Local)>, max_mb: f64) -> Plan {
     let changed = saved.version != version;
     match local {
         _ if saved.version.is_empty() && local != Local::Missing => Plan::Adopt,
+        Local::Missing if rules.missing_only => fetch(Plan::New),
+        _ if rules.missing_only => Plan::Unchanged,
         Local::Missing if changed => fetch(Plan::New),
         Local::Missing => Plan::Deleted,
         _ if !changed => Plan::Unchanged,
@@ -173,7 +202,7 @@ pub fn sync(
     dir: &Path,
     downloads: &mut Downloads,
     cache: &Cache,
-    max_mb: f64,
+    rules: Rules,
     progress: impl Fn(String) + Sync,
 ) -> Result<Summary> {
     let mut summary = Summary::default();
@@ -189,7 +218,7 @@ pub fn sync(
             // Titles are paths below the root; name the course too.
             item.title = format!("{} › {}", root.title, item.title);
             let saved = downloads.entry(item.ref_id).map(|s| (s, s.local()));
-            match plan(&item, saved, max_mb) {
+            match plan(&item, saved, rules) {
                 Plan::Unchanged => summary.unchanged += 1,
                 Plan::Deleted => summary.deleted += 1,
                 Plan::TooBig => {
@@ -316,6 +345,34 @@ mod tests {
 
     const V1: &str = "1.2 MB · 1. Nov 2026, 10:00";
 
+    const RULES: Rules = Rules {
+        max_mb: 50.0,
+        missing_only: false,
+    };
+
+    #[test]
+    fn missing_only_restores_deleted_files_and_leaves_the_rest() {
+        let rules = Rules {
+            missing_only: true,
+            ..RULES
+        };
+        let same = file("1.2 MB", "1. Nov 2026, 10:00");
+        let changed = file("1.3 MB", "2. Nov 2026, 09:00");
+        let plan = |item: &Item, local| plan(item, Some((&saved(V1), local)), rules);
+        // Deleted by you: back, changed on ILIAS or not.
+        assert_eq!(plan(&same, Local::Missing), Plan::New);
+        assert_eq!(plan(&changed, Local::Missing), Plan::New);
+        // On disk: never replaced, no new version beside it.
+        assert_eq!(plan(&changed, Local::Untouched), Plan::Unchanged);
+        assert_eq!(plan(&changed, Local::Edited), Plan::Unchanged);
+        assert_eq!(super::plan(&same, None, rules), Plan::New);
+        let recording = file("107.9 MB", "19. Sep 2026, 23:33");
+        assert_eq!(
+            super::plan(&recording, Some((&saved(V1), Local::Missing)), rules),
+            Plan::TooBig
+        );
+    }
+
     #[test]
     fn reads_the_version_and_size_from_the_listing() {
         let item = file("1.2 MB", "1. Nov 2026, 10:00");
@@ -330,7 +387,7 @@ mod tests {
     fn never_overwrites_your_edits() {
         let changed = file("1.3 MB", "2. Nov 2026, 09:00");
         let path = PathBuf::from("/dl/DEMO.101/Blatt 3.pdf");
-        let plan = |item: &Item, local| plan(item, Some((&saved(V1), local)), 50.0);
+        let plan = |item: &Item, local| plan(item, Some((&saved(V1), local)), RULES);
         assert_eq!(plan(&changed, Local::Edited), Plan::Beside(path.clone()));
         assert_eq!(plan(&changed, Local::Untouched), Plan::Update(path));
         let same = file("1.2 MB", "1. Nov 2026, 10:00");
@@ -343,11 +400,11 @@ mod tests {
         let same = file("1.2 MB", "1. Nov 2026, 10:00");
         let changed = file("1.3 MB", "2. Nov 2026, 09:00");
         assert_eq!(
-            plan(&same, Some((&saved(V1), Local::Missing)), 50.0),
+            plan(&same, Some((&saved(V1), Local::Missing)), RULES),
             Plan::Deleted
         );
         assert_eq!(
-            plan(&changed, Some((&saved(V1), Local::Missing)), 50.0),
+            plan(&changed, Some((&saved(V1), Local::Missing)), RULES),
             Plan::New
         );
     }
@@ -355,12 +412,16 @@ mod tests {
     #[test]
     fn skips_big_files_and_adopts_old_downloads() {
         let recording = file("107.9 MB", "19. Sep 2026, 23:33");
-        assert_eq!(plan(&recording, None, 50.0), Plan::TooBig);
-        assert_eq!(plan(&recording, None, 200.0), Plan::New);
+        assert_eq!(plan(&recording, None, RULES), Plan::TooBig);
+        let generous = Rules {
+            max_mb: 200.0,
+            ..RULES
+        };
+        assert_eq!(plan(&recording, None, generous), Plan::New);
         // Saved before versions were recorded: no duplicate, no overwrite.
         let old = file("1.2 MB", "1. Nov 2026, 10:00");
         assert_eq!(
-            plan(&old, Some((&saved(""), Local::Edited)), 50.0),
+            plan(&old, Some((&saved(""), Local::Edited)), RULES),
             Plan::Adopt
         );
     }
@@ -458,7 +519,7 @@ mod tests {
             &dir,
             &mut downloads,
             &cache,
-            50.0,
+            RULES,
             |_| {},
         )
         .unwrap();
@@ -471,6 +532,69 @@ mod tests {
             assert!(cache.get(&key).is_some(), "{url} cached");
         }
         let _ = std::fs::remove_dir_all(dir);
+    }
+
+    #[test]
+    fn missing_only_leaves_files_on_disk_alone_even_when_ilias_changed_them() {
+        use crate::ilias::pages::{FakeIlias, reply};
+        use std::sync::Arc;
+        // The course lists one file, now 1.3 MB; the saved copy is of the 1.2 MB version.
+        let ilias = Arc::new(FakeIlias::new(|url| match url.path() {
+            "/ilias/goto.php/crs/1" => reply(
+                url,
+                r#"<div id="il_center_col"><div class="ilContainerListItemOuter">
+                <a class="il_ContainerItemTitle" href="https://ilias.example/ilias/ilias.php?cmdClass=ilObjFileGUI&amp;cmd=sendfile&amp;ref_id=9">Blatt 3</a>
+                <div class="il_ItemProperties"><span class="il_ItemProperty">pdf</span>
+                <span class="il_ItemProperty">1.3 MB</span></div></div></div>"#,
+            ),
+            other => Err(color_eyre::eyre::eyre!("unexpected {other}")),
+        }));
+        let base = url::Url::parse("https://ilias.example/ilias/").unwrap();
+        let client = Client::with_pages(base, ilias);
+        let dir = std::env::temp_dir().join(format!("ilias-tui-missing-{}", std::process::id()));
+        std::fs::create_dir_all(&dir).unwrap();
+        let path = dir.join("Blatt 3.pdf");
+        std::fs::write(&path, "my copy").unwrap();
+        let mut downloads = Downloads::in_file(dir.join("index.json"));
+        downloads.record(9, path.clone(), "1.2 MB".into()).unwrap();
+        let course = Item {
+            kind: "crs".into(),
+            ref_id: 1,
+            title: "DEMO.101".into(),
+            url: "https://ilias.example/ilias/goto.php/crs/1".into(),
+            ..Item::default()
+        };
+        let rules = Rules {
+            missing_only: true,
+            ..RULES
+        };
+        let cache = Cache::in_dir(dir.join("cache"));
+        let summary = sync(
+            &client,
+            &[course],
+            &dir,
+            &mut downloads,
+            &cache,
+            rules,
+            |_| {},
+        )
+        .unwrap();
+        // Nothing fetched (that would have failed: there is no network here), nothing touched.
+        assert_eq!((summary.unchanged, summary.new, summary.updated), (1, 0, 0));
+        assert!(summary.failed.is_empty() && summary.beside.is_empty());
+        assert_eq!(std::fs::read_to_string(&path).unwrap(), "my copy");
+        assert_eq!(downloads.entry(9).unwrap().local(), Local::Untouched);
+        let _ = std::fs::remove_dir_all(dir);
+    }
+
+    #[test]
+    fn says_what_sync_will_do() {
+        assert_eq!(RULES.describe(), "Saves every file up to 50 MB.");
+        let missing_only = Rules {
+            missing_only: true,
+            ..RULES
+        };
+        assert!(missing_only.describe().contains("also ones you deleted"));
     }
 
     #[test]

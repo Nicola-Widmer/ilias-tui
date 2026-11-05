@@ -5,6 +5,8 @@
 //! ([`Action::Ask`](crate::action::Action::Ask)), and `ILIAS_DRY_RUN=1` turns those into
 //! no-ops.
 
+use std::sync::atomic::Ordering;
+
 use color_eyre::{Result, eyre::bail};
 use url::Url;
 
@@ -41,14 +43,6 @@ pub fn is_write(url: &Url) -> bool {
     })
 }
 
-/// `ILIAS_DRY_RUN=1`: pretend, never send a favourites change.
-pub fn dry_run_from_env() -> bool {
-    matches!(
-        std::env::var("ILIAS_DRY_RUN").as_deref(),
-        Ok("1" | "true" | "yes" | "on")
-    )
-}
-
 impl Client {
     /// Adds `item` to the ILIAS favourites or removes it, whichever its action menu offers.
     /// ILIAS does this with a plain GET of the menu's link. Returns `false` in dry-run mode,
@@ -74,7 +68,7 @@ impl Client {
         if !expected {
             bail!("unexpected favourites link for {}: {url}", item.title);
         }
-        if self.dry_run {
+        if self.dry_run.load(Ordering::Relaxed) {
             return Ok(false);
         }
         self.authed(&url, true)?;
@@ -136,8 +130,8 @@ mod tests {
     #[test]
     fn a_dry_run_sends_nothing() {
         let ilias = Arc::new(FakeIlias::new(|url| reply(url, "<p>ok</p>")));
-        let mut client = Client::with_pages(base(), ilias.clone());
-        client.dry_run = true;
+        let client = Client::with_pages(base(), ilias.clone());
+        client.set_dry_run(true);
         assert!(!client.toggle_favorite(&course(ADD)).unwrap());
         assert!(ilias.requests(&base()).is_empty());
     }

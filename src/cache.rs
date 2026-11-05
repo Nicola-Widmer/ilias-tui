@@ -1,7 +1,7 @@
 //! On-disk cache of parsed pages, for instant display while the fresh page loads.
 //! One JSON file per page in the system cache folder (`~/Library/Caches/ch.ilias-tui.ilias-tui/`
 //! on macOS, `~/.cache/ilias-tui/` on Linux), which backup tools usually skip.
-//! `ILIAS_CACHE=0` turns it off; entries older than [`MAX_AGE`] are removed on startup.
+//! It can be turned off in the settings (`c`) or with `ILIAS_CACHE=0`; entries older than [`MAX_AGE`] are removed on startup.
 
 use std::fs;
 use std::path::PathBuf;
@@ -27,10 +27,7 @@ impl Cache {
         };
         // Earlier versions kept the cache next to the session; it now lives in the cache folder.
         let _ = fs::remove_dir_all(dirs.data_dir().join("cache"));
-        let disabled = matches!(
-            std::env::var("ILIAS_CACHE").as_deref(),
-            Ok("0" | "false" | "no" | "off")
-        );
+        let disabled = !crate::config::Config::load().cache();
         let dir = base
             .host_str()
             .filter(|_| !disabled)

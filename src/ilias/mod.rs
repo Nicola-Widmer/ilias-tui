@@ -43,8 +43,8 @@ pub struct Client {
     /// For file downloads and the Keycloak probe, which bypass `pages`.
     http: reqwest::blocking::Client,
     jar: Arc<CookieStoreMutex>,
-    /// `ILIAS_DRY_RUN`: favourites changes are only pretended.
-    dry_run: bool,
+    /// Dry run (settings or `ILIAS_DRY_RUN`): favourites changes are only pretended.
+    dry_run: AtomicBool,
     /// Offline mode: nothing at all is sent; every request fails with [`OFFLINE`].
     offline: AtomicBool,
 }
@@ -67,9 +67,13 @@ impl Client {
             pages: Arc::new(Https(http.clone())),
             http,
             jar,
-            dry_run: write::dry_run_from_env(),
+            dry_run: AtomicBool::new(crate::config::Config::load().dry_run()),
             offline: AtomicBool::new(false),
         })
+    }
+
+    pub fn set_dry_run(&self, dry_run: bool) {
+        self.dry_run.store(dry_run, Ordering::Relaxed);
     }
 
     /// Offline mode: from now on nothing is sent to ILIAS.
@@ -93,7 +97,7 @@ impl Client {
     pub fn with_pages(base: Url, pages: Arc<dyn Pages>) -> Self {
         Self {
             pages,
-            dry_run: false,
+            dry_run: AtomicBool::new(false),
             ..Self::new(base, CookieStore::default()).unwrap()
         }
     }
