@@ -10,9 +10,14 @@
 //! - Files you deleted stay deleted until they change on ILIAS.
 //! - With "missing files only" (settings), it's simpler: every file that isn't on disk is
 //!   downloaded (also the ones you deleted), and every file that is stays as it is.
+//! - Each file is saved once per sync, even if ILIAS lists it in several places: "My
+//!   courses" shows a course both under Favourites and its semester, a group both on its
+//!   own and inside its course. Files are saved by their ILIAS path, so every listing
+//!   would save the same file into the same folder again (`Blatt 3 (1).pdf`, …).
 //! - Every course and folder page read on the way is cached, so synced courses can be
 //!   browsed offline.
 
+use std::collections::HashSet;
 use std::path::{Path, PathBuf};
 use std::sync::atomic::{AtomicUsize, Ordering};
 use std::sync::{Mutex, PoisonError};
@@ -208,13 +213,24 @@ pub fn sync(
     let mut summary = Summary::default();
     let mut work: Vec<(Item, Plan)> = Vec::new();
     let keep = |item: &Item, page: &Page| cache.put(&Cache::key(Some(&item.url), false), page);
+    // Ref ids of the containers read and the files planned so far.
+    let mut read: HashSet<u64> = HashSet::new();
+    let mut planned: HashSet<u64> = HashSet::new();
     for root in roots {
-        let files = client.descendants_with_pages(
+        // Listed twice, or already read as part of an earlier root (a group in its course).
+        if !read.insert(root.ref_id) {
+            continue;
+        }
+        let items = client.descendants_with_pages(
             Some(root),
             |n| progress(format!("Sync: reading {} … {n} folders", root.title)),
             &keep,
         )?;
-        for mut item in files.into_iter().filter(|i| i.kind == "file") {
+        read.extend(items.iter().filter(|i| i.kind != "file").map(|i| i.ref_id));
+        let files = items
+            .into_iter()
+            .filter(|i| i.kind == "file" && planned.insert(i.ref_id));
+        for mut item in files {
             // Titles are paths below the root; name the course too.
             item.title = format!("{} › {}", root.title, item.title);
             let saved = downloads.entry(item.ref_id).map(|s| (s, s.local()));
@@ -584,6 +600,57 @@ mod tests {
         assert!(summary.failed.is_empty() && summary.beside.is_empty());
         assert_eq!(std::fs::read_to_string(&path).unwrap(), "my copy");
         assert_eq!(downloads.entry(9).unwrap().local(), Local::Untouched);
+        let _ = std::fs::remove_dir_all(dir);
+    }
+
+    #[test]
+    fn a_file_listed_in_several_places_is_synced_once() {
+        use crate::ilias::pages::{FakeIlias, reply};
+        use std::sync::Arc;
+        // Course 1 holds group 2 (also listed on its own in My courses), which holds file 9.
+        let requests = Arc::new(AtomicUsize::new(0));
+        let counter = requests.clone();
+        let ilias = Arc::new(FakeIlias::new(move |url| {
+            counter.fetch_add(1, Ordering::SeqCst);
+            let html = match url.path() {
+                "/ilias/goto.php/crs/1" => {
+                    r#"<div class="ilContainerListItemOuter"><a class="il_ContainerItemTitle" href="https://ilias.example/ilias/goto.php/grp/2">Gruppe</a></div>"#
+                }
+                "/ilias/goto.php/grp/2" => {
+                    r#"<div class="ilContainerListItemOuter">
+                    <a class="il_ContainerItemTitle" href="https://ilias.example/ilias/ilias.php?cmdClass=ilObjFileGUI&amp;cmd=sendfile&amp;ref_id=9">Blatt 3</a>
+                    <div class="il_ItemProperties"><span class="il_ItemProperty">pdf</span>
+                    <span class="il_ItemProperty">1.2 MB</span></div></div>"#
+                }
+                other => return Err(color_eyre::eyre::eyre!("unexpected {other}")),
+            };
+            reply(url, &format!(r#"<div id="il_center_col">{html}</div>"#))
+        }));
+        let base = url::Url::parse("https://ilias.example/ilias/").unwrap();
+        let client = Client::with_pages(base, ilias);
+        let dir = std::env::temp_dir().join(format!("ilias-tui-twice-{}", std::process::id()));
+        std::fs::create_dir_all(&dir).unwrap();
+        // Saved before and current: nothing to download (there is no network here).
+        let path = dir.join("Blatt 3.pdf");
+        std::fs::write(&path, "x").unwrap();
+        let mut downloads = Downloads::in_file(dir.join("index.json"));
+        downloads.record(9, path, "1.2 MB".into()).unwrap();
+        let container = |kind: &str, id: u64, title: &str| Item {
+            kind: kind.into(),
+            ref_id: id,
+            title: title.into(),
+            url: format!("https://ilias.example/ilias/goto.php/{kind}/{id}"),
+            ..Item::default()
+        };
+        let (course, group) = (container("crs", 1, "Kurs"), container("grp", 2, "Gruppe"));
+        // As "sync all" got them: the course twice, and the group inside it on its own.
+        let roots = [course.clone(), group, course];
+        let cache = Cache::in_dir(dir.join("cache"));
+        let summary = sync(&client, &roots, &dir, &mut downloads, &cache, RULES, |_| {}).unwrap();
+        assert_eq!(summary.unchanged, 1, "{summary:?}");
+        assert!(summary.failed.is_empty(), "{summary:?}");
+        // Course and group page, each read once.
+        assert_eq!(requests.load(Ordering::SeqCst), 2);
         let _ = std::fs::remove_dir_all(dir);
     }
 

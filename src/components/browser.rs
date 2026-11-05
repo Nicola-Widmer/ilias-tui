@@ -431,11 +431,19 @@ impl Browser {
 
     /// `A`: asks before syncing every course in My courses.
     fn sync_all(&self) -> Action {
+        // A course can be listed twice (Favourites and its semester): count and sync it once.
+        let mut seen = HashSet::new();
         let courses: Vec<Item> = self
             .stack
             .iter()
             .find(|l| l.item.is_none() && !l.deep)
-            .map(|l| l.items.iter().filter(|i| syncable(i)).cloned().collect())
+            .map(|l| {
+                l.items
+                    .iter()
+                    .filter(|i| syncable(i) && seen.insert(i.ref_id))
+                    .cloned()
+                    .collect()
+            })
             .unwrap_or_default();
         if courses.is_empty() {
             return Action::Error("No courses to sync: My courses is empty or not loaded".into());
@@ -1191,7 +1199,8 @@ mod tests {
         ));
 
         let (a, b) = (item("crs", 1, "Algebra"), item("crs", 2, "Biologie"));
-        let courses = vec![a.clone(), item("webr", 3, "Link"), b];
+        // Algebra twice, as under Favourites and its semester.
+        let courses = vec![a.clone(), item("webr", 3, "Link"), b, a.clone()];
         load(&mut browser, None, Page::from_items(courses), false);
         load(
             &mut browser,
