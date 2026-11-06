@@ -58,7 +58,7 @@ impl Client {
                 .map(|(_, v)| v.into_owned())
         };
         // Only ever send what this function is for: a favourites link for this very item.
-        let expected = url.scheme() == "https"
+        let expected = url.scheme() == self.base.scheme()
             && url.host_str() == self.base.host_str()
             && matches!(
                 param("cmd").as_deref(),
@@ -162,6 +162,22 @@ mod tests {
                 MEMBERSHIPS,
             ]
         );
+    }
+
+    #[test]
+    fn a_favourites_link_keeps_the_scheme_of_ilias() {
+        let ilias = Arc::new(FakeIlias::new(|url| reply(url, "<p>ok</p>")));
+        let client = Client::with_pages(base(), ilias.clone());
+        let plain = "http://ilias.example/ilias/ilias.php?cmd=addToDesk&type=crs&item_ref_id=7";
+        assert!(client.toggle_favorite(&course(plain)).is_err());
+        assert!(ilias.requests(&base()).is_empty());
+
+        // A local test ILIAS runs on plain http: there it's the expected scheme.
+        let local = Url::parse("http://localhost:8080/").unwrap();
+        let ilias = Arc::new(FakeIlias::new(|url| reply(url, "<p>ok</p>")));
+        let client = Client::with_pages(local, ilias);
+        let link = "http://localhost:8080/ilias.php?cmd=addToDesk&type=crs&item_ref_id=7";
+        assert!(client.toggle_favorite(&course(link)).unwrap());
     }
 
     #[test]

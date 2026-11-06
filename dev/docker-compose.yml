@@ -1,0 +1,40 @@
+# A throwaway ILIAS for development, on http://localhost:8080 only. Not for real data:
+# the passwords below are public. See dev/README.md.
+services:
+  ilias:
+    image: srsolutions/ilias:10.12-php8.3-apache
+    ports:
+      - 127.0.0.1:8080:80
+    depends_on:
+      mysql:
+        condition: service_healthy
+    environment:
+      - ILIAS_AUTO_SETUP=1
+      - ILIAS_DB_USER=root
+      - ILIAS_DB_PASSWORD=ilias-dev
+      - ILIAS_HTTP_PATH=http://localhost:8080
+      - ILIAS_ROOT_PASSWORD=ilias-dev
+      - ILIAS_TIMEZONE=Europe/Zurich
+    volumes:
+      - data:/var/www/html/public/data
+      - iliasdata:/var/iliasdata/ilias
+  mysql:
+    image: mariadb:10.11
+    command:
+      - --character-set-server=utf8
+      - --collation-server=utf8_general_ci
+    environment:
+      - MYSQL_ROOT_PASSWORD=ilias-dev
+      - MYSQL_DATABASE=ilias
+    healthcheck:
+      test: [CMD, healthcheck.sh, --connect, --innodb_initialized]
+      interval: 5s
+      timeout: 5s
+      retries: 30
+    volumes:
+      - db:/var/lib/mysql
+
+volumes:
+  data:
+  iliasdata:
+  db:

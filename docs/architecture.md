@@ -440,6 +440,8 @@ If the feature needs ILIAS data, add a method to `ilias::Client`, then a matchin
   the URLs asked for). With it the tests cover silent re-login and its failure, the write
   guard, deep search order and limits, the complete My courses (also without a working
   dashboard), favourites changes (exactly one request; none in dry-run mode) and logout.
+  For trying things against a real server there is a throwaway ILIAS in Docker
+  (`dev/README.md`).
   The `App` tests use an offline `FakeIlias`, so no test reaches the network. File
   downloads and the Keycloak probe bypass the seam.
 - **Download helpers** (`ilias/mod.rs`): `Content-Disposition` parsing and filename

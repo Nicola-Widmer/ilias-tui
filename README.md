@@ -244,6 +244,8 @@ colour the icons). The settings list any entry they can't use.
 To use another school's ILIAS, point `ILIAS_URL` at the folder that contains `login.php`
 and `openidconnect.php`.
 
+For development there is a throwaway local ILIAS in Docker, see [dev/README.md](dev/README.md).
+
 ## Sync
 
 `S` saves all files of the selected course or folder into the download folder, in the same

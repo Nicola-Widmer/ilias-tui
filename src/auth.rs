@@ -1,4 +1,6 @@
-//! Interactive SSO login (ILIAS → Keycloak → Switch edu-ID) in a real Chrome window.
+//! Interactive SSO login (ILIAS → Keycloak → Switch edu-ID) in a real Chrome window. An ILIAS
+//! without a login server (the local test ILIAS, see `dev/README.md`) shows its own login page
+//! there instead.
 //!
 //! The user logs in normally (including 2FA). Once Chrome lands back on ILIAS we copy the
 //! cookies of ILIAS and of its login server (HSLU's Keycloak) into a [`CookieStore`]. The
@@ -20,6 +22,7 @@ const LOGIN_TIMEOUT: Duration = Duration::from_secs(300);
 
 pub fn browser_login(base: &Url) -> Result<CookieStore> {
     let login_server = login_server(base)?;
+    let own_login_page = login_server.host_str() == base.host_str();
     let browser = Browser::new(LaunchOptions {
         headless: false,
         window_size: Some((1000, 800)),
@@ -46,16 +49,14 @@ pub fn browser_login(base: &Url) -> Result<CookieStore> {
         if !url.scheme().starts_with("http") {
             continue;
         }
+        let past_login = past_login(&url, base);
         url.set_query(None);
         url.set_fragment(None);
         let left_ilias = visited
             .iter()
             .any(|u: &Url| u.host_str() != base.host_str());
-        let back_on_ilias = url.host_str() == base.host_str()
-            && !url.path().ends_with("openidconnect.php")
-            && !url.path().ends_with("login.php");
         visited.insert(url);
-        if left_ilias && back_on_ilias {
+        if past_login && (left_ilias || own_login_page) {
             break;
         }
     }
@@ -90,6 +91,16 @@ pub fn browser_login(base: &Url) -> Result<CookieStore> {
     Ok(store)
 }
 
+/// Whether Chrome is on ILIAS, on anything but its login pages.
+fn past_login(url: &Url, base: &Url) -> bool {
+    url.host_str() == base.host_str()
+        && !url.path().ends_with("openidconnect.php")
+        && !url.path().ends_with("login.php")
+        && !url
+            .query()
+            .is_some_and(|q| q.to_ascii_lowercase().contains("baseclass=ilstartupgui"))
+}
+
 /// Where ILIAS sends the browser to log in (e.g. HSLU's Keycloak), without following the
 /// redirect. Returned without query, as used for cookie lookups.
 fn login_server(base: &Url) -> Result<Url> {
@@ -119,6 +130,21 @@ fn cookie_matches(domain: &str, host: &str) -> bool {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn the_login_ends_past_the_login_pages_of_ilias() {
+        let base = Url::parse("http://localhost:8080/").unwrap();
+        let past = |url: &str| past_login(&Url::parse(url).unwrap(), &base);
+        assert!(past(
+            "http://localhost:8080/ilias.php?baseClass=ilDashboardGUI"
+        ));
+        assert!(!past("http://localhost:8080/openidconnect.php"));
+        assert!(!past("http://localhost:8080/login.php"));
+        assert!(!past(
+            "http://localhost:8080/ilias.php?baseClass=ilstartupgui&cmd=showLoginPage"
+        ));
+        assert!(!past("https://keycloak.example/realms/hslu"));
+    }
 
     #[test]
     fn keeps_only_ilias_and_login_server_cookies() {
