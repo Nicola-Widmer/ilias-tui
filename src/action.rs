@@ -1,5 +1,6 @@
 use std::path::PathBuf;
 
+use crate::config::Config;
 use crate::ilias::{Item, Page};
 
 /// Everything that can happen in the app. Components emit actions from key events,
@@ -12,8 +13,8 @@ pub enum Action {
     Handled,
     ToggleHelp,
     ToggleSettings,
-    /// Save files in this folder from now on (`None`: back to the default).
-    SetDownloadDir(Option<PathBuf>),
+    /// Save these settings and apply them (changed on the settings page).
+    SetConfig(Config),
     /// The folder files are saved in now.
     DownloadDirSet(PathBuf),
     /// Fetch the page of `item` (`None` means "My courses"). `url` selects another tab of
@@ -55,7 +56,7 @@ pub enum Action {
     Cancelled,
     /// Add the item to the ILIAS favourites, or remove it (whichever its menu offers).
     ToggleFavorite(Item),
-    /// `dry_run`: `ILIAS_DRY_RUN` was set, so nothing was sent.
+    /// `dry_run`: dry run is on (settings or `ILIAS_DRY_RUN`), so nothing was sent.
     FavoriteToggled {
         item: Item,
         dry_run: bool,

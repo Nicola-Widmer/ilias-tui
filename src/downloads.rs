@@ -152,14 +152,14 @@ impl Downloads {
         })
     }
 
-    /// Applies a change to one entry and writes the index. The file is read again first,
-    /// so a sync running in the background and the TUI don't drop each other's entries.
+    /// Applies a change to one entry and writes the index. The file is read again first
+    /// and wins for every other entry, so a sync running in the background and the TUI
+    /// neither drop nor undo each other's entries.
     fn update(&mut self, ref_id: u64, change: impl FnOnce(&mut Option<Saved>)) -> Result<()> {
         if let Some(file) = &self.file {
+            // Overlaid, not replaced: an unreadable file must not wipe what is known here.
             let on_disk = Self::from_file(Some(file.clone())).entries;
-            for (id, saved) in on_disk {
-                self.entries.entry(id).or_insert(saved);
-            }
+            self.entries.extend(on_disk);
         }
         let mut entry = self.entries.remove(&ref_id);
         change(&mut entry);
@@ -176,5 +176,31 @@ impl Downloads {
             .collect();
         fs::write(file, serde_json::to_string_pretty(&json)?)?;
         Ok(())
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn a_stale_copy_of_the_index_does_not_undo_newer_entries() {
+        let dir = std::env::temp_dir().join(format!("ilias-tui-index-{}", std::process::id()));
+        fs::create_dir_all(&dir).unwrap();
+        let index = dir.join("index.json");
+        let mut tui = Downloads::in_file(index.clone());
+        tui.record(1, dir.join("Blatt 1.pdf"), "v1".into()).unwrap();
+
+        // A sync, with its own copy of the index, saves a newer version of file 1.
+        let mut sync = Downloads::in_file(index.clone());
+        sync.record(1, dir.join("Blatt 1 (1).pdf"), "v2".into())
+            .unwrap();
+
+        // The TUI, still knowing the old entry, saves another file.
+        tui.record(2, dir.join("Blatt 2.pdf"), "v1".into()).unwrap();
+        let on_disk = Downloads::in_file(index);
+        assert_eq!(on_disk.entry(1).unwrap().version, "v2");
+        assert_eq!(on_disk.entry(2).unwrap().version, "v1");
+        let _ = fs::remove_dir_all(dir);
     }
 }

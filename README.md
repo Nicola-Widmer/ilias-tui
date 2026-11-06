@@ -200,10 +200,19 @@ turns mouse support off.
 
 ### Configuration
 
+Press `c` for the settings page: every setting below, one per row (`↑`/`↓` choose, `↵`
+toggles or edits, `r` resets to the default). Changes are saved right away in
+`config.json` in the app's config folder. Mouse support, page cache, start offline and
+the ILIAS URL apply at the next start; the rest at once. The settings page also has
+**Sync missing files only** (see [Sync](#sync)).
+
+Each setting can also be set with an environment variable, which wins over the settings
+page:
+
 | Environment variable  | Default                              |
 | --------------------- | ------------------------------------ |
 | `ILIAS_URL`           | `https://elearning.hslu.ch/ilias/`   |
-| `ILIAS_DOWNLOAD_DIR`  | `~/Downloads/ILIAS`. Also settable in the app: press `c` (the variable wins at startup) |
+| `ILIAS_DOWNLOAD_DIR`  | `~/Downloads/ILIAS`. A folder chosen in the app applies at once; the variable wins again at the next start |
 | `ILIAS_NERD_FONT`     | `1`. Set to `0` for plain Unicode icons |
 | `ILIAS_MOUSE`         | `1`. Set to `0` to turn off mouse support |
 | `ILIAS_CACHE`         | `1`. Set to `0` to turn off the page cache |
@@ -229,7 +238,7 @@ and at the end a summary: new, updated, unchanged, skipped. If any files were sk
 their size, saved beside your edited copy, or failed, a **sync report** opens and lists
 them by name (`j`/`k` scrolls, any other key closes it).
 
-- **Only reasonably sized files:** up to 50 MB (`ILIAS_SYNC_MAX_MB`). Lecture recordings
+- **Only reasonably sized files:** up to 50 MB (settings page or `ILIAS_SYNC_MAX_MB`). Lecture recordings
   and other big files are skipped and counted.
 - **Only what changed:** ILIAS lists each file's size and date. A file is fetched again
   only if those changed, so syncing an unchanged course just reads its folder pages.
@@ -238,6 +247,9 @@ them by name (`j`/`k` scrolls, any other key closes it).
   When such a file changes on ILIAS, the new version is saved beside yours, e.g.
   `Blatt 3 (ILIAS 2026-11-02).pdf`. Files downloaded before sync existed count as edited.
 - **Deleted is deleted:** a file you removed comes back only if it changes on ILIAS.
+- **Sync missing files only** (settings page, off by default): sync downloads every file
+  that isn't on disk, also the ones you deleted, and leaves every file you have exactly as
+  it is: no updates, no new versions beside your copies.
 - **Speed:** folders are read 6 at a time and files downloaded 3 at a time, so the server
   isn't flooded. Nothing is half-written: a download goes to a new file first and only
   then replaces an unedited copy.

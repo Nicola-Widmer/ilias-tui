@@ -3,6 +3,7 @@
 
 use std::path::PathBuf;
 use std::sync::Arc;
+use std::sync::atomic::{AtomicBool, Ordering};
 use std::sync::mpsc::{self, Receiver, Sender};
 use std::thread;
 use std::time::Duration;
@@ -33,6 +34,12 @@ pub struct App {
     status_bar: StatusBar,
     help: Help,
     settings: Settings,
+    /// A sync is running. Only one at a time: each works from the download index as it
+    /// was when it started, so a second one would save the first one's files again.
+    syncing: Arc<AtomicBool>,
+    /// A deep search is reading ILIAS. Only one at a time: each reads every folder below,
+    /// and a second one would double the load on the server for a result nobody sees.
+    searching: Arc<AtomicBool>,
     tx: Sender<Action>,
     rx: Receiver<Action>,
     should_quit: bool,
@@ -43,9 +50,10 @@ impl App {
         let (tx, rx) = mpsc::channel();
         let downloads = Downloads::load(&client.base);
         let cache = Cache::new(&client.base);
-        let browser = Browser::new(downloads.saved().collect());
+        let browser = Browser::new(downloads.saved().collect(), sync::Rules::new(&config));
         let download_dir = config.download_dir();
-        let settings = Settings::new(download_dir.clone(), config.download_dir.is_some());
+        let settings = Settings::new(config.clone(), download_dir.clone());
+        crate::icons::set_nerd_font(config.nerd_font());
         Self {
             client: Arc::new(client),
             config,
@@ -59,6 +67,8 @@ impl App {
             status_bar: StatusBar::default(),
             help: Help::default(),
             settings,
+            syncing: Arc::default(),
+            searching: Arc::default(),
             tx,
             rx,
             should_quit: false,
@@ -128,6 +138,26 @@ impl App {
             self.tx.send(Action::Error(
                 "Offline: nothing can be sent to or fetched from ILIAS. Press L to go online."
                     .into(),
+            ))?;
+            return Ok(());
+        }
+        let wants_sync = match &action {
+            Action::Sync(_) => true,
+            Action::Ask { then, .. } => matches!(**then, Action::Sync(_)),
+            _ => false,
+        };
+        if wants_sync && self.syncing.load(Ordering::SeqCst) {
+            self.tx.send(Action::Error(
+                "A sync is already running; start the next one when it has finished.".into(),
+            ))?;
+            return Ok(());
+        }
+        // Offline, a deep search only reads the cache: no limit there.
+        let wants_search =
+            matches!(action, Action::Load { deep: true, .. }) && !self.client.is_offline();
+        if wants_search && self.searching.load(Ordering::SeqCst) {
+            self.tx.send(Action::Error(
+                "A search is already running; start the next one when it has finished.".into(),
             ))?;
             return Ok(());
         }
@@ -226,29 +256,39 @@ impl App {
             Action::Sync(roots) => {
                 let (roots, dir) = (roots.clone(), self.download_dir.clone());
                 let cache = self.cache.clone();
+                let rules = sync::Rules::new(&self.config);
+                self.syncing.store(true, Ordering::SeqCst);
+                let syncing = Running(self.syncing.clone());
                 self.spawn(move |client, tx| {
+                    // Cleared when the job ends, whether it succeeds or fails.
+                    let _syncing = syncing;
                     let mut downloads = Downloads::load(&client.base);
-                    let max_mb = sync::max_mb_from_env();
                     let summary =
-                        sync::sync(client, &roots, &dir, &mut downloads, &cache, max_mb, |p| {
+                        sync::sync(client, &roots, &dir, &mut downloads, &cache, rules, |p| {
                             let _ = tx.send(Action::Progress(p));
                         })?;
                     Ok(Action::Synced {
-                        summary: summary.text(max_mb),
-                        report: summary.report(&dir, max_mb),
+                        summary: summary.text(rules.max_mb),
+                        report: summary.report(&dir, rules.max_mb),
                         saved: summary.saved,
                     })
                 });
             }
             // The sync wrote its own copy of the index; read it again.
             Action::Synced { .. } => self.downloads = Downloads::load(&self.client.base),
-            Action::SetDownloadDir(dir) => {
-                self.config.download_dir.clone_from(dir);
+            Action::SetConfig(config) => {
+                let dir_changed = config.download_dir != self.config.download_dir;
+                self.config = config.clone();
                 self.config.save()?;
-                // Chosen here, it applies now, even over ILIAS_DOWNLOAD_DIR.
-                self.download_dir = dir.clone().unwrap_or_else(|| self.config.download_dir());
-                self.tx
-                    .send(Action::DownloadDirSet(self.download_dir.clone()))?;
+                crate::icons::set_nerd_font(self.config.nerd_font());
+                self.client.set_dry_run(self.config.dry_run());
+                if dir_changed {
+                    // Chosen here, it applies now, even over ILIAS_DOWNLOAD_DIR.
+                    self.download_dir = (self.config.download_dir.clone())
+                        .unwrap_or_else(|| self.config.download_dir());
+                    self.tx
+                        .send(Action::DownloadDirSet(self.download_dir.clone()))?;
+                }
             }
             Action::Login => self.spawn(|client, _| {
                 if client.is_offline() {
@@ -288,7 +328,13 @@ impl App {
         key: String,
     ) {
         let cache = self.cache.clone();
+        let searching = deep.then(|| {
+            self.searching.store(true, Ordering::SeqCst);
+            Running(self.searching.clone())
+        });
         self.spawn(move |client, tx| {
+            // Cleared when the job ends, whether it succeeds or fails.
+            let _searching = searching;
             let page = match (&item, deep) {
                 (_, true) => Page::from_items(client.descendants(item.as_ref(), |n| {
                     let _ = tx.send(Action::Progress(format!("Searching… {n} folders")));
@@ -335,6 +381,15 @@ impl App {
         self.report.draw(frame, area);
         // Last, so the question is on top of everything.
         self.confirm.draw(frame, area);
+    }
+}
+
+/// Clears a "job is running" flag when dropped.
+struct Running(Arc<AtomicBool>);
+
+impl Drop for Running {
+    fn drop(&mut self) {
+        self.0.store(false, Ordering::SeqCst);
     }
 }
 
@@ -447,6 +502,106 @@ mod tests {
         // `q` closes the page instead of quitting.
         let close = app.handle_key(KeyCode::Char('q').into());
         assert!(matches!(close, Some(Action::ToggleSettings)));
+        let _ = std::fs::remove_dir_all(dir);
+    }
+
+    #[test]
+    fn only_one_sync_runs_at_a_time() {
+        let dir = std::env::temp_dir().join(format!("ilias-tui-onesync-{}", std::process::id()));
+        let mut app = app(&dir);
+        let course = Item {
+            kind: "crs".into(),
+            ref_id: 1,
+            title: "DEMO".into(),
+            url: "https://ilias.example/ilias/goto.php/crs/1".into(),
+            ..Default::default()
+        };
+        let refused = |app: &mut App, action: Action| {
+            app.dispatch(action).unwrap();
+            matches!(app.rx.try_recv(), Ok(Action::Error(ref e)) if e.contains("already running"))
+        };
+
+        // While one runs, a second one is refused, also before its question.
+        app.syncing.store(true, Ordering::SeqCst);
+        assert!(refused(&mut app, Action::Sync(vec![course.clone()])));
+        let ask = Action::Ask {
+            question: "Sync all?".into(),
+            then: Box::new(Action::Sync(vec![course.clone()])),
+        };
+        assert!(refused(&mut app, ask));
+        app.syncing.store(false, Ordering::SeqCst);
+
+        // A sync that fails (no network here) ends too: the next one may start.
+        app.dispatch(Action::Sync(vec![course])).unwrap();
+        assert!(app.syncing.load(Ordering::SeqCst));
+        loop {
+            match app.rx.recv_timeout(Duration::from_secs(5)) {
+                Ok(Action::Error(e)) => {
+                    assert!(!e.contains("already running"), "{e}");
+                    break;
+                }
+                Ok(_) => {}
+                Err(e) => panic!("the sync never ended: {e}"),
+            }
+        }
+        assert!(!app.syncing.load(Ordering::SeqCst));
+        let _ = std::fs::remove_dir_all(dir);
+    }
+
+    #[test]
+    fn only_one_search_runs_at_a_time() {
+        let dir = std::env::temp_dir().join(format!("ilias-tui-onesearch-{}", std::process::id()));
+        let mut app = app(&dir);
+        let course = Item {
+            kind: "crs".into(),
+            ref_id: 1,
+            title: "DEMO".into(),
+            url: "https://ilias.example/ilias/goto.php/crs/1".into(),
+            ..Default::default()
+        };
+        let search = || Action::Load {
+            item: Some(course.clone()),
+            url: None,
+            refresh: false,
+            deep: true,
+        };
+
+        // While one runs, a second one is refused; plain pages still load.
+        app.searching.store(true, Ordering::SeqCst);
+        app.dispatch(search()).unwrap();
+        assert!(
+            matches!(app.rx.try_recv(), Ok(Action::Error(ref e)) if e.contains("already running"))
+        );
+        app.dispatch(load(Some(course.clone()))).unwrap();
+        // It fetches in the background (and fails: no network); wait for that.
+        match app.rx.recv_timeout(Duration::from_secs(5)) {
+            Ok(Action::Error(e)) => assert!(!e.contains("already running"), "{e}"),
+            other => panic!("expected the page fetch to fail, got {other:?}"),
+        }
+
+        // Offline, searching only reads the cache: never refused.
+        app.client.set_offline(true);
+        app.dispatch(search()).unwrap();
+        assert!(
+            !matches!(app.rx.try_recv(), Ok(Action::Error(ref e)) if e.contains("already running"))
+        );
+        app.client.set_offline(false);
+        app.searching.store(false, Ordering::SeqCst);
+
+        // A search that fails (no network here) ends too: the next one may start.
+        app.dispatch(search()).unwrap();
+        assert!(app.searching.load(Ordering::SeqCst));
+        loop {
+            match app.rx.recv_timeout(Duration::from_secs(5)) {
+                Ok(Action::Error(e)) => {
+                    assert!(!e.contains("already running"), "{e}");
+                    break;
+                }
+                Ok(_) => {}
+                Err(e) => panic!("the search never ended: {e}"),
+            }
+        }
+        assert!(!app.searching.load(Ordering::SeqCst));
         let _ = std::fs::remove_dir_all(dir);
     }
 

@@ -393,6 +393,8 @@ pub struct Browser {
     todo_focus: bool,
     /// Courses and folders marked with Space for the next sync.
     marked: Vec<Item>,
+    /// How sync decides (from the settings), for the question before `A`.
+    sync_rules: crate::sync::Rules,
 }
 
 /// What `S` can sync: places that hold files.
@@ -415,9 +417,10 @@ enum Hit {
 const DOUBLE_CLICK: Duration = Duration::from_millis(400);
 
 impl Browser {
-    pub fn new(saved: HashSet<u64>) -> Self {
+    pub fn new(saved: HashSet<u64>, sync_rules: crate::sync::Rules) -> Self {
         Self {
             saved,
+            sync_rules,
             ..Self::default()
         }
     }
@@ -428,11 +431,19 @@ impl Browser {
 
     /// `A`: asks before syncing every course in My courses.
     fn sync_all(&self) -> Action {
+        // A course can be listed twice (Favourites and its semester): count and sync it once.
+        let mut seen = HashSet::new();
         let courses: Vec<Item> = self
             .stack
             .iter()
             .find(|l| l.item.is_none() && !l.deep)
-            .map(|l| l.items.iter().filter(|i| syncable(i)).cloned().collect())
+            .map(|l| {
+                l.items
+                    .iter()
+                    .filter(|i| syncable(i) && seen.insert(i.ref_id))
+                    .cloned()
+                    .collect()
+            })
             .unwrap_or_default();
         if courses.is_empty() {
             return Action::Error("No courses to sync: My courses is empty or not loaded".into());
@@ -440,9 +451,9 @@ impl Browser {
         let n = courses.len();
         Action::Ask {
             question: format!(
-                "Sync all {n} course{} in My courses? Saves every file up to {} MB.",
+                "Sync all {n} course{} in My courses? {}",
                 if n == 1 { "" } else { "s" },
-                crate::sync::max_mb_from_env()
+                self.sync_rules.describe()
             ),
             then: Box::new(Action::Sync(courses)),
         }
@@ -714,6 +725,7 @@ impl Component for Browser {
 
     fn update(&mut self, action: &Action) -> Option<Action> {
         match action {
+            Action::SetConfig(config) => self.sync_rules = crate::sync::Rules::new(config),
             Action::Load { item, deep, .. } => {
                 self.pending = Some((item.as_ref().map(|i| i.ref_id), *deep));
             }
@@ -1180,14 +1192,15 @@ mod tests {
 
     #[test]
     fn a_asks_before_syncing_all_courses_from_anywhere() {
-        let mut browser = Browser::new(HashSet::new());
+        let mut browser = Browser::new(HashSet::new(), Default::default());
         assert!(matches!(
             browser.handle_key_event(KeyCode::Char('A').into()),
             Some(Action::Error(_))
         ));
 
         let (a, b) = (item("crs", 1, "Algebra"), item("crs", 2, "Biologie"));
-        let courses = vec![a.clone(), item("webr", 3, "Link"), b];
+        // Algebra twice, as under Favourites and its semester.
+        let courses = vec![a.clone(), item("webr", 3, "Link"), b, a.clone()];
         load(&mut browser, None, Page::from_items(courses), false);
         load(
             &mut browser,
@@ -1202,11 +1215,24 @@ mod tests {
             panic!("expected a question");
         };
         assert!(question.starts_with("Sync all 2 courses"), "{question}");
+        assert!(!question.contains("missing"), "{question}");
         let Action::Sync(roots) = *then else {
             panic!("expected a sync");
         };
         let ids: Vec<u64> = roots.iter().map(|r| r.ref_id).collect();
         assert_eq!(ids, [1, 2]);
+
+        // The question follows the settings.
+        browser.update(&Action::SetConfig(crate::config::Config {
+            missing_only: true,
+            ..Default::default()
+        }));
+        let Some(Action::Ask { question, .. }) =
+            browser.handle_key_event(KeyCode::Char('A').into())
+        else {
+            panic!("expected a question");
+        };
+        assert!(question.contains("every missing file"), "{question}");
     }
 
     fn screen(browser: &mut Browser) -> String {
@@ -1253,7 +1279,7 @@ mod tests {
     #[test]
     fn marks_saved_files_and_d_saves_without_opening() {
         let file = item("file", 2, "Skript");
-        let mut browser = Browser::new(HashSet::from([2]));
+        let mut browser = Browser::new(HashSet::from([2]), Default::default());
         load(
             &mut browser,
             None,
