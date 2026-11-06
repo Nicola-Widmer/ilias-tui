@@ -22,6 +22,7 @@ enum Field {
     SyncMaxMb,
     MissingOnly,
     NerdFont,
+    Theme,
     Mouse,
     Cache,
     Offline,
@@ -29,11 +30,12 @@ enum Field {
     Url,
 }
 
-const FIELDS: [Field; 9] = [
+const FIELDS: [Field; 10] = [
     Field::DownloadDir,
     Field::SyncMaxMb,
     Field::MissingOnly,
     Field::NerdFont,
+    Field::Theme,
     Field::Mouse,
     Field::Cache,
     Field::Offline,
@@ -48,6 +50,7 @@ impl Field {
             Field::SyncMaxMb => "Sync size limit",
             Field::MissingOnly => "Sync missing files only",
             Field::NerdFont => "Nerd Font icons",
+            Field::Theme => "Theme",
             Field::Mouse => "Mouse support",
             Field::Cache => "Page cache",
             Field::Offline => "Always start offline",
@@ -65,6 +68,10 @@ impl Field {
                  Files you have are never replaced, and no new versions are saved beside them."
             }
             Field::NerdFont => "Off: plain Unicode symbols, for fonts without Nerd Font glyphs.",
+            Field::Theme => {
+                "Enter switches between dark, light and hub. For your own colours, add e.g. \
+                 \"colors\": { \"accent\": \"#ff8800\" } to config.json and restart."
+            }
             Field::Mouse => "Off: the terminal's own text selection works without a modifier key.",
             Field::Cache => "Keeps opened pages for instant display and offline use.",
             Field::Offline => "Start with cached pages and saved files only (L goes online).",
@@ -78,7 +85,7 @@ impl Field {
         match self {
             Field::DownloadDir => "ILIAS_DOWNLOAD_DIR",
             Field::SyncMaxMb => "ILIAS_SYNC_MAX_MB",
-            Field::MissingOnly => "",
+            Field::MissingOnly | Field::Theme => "",
             Field::NerdFont => "ILIAS_NERD_FONT",
             Field::Mouse => "ILIAS_MOUSE",
             Field::Cache => "ILIAS_CACHE",
@@ -105,7 +112,7 @@ impl Field {
             Field::Cache => config.cache(),
             Field::Offline => config.offline(),
             Field::DryRun => config.dry_run(),
-            Field::DownloadDir | Field::SyncMaxMb | Field::Url => return None,
+            Field::DownloadDir | Field::SyncMaxMb | Field::Theme | Field::Url => return None,
         })
     }
 
@@ -117,7 +124,7 @@ impl Field {
             Field::Cache => config.cache = Some(on),
             Field::Offline => config.offline = on,
             Field::DryRun => config.dry_run = on,
-            Field::DownloadDir | Field::SyncMaxMb | Field::Url => {}
+            Field::DownloadDir | Field::SyncMaxMb | Field::Theme | Field::Url => {}
         }
     }
 
@@ -128,6 +135,7 @@ impl Field {
             Field::SyncMaxMb => config.sync_max_mb.is_some(),
             Field::MissingOnly => config.missing_only,
             Field::NerdFont => config.nerd_font.is_some(),
+            Field::Theme => config.theme.is_some() || !config.colors.is_empty(),
             Field::Mouse => config.mouse.is_some(),
             Field::Cache => config.cache.is_some(),
             Field::Offline => config.offline,
@@ -143,6 +151,8 @@ impl Field {
             Field::SyncMaxMb => config.sync_max_mb = default.sync_max_mb,
             Field::MissingOnly => config.missing_only = default.missing_only,
             Field::NerdFont => config.nerd_font = default.nerd_font,
+            // The colours were written by hand; they stay until removed by hand.
+            Field::Theme => config.theme = default.theme,
             Field::Mouse => config.mouse = default.mouse,
             Field::Cache => config.cache = default.cache,
             Field::Offline => config.offline = default.offline,
@@ -199,6 +209,10 @@ impl Settings {
         match field {
             Field::DownloadDir => config::display(&self.download_dir),
             Field::SyncMaxMb => format!("{} MB", self.config.sync_max_mb()),
+            Field::Theme => match self.config.colors.len() {
+                0 => self.config.theme().to_string(),
+                n => format!("{} + {n} custom colours", self.config.theme()),
+            },
             Field::Url => self.config.url(),
             _ => String::new(),
         }
@@ -259,6 +273,11 @@ impl Component for Settings {
         let field = self.field();
         // While open, the page swallows every key.
         Some(match key.code {
+            KeyCode::Enter | KeyCode::Char(' ' | 'e') if field == Field::Theme => {
+                let at = theme::THEMES.iter().position(|t| *t == self.config.theme());
+                let next = at.map_or(0, |i| (i + 1) % theme::THEMES.len());
+                self.changed(|c| c.theme = Some(theme::THEMES[next].into()))
+            }
             KeyCode::Down | KeyCode::Char('j') | KeyCode::Tab => {
                 self.selected = (self.selected + 1) % FIELDS.len();
                 Action::Handled
@@ -311,7 +330,7 @@ impl Component for Settings {
             let label_style = if selected {
                 theme::accent_bold()
             } else {
-                Style::new().fg(theme::FG)
+                Style::new().fg(theme::colors().fg)
             };
             let mut spans = vec![
                 Span::styled(if selected { "› " } else { "  " }, theme::accent_bold()),
@@ -319,15 +338,18 @@ impl Component for Settings {
             ];
             match (&self.input, selected) {
                 (Some(input), true) => {
-                    spans.push(Span::styled(input.clone(), Style::new().fg(theme::FG)));
-                    spans.push(Span::styled("▏", Style::new().fg(theme::ACCENT)));
+                    spans.push(Span::styled(
+                        input.clone(),
+                        Style::new().fg(theme::colors().fg),
+                    ));
+                    spans.push(Span::styled("▏", Style::new().fg(theme::colors().accent)));
                 }
                 _ => {
                     let value = self.value(field);
                     let color = match field.toggle(&self.config) {
-                        Some(true) => theme::GREEN,
-                        Some(false) => theme::RED,
-                        None => theme::FG,
+                        Some(true) => theme::colors().green,
+                        Some(false) => theme::colors().red,
+                        None => theme::colors().fg,
                     };
                     spans.push(Span::styled(
                         value,
@@ -345,6 +367,18 @@ impl Component for Settings {
         let field = self.field();
         text.push(Line::default());
         text.push(Line::styled(field.help(), theme::muted()));
+        if field == Field::Theme {
+            if let Ok(path) = Config::path() {
+                text.push(Line::styled(config::display(&path), theme::muted()));
+            }
+            let ignored = self.config.palette().1;
+            if !ignored.is_empty() {
+                text.push(Line::styled(
+                    format!("Not usable in colors: {}", ignored.join(", ")),
+                    Style::new().fg(theme::colors().yellow),
+                ));
+            }
+        }
         if field.at_next_start() {
             text.push(Line::styled("Applies at the next start.", theme::muted()));
         }
@@ -355,11 +389,14 @@ impl Component for Settings {
                 } else {
                     format!("{} is set: it wins over this setting.", field.env())
                 },
-                Style::new().fg(theme::YELLOW),
+                Style::new().fg(theme::colors().yellow),
             ));
         }
         if let Some(error) = &self.error {
-            text.push(Line::styled(error.clone(), Style::new().fg(theme::RED)));
+            text.push(Line::styled(
+                error.clone(),
+                Style::new().fg(theme::colors().red),
+            ));
         }
 
         let custom = field.is_custom(&self.config);
@@ -372,14 +409,18 @@ impl Component for Settings {
         };
         let block = Block::bordered()
             .border_type(BorderType::Rounded)
-            .border_style(Style::new().fg(theme::ACCENT))
+            .border_style(Style::new().fg(theme::colors().accent))
             .title(Line::styled(
                 format!(" {}  Settings ", theme::gear()),
                 theme::accent_bold(),
             ))
             .title_bottom(Line::styled(hint, theme::muted()).centered())
             .padding(Padding::uniform(1))
-            .style(Style::new().bg(theme::BAR_BG));
+            .style(
+                Style::new()
+                    .bg(theme::colors().bar_bg)
+                    .fg(theme::colors().fg),
+            );
         let paragraph = Paragraph::new(text).wrap(Wrap { trim: false }).block(block);
         // Long values wrap: make the box tall enough for every wrapped line
         // (the width inside the borders and padding is 4 less).
@@ -496,6 +537,28 @@ mod tests {
             assert!(!field.is_custom(&s.config), "{field:?}");
         }
         assert_eq!(s.config, Config::default());
+    }
+
+    #[test]
+    fn enter_switches_the_theme_and_r_goes_back() {
+        let mut s = open();
+        select(&mut s, Field::Theme);
+        assert_eq!(s.value(Field::Theme), "dark");
+        for expected in ["light", "hub", "dark", "light"] {
+            let Some(Action::SetConfig(config)) = key(&mut s, KeyCode::Enter) else {
+                panic!("expected a change");
+            };
+            assert_eq!(config.theme.as_deref(), Some(expected));
+        }
+        assert!(s.input.is_none(), "not a typed row");
+
+        s.config.colors.insert("accent".into(), "#ff8800".into());
+        assert_eq!(s.value(Field::Theme), "light + 1 custom colours");
+        let Some(Action::SetConfig(config)) = key(&mut s, KeyCode::Char('r')) else {
+            panic!("expected a change");
+        };
+        assert_eq!(config.theme, None);
+        assert_eq!(config.colors.len(), 1, "hand-written colours stay");
     }
 
     #[test]

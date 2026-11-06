@@ -87,10 +87,13 @@ impl Component for Filter {
         if self.query.is_empty() && self.editing {
             spans.push(Span::styled("type to filter…", theme::muted()));
         } else {
-            spans.push(Span::styled(self.query.clone(), Style::new().fg(theme::FG)));
+            spans.push(Span::styled(
+                self.query.clone(),
+                Style::new().fg(theme::colors().fg),
+            ));
         }
         if self.editing {
-            spans.push(Span::styled("▏", Style::new().fg(theme::ACCENT)));
+            spans.push(Span::styled("▏", Style::new().fg(theme::colors().accent)));
         }
         let hint = if self.editing {
             "↵ open  esc clear "
@@ -102,9 +105,14 @@ impl Component for Filter {
             Constraint::Length(hint.chars().count() as u16),
         ])
         .areas(area);
-        let bar = Style::new().bg(theme::SELECTED_BG);
+        let bar = Style::new()
+            .bg(theme::colors().selected_bg)
+            .fg(theme::colors().fg);
         frame.render_widget(Paragraph::new(Line::from(spans)).style(bar), left);
-        frame.render_widget(Paragraph::new(hint).style(bar.fg(theme::MUTED)), right);
+        frame.render_widget(
+            Paragraph::new(hint).style(bar.fg(theme::colors().muted)),
+            right,
+        );
     }
 }
 

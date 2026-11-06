@@ -113,8 +113,8 @@ front of every page request (only `src/ilias/write.rs` gets past it).
 
 - [ ] **Copy permalink** of the selected item (e.g. `y`).
 - [ ] **Keep the filter after going back.** Today the filter resets on every navigation.
-- [ ] **Light theme / configurable colours.** Today the colours are tuned for dark
-  terminals (`src/theme.rs`).
+- [x] **Light theme / configurable colours.** Dark, light or hub in the settings, `colors` in
+  `config.json` on top.
 - [ ] **Config file** for keys, download folder and theme. Today there are only environment
   variables.
 - [x] **Offline mode.** `--offline`, or automatic when ILIAS can't be reached: cached pages

@@ -103,12 +103,14 @@ impl Component for Help {
             }
             rows.push(Row::new([Span::styled(
                 *section,
-                Style::new().fg(theme::YELLOW).add_modifier(Modifier::BOLD),
+                Style::new()
+                    .fg(theme::colors().yellow)
+                    .add_modifier(Modifier::BOLD),
             )]));
             rows.extend(keys.iter().map(|(key, what)| {
                 Row::new([
                     Span::styled(format!("  {key}"), theme::accent_bold()),
-                    Span::styled(*what, Style::new().fg(theme::FG)),
+                    Span::styled(*what, Style::new().fg(theme::colors().fg)),
                 ])
             }));
         }
@@ -116,14 +118,18 @@ impl Component for Help {
         let area = area.centered(Constraint::Max(76), Constraint::Length(height));
         let block = Block::bordered()
             .border_type(BorderType::Rounded)
-            .border_style(Style::new().fg(theme::ACCENT))
+            .border_style(Style::new().fg(theme::colors().accent))
             .title(Line::styled(
                 format!(" {}  Keys ", theme::keyboard()),
                 theme::accent_bold(),
             ))
             .title_bottom(Line::styled(" any key to close ", theme::muted()).centered())
             .padding(Padding::uniform(1))
-            .style(Style::new().bg(theme::BAR_BG));
+            .style(
+                Style::new()
+                    .bg(theme::colors().bar_bg)
+                    .fg(theme::colors().fg),
+            );
         let table = Table::new(rows, [Constraint::Length(16), Constraint::Fill(1)]).block(block);
         frame.render_widget(Clear, area);
         frame.render_widget(table, area);

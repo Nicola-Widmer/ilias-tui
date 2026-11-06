@@ -4,7 +4,7 @@ use std::time::Instant;
 
 use ratatui::Frame;
 use ratatui::layout::{Constraint, Layout, Rect};
-use ratatui::style::{Color, Modifier, Style};
+use ratatui::style::{Modifier, Style};
 use ratatui::text::{Line, Span};
 use ratatui::widgets::Paragraph;
 
@@ -123,8 +123,8 @@ impl Component for StatusBar {
             .collect();
         if self.offline {
             let badge = Style::new()
-                .fg(theme::BAR_BG)
-                .bg(theme::YELLOW)
+                .fg(theme::colors().bar_bg)
+                .bg(theme::colors().yellow)
                 .add_modifier(Modifier::BOLD);
             hints.insert(0, Span::styled(" OFFLINE ", badge));
             hints.insert(1, Span::raw(" "));
@@ -137,25 +137,27 @@ impl Component for StatusBar {
         .areas(area);
 
         let (icon, text, color) = match &self.status {
-            Status::Idle => ("", String::new(), theme::FG),
+            Status::Idle => ("", String::new(), theme::colors().fg),
             Status::Busy(text) => {
                 let frame_index = (self.started.elapsed().as_millis() / 80) as usize;
                 (
                     theme::SPINNER[frame_index % theme::SPINNER.len()],
                     text.clone(),
-                    theme::ACCENT,
+                    theme::colors().accent,
                 )
             }
-            Status::Done(text) => (theme::check(), text.clone(), theme::GREEN),
-            Status::Info(text) => ("", text.clone(), theme::FG),
-            Status::Warning(text) => (theme::warning(), text.clone(), theme::YELLOW),
-            Status::Error(text) => (theme::warning(), text.clone(), theme::RED),
+            Status::Done(text) => (theme::check(), text.clone(), theme::colors().green),
+            Status::Info(text) => ("", text.clone(), theme::colors().fg),
+            Status::Warning(text) => (theme::warning(), text.clone(), theme::colors().yellow),
+            Status::Error(text) => (theme::warning(), text.clone(), theme::colors().red),
         };
         let message = Line::from(vec![
             Span::styled(format!(" {icon} "), Style::new().fg(color)),
             Span::styled(text, Style::new().fg(color)),
         ]);
-        let bar = Style::new().bg(theme::BAR_BG).fg(Color::Reset);
+        let bar = Style::new()
+            .bg(theme::colors().bar_bg)
+            .fg(theme::colors().fg);
         frame.render_widget(Paragraph::new(message).style(bar), left);
         frame.render_widget(Paragraph::new(hints).style(bar).right_aligned(), right);
     }

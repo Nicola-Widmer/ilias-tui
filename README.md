@@ -220,10 +220,26 @@ page:
 | `ILIAS_OFFLINE`       | `0`. Set to `1` to always start offline (same as `--offline`) |
 | `ILIAS_DRY_RUN`       | `0`. Set to `1` to never send changes to ILIAS (favourites); the app only says what it would have done |
 
-The colours are tuned for **dark** terminal themes and use 24-bit colour, which almost every
-modern terminal supports (older versions of macOS Terminal.app don't; iTerm2, Ghostty,
-WezTerm, Kitty and Alacritty do). To change them, edit
-`src/theme.rs`.
+### Themes
+
+The settings (`c`) switch between **dark** (on your terminal's background), **light** and
+**hub** (orange on black). All use 24-bit colour, which almost every modern terminal supports (older versions of macOS
+Terminal.app don't; iTerm2, Ghostty, WezTerm, Kitty and Alacritty do).
+
+For your own colours, add `colors` to `config.json` (the settings show where it is) and
+restart. Set only the ones you want to change; the rest come from the theme:
+
+```json
+{
+  "theme": "dark",
+  "colors": { "bg": "#1e1e2e", "fg": "#cdd6f4", "accent": "#f5c2e7" }
+}
+```
+
+A colour is `#rrggbb`, a name like `red`, or `reset` for the terminal's own. The names are
+`bg`, `fg`, `muted`, `border`, `selected_bg`, `bar_bg`, `header_bg`, `header_fg`, `accent`, and
+`blue`, `cyan`, `green`, `yellow`, `orange`, `red`, `purple`, `magenta`, `gray` (which also
+colour the icons). The settings list any entry they can't use.
 
 To use another school's ILIAS, point `ILIAS_URL` at the folder that contains `login.php`
 and `openidconnect.php`.

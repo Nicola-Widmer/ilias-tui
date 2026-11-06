@@ -7,7 +7,7 @@ is put together, so you can change or extend it.
 src/
 ├── main.rs              CLI commands, config, startup login (connect)
 ├── icons.rs             Nerd Font glyph + colour per object/file type
-├── theme.rs             Palette (24-bit colours) and UI glyphs; the one place to restyle
+├── theme.rs             Dark and light palettes, custom colours and UI glyphs; the one place to restyle
 ├── auth.rs              Interactive login in Chrome → CookieStore
 ├── session.rs           Cookie jar ⇄ private JSON file
 ├── downloads.rs         Saved files: path, ILIAS version, size + mtime when saved

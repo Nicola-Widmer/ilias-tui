@@ -64,13 +64,13 @@ impl Component for Report {
                 }
                 lines.push(Line::styled(
                     format!("{title} ({})", items.len()),
-                    Style::new().fg(theme::YELLOW).add_modifier(Modifier::BOLD),
+                    Style::new()
+                        .fg(theme::colors().yellow)
+                        .add_modifier(Modifier::BOLD),
                 ));
-                lines.extend(
-                    items
-                        .iter()
-                        .map(|item| Line::styled(format!("  {item}"), Style::new().fg(theme::FG))),
-                );
+                lines.extend(items.iter().map(|item| {
+                    Line::styled(format!("  {item}"), Style::new().fg(theme::colors().fg))
+                }));
             }
             self.lines = Some(lines);
             self.scroll = 0;
@@ -91,13 +91,17 @@ impl Component for Report {
             .min((lines.len() as u16).saturating_sub(visible));
         let block = Block::bordered()
             .border_type(BorderType::Rounded)
-            .border_style(Style::new().fg(theme::ACCENT))
+            .border_style(Style::new().fg(theme::colors().accent))
             .title(Line::styled(" Sync report ", theme::accent_bold()))
             .title_bottom(
                 Line::styled(" j/k scroll · any other key closes ", theme::muted()).centered(),
             )
             .padding(Padding::uniform(1))
-            .style(Style::new().bg(theme::BAR_BG));
+            .style(
+                Style::new()
+                    .bg(theme::colors().bar_bg)
+                    .fg(theme::colors().fg),
+            );
         frame.render_widget(Clear, area);
         frame.render_widget(
             Paragraph::new(lines.clone())

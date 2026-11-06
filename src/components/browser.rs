@@ -8,7 +8,7 @@ use ratatui::Frame;
 use ratatui::crossterm::event::{KeyCode, KeyEvent, MouseButton, MouseEvent, MouseEventKind};
 use ratatui::layout::Margin;
 use ratatui::layout::{Constraint, Layout, Position, Rect};
-use ratatui::style::{Color, Modifier, Style};
+use ratatui::style::{Modifier, Style};
 use ratatui::text::{Line, Span, Text};
 use ratatui::widgets::{
     Block as Border, BorderType, HighlightSpacing, List, ListItem, ListState, Padding, Paragraph,
@@ -199,7 +199,7 @@ fn post_rows(rows: &mut Vec<Row>, post: &Post, show_title: bool, width: usize) {
     let bar = || {
         Span::styled(
             format!("{indent}{} ", theme::glyph("▎", "│")),
-            Style::new().fg(theme::BORDER),
+            Style::new().fg(theme::colors().border),
         )
     };
     let mut header = vec![
@@ -210,7 +210,9 @@ fn post_rows(rows: &mut Vec<Row>, post: &Post, show_title: bool, width: usize) {
     if post.unread {
         header.push(Span::styled(
             "  ● new",
-            Style::new().fg(theme::GREEN).add_modifier(Modifier::BOLD),
+            Style::new()
+                .fg(theme::colors().green)
+                .add_modifier(Modifier::BOLD),
         ));
     }
     rows.push(Row::Styled(Line::from(header)));
@@ -219,7 +221,9 @@ fn post_rows(rows: &mut Vec<Row>, post: &Post, show_title: bool, width: usize) {
             bar(),
             Span::styled(
                 post.title.clone(),
-                Style::new().fg(theme::FG).add_modifier(Modifier::BOLD),
+                Style::new()
+                    .fg(theme::colors().fg)
+                    .add_modifier(Modifier::BOLD),
             ),
         ])));
     }
@@ -228,7 +232,7 @@ fn post_rows(rows: &mut Vec<Row>, post: &Post, show_title: bool, width: usize) {
         for line in wrap(paragraph, width) {
             rows.push(Row::Styled(Line::from(vec![
                 bar(),
-                Span::styled(line, Style::new().fg(theme::FG)),
+                Span::styled(line, Style::new().fg(theme::colors().fg)),
             ])));
         }
     }
@@ -246,16 +250,18 @@ fn todo_row(item: &Item, last: bool) -> ListItem<'static> {
         .and_then(|rest| rest.strip_suffix(" days").or(rest.strip_suffix(" day")))
         .and_then(|n| n.parse::<u32>().ok());
     let due_color = match days {
-        _ if due == "overdue" || due.contains("hour") => theme::RED,
-        Some(days) if days <= 3 => theme::YELLOW,
-        _ => theme::GREEN,
+        _ if due == "overdue" || due.contains("hour") => theme::colors().red,
+        Some(days) if days <= 3 => theme::colors().yellow,
+        _ => theme::colors().green,
     };
     let mut lines = vec![
         Line::from(vec![
             Span::styled(format!("{glyph}  "), Style::new().fg(color)),
             Span::styled(
                 item.title.clone(),
-                Style::new().fg(theme::FG).add_modifier(Modifier::BOLD),
+                Style::new()
+                    .fg(theme::colors().fg)
+                    .add_modifier(Modifier::BOLD),
             ),
         ]),
         Line::from(vec![
@@ -305,19 +311,21 @@ fn wrap(text: &str, width: usize) -> Vec<String> {
 fn item_row(item: &Item, query: &str, saved: bool, marked: bool) -> ListItem<'static> {
     let (glyph, color) = icon(item);
     let title_style = if item.is_container() {
-        Style::new().fg(theme::FG).add_modifier(Modifier::BOLD)
+        Style::new()
+            .fg(theme::colors().fg)
+            .add_modifier(Modifier::BOLD)
     } else {
-        Style::new().fg(theme::FG)
+        Style::new().fg(theme::colors().fg)
     };
     let mut title = vec![Span::styled(format!("{glyph}  "), Style::new().fg(color))];
     title.extend(highlight(&item.title, query, title_style));
     if item.favorite {
-        title.push(Span::styled("  ★", Style::new().fg(theme::YELLOW)));
+        title.push(Span::styled("  ★", Style::new().fg(theme::colors().yellow)));
     }
     if saved {
         title.push(Span::styled(
             format!("  {} saved", theme::check()),
-            Style::new().fg(theme::GREEN),
+            Style::new().fg(theme::colors().green),
         ));
     }
     if marked {
@@ -347,10 +355,12 @@ fn item_row(item: &Item, query: &str, saved: bool, marked: bool) -> ListItem<'st
 
 fn heading_row(text: String) -> ListItem<'static> {
     ListItem::new(Line::from(vec![
-        Span::styled("▍", Style::new().fg(theme::ACCENT)),
+        Span::styled("▍", Style::new().fg(theme::colors().accent)),
         Span::styled(
             text,
-            Style::new().fg(theme::YELLOW).add_modifier(Modifier::BOLD),
+            Style::new()
+                .fg(theme::colors().yellow)
+                .add_modifier(Modifier::BOLD),
         ),
     ]))
 }
@@ -364,10 +374,10 @@ fn text_row(text: String) -> ListItem<'static> {
         }
         let style = if word.starts_with("http://") || word.starts_with("https://") {
             Style::new()
-                .fg(theme::BLUE)
+                .fg(theme::colors().blue)
                 .add_modifier(Modifier::UNDERLINED)
         } else {
-            Style::new().fg(theme::FG)
+            Style::new().fg(theme::colors().fg)
         };
         spans.push(Span::styled(word.to_string(), style));
     }
@@ -839,7 +849,7 @@ impl Component for Browser {
 
         let mut border = Border::bordered()
             .border_type(BorderType::Rounded)
-            .border_style(Style::new().fg(theme::BORDER))
+            .border_style(Style::new().fg(theme::colors().border))
             .padding(Padding::horizontal(1));
         let Some(level) = self.stack.last_mut() else {
             // Nothing pending any more means it failed (e.g. offline without a cached copy);
@@ -931,8 +941,8 @@ impl Component for Browser {
             *level.list.offset_mut() = level.list.offset().min(last);
         }
         let list = List::new(list_items)
-            .highlight_style(Style::new().bg(theme::SELECTED_BG))
-            .highlight_symbol(Line::styled("▌ ", Style::new().fg(theme::ACCENT)))
+            .highlight_style(Style::new().bg(theme::colors().selected_bg))
+            .highlight_symbol(Line::styled("▌ ", Style::new().fg(theme::colors().accent)))
             .highlight_spacing(HighlightSpacing::Always);
         frame.render_stateful_widget(list, inner, &mut level.list);
 
@@ -956,8 +966,8 @@ impl Component for Browser {
                 .begin_symbol(None)
                 .end_symbol(None)
                 .track_symbol(Some("│"))
-                .track_style(Style::new().fg(theme::BORDER))
-                .thumb_style(Style::new().fg(theme::MUTED));
+                .track_style(Style::new().fg(theme::colors().border))
+                .thumb_style(Style::new().fg(theme::colors().muted));
             frame.render_stateful_widget(scrollbar, body.inner(Margin::new(0, 1)), &mut state);
         }
     }
@@ -969,9 +979,9 @@ impl Browser {
             return;
         };
         let border_color = if self.todo_focus {
-            theme::ACCENT
+            theme::colors().accent
         } else {
-            theme::BORDER
+            theme::colors().border
         };
         let mut border = Border::bordered()
             .border_type(BorderType::Rounded)
@@ -980,7 +990,9 @@ impl Browser {
             .title(Line::from(vec![
                 Span::styled(
                     " To-Do ",
-                    Style::new().fg(theme::YELLOW).add_modifier(Modifier::BOLD),
+                    Style::new()
+                        .fg(theme::colors().yellow)
+                        .add_modifier(Modifier::BOLD),
                 ),
                 Span::styled(format!("{} ", level.page.todo.len()), theme::muted()),
             ]));
@@ -1002,8 +1014,8 @@ impl Browser {
             self.todo.select(None);
         }
         let list = List::new(rows)
-            .highlight_style(Style::new().bg(theme::SELECTED_BG))
-            .highlight_symbol(Line::styled("▌ ", Style::new().fg(theme::ACCENT)))
+            .highlight_style(Style::new().bg(theme::colors().selected_bg))
+            .highlight_symbol(Line::styled("▌ ", Style::new().fg(theme::colors().accent)))
             .highlight_spacing(HighlightSpacing::Always);
         let selected = self.todo.selected();
         frame.render_stateful_widget(list, inner, &mut self.todo);
@@ -1029,8 +1041,8 @@ impl Browser {
         let mut spans = vec![Span::styled(
             logo.clone(),
             Style::new()
-                .fg(theme::HEADER_BG)
-                .bg(theme::ACCENT)
+                .fg(theme::colors().header_bg)
+                .bg(theme::colors().accent)
                 .add_modifier(Modifier::BOLD),
         )];
         // (title, stack index) per crumb.
@@ -1066,16 +1078,18 @@ impl Browser {
         for (i, (title, level)) in titles.iter().enumerate() {
             let last = i + 1 == titles.len();
             let style = if last {
-                Style::new().fg(Color::White).add_modifier(Modifier::BOLD)
+                Style::new()
+                    .fg(theme::colors().header_fg)
+                    .add_modifier(Modifier::BOLD)
             } else {
-                Style::new().fg(theme::GRAY)
+                Style::new().fg(theme::colors().gray)
             };
             let separator = if i == 0 {
                 "  ".to_string()
             } else {
                 format!(" {} ", theme::chevron())
             };
-            let separator = Span::styled(separator, Style::new().fg(theme::MUTED));
+            let separator = Span::styled(separator, Style::new().fg(theme::colors().muted));
             let title = Span::styled(title.clone(), style);
             x += separator.width() as u16;
             let width = title.width() as u16;
@@ -1088,11 +1102,11 @@ impl Browser {
         if let Some(description) = description {
             spans.push(Span::styled(
                 format!("  ·  {description}"),
-                Style::new().fg(theme::GRAY),
+                Style::new().fg(theme::colors().gray),
             ));
         }
         frame.render_widget(
-            Paragraph::new(Line::from(spans)).style(Style::new().bg(theme::HEADER_BG)),
+            Paragraph::new(Line::from(spans)).style(Style::new().bg(theme::colors().header_bg)),
             area,
         );
     }
@@ -1122,7 +1136,9 @@ fn highlight(text: &str, query: &str, base: Style) -> Vec<Span<'static>> {
             }
         }
     }
-    let matched = base.fg(theme::YELLOW).add_modifier(Modifier::UNDERLINED);
+    let matched = base
+        .fg(theme::colors().yellow)
+        .add_modifier(Modifier::UNDERLINED);
     let mut spans = Vec::new();
     let mut start = 0;
     for i in 1..=chars.len() {
@@ -1145,11 +1161,13 @@ fn tab_bar(page: &Page) -> Line<'static> {
     for tab in &page.tabs {
         let style = if tab.active {
             Style::new()
-                .fg(theme::HEADER_BG)
-                .bg(theme::ACCENT)
+                .fg(theme::colors().header_bg)
+                .bg(theme::colors().accent)
                 .add_modifier(Modifier::BOLD)
         } else {
-            Style::new().fg(theme::GRAY).bg(theme::BAR_BG)
+            Style::new()
+                .fg(theme::colors().gray)
+                .bg(theme::colors().bar_bg)
         };
         spans.push(Span::styled(format!(" {} ", tab.title), style));
         spans.push(Span::raw(" "));

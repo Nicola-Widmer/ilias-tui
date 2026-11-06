@@ -1,6 +1,7 @@
 //! Settings changed in the app (the settings page, `c`), saved as `config.json` in the app's
 //! config folder. Environment variables (`ILIAS_*`) still win over them.
 
+use std::collections::BTreeMap;
 use std::fs;
 use std::path::{Path, PathBuf};
 
@@ -8,6 +9,7 @@ use color_eyre::Result;
 use serde::{Deserialize, Serialize};
 
 use crate::session;
+use crate::theme::{self, Palette};
 
 #[derive(Debug, Clone, Default, PartialEq, Serialize, Deserialize)]
 pub struct Config {
@@ -24,6 +26,12 @@ pub struct Config {
     /// `None` means on.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub nerd_font: Option<bool>,
+    /// One of [`theme::THEMES`]; `None` means the first.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub theme: Option<String>,
+    /// Colours on top of the theme, by name: `"accent": "#ff8800"`.
+    #[serde(default, skip_serializing_if = "BTreeMap::is_empty")]
+    pub colors: BTreeMap<String, String>,
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub mouse: Option<bool>,
     #[serde(default, skip_serializing_if = "Option::is_none")]
@@ -75,7 +83,7 @@ pub fn parse_url(input: &str) -> Result<String, String> {
 }
 
 impl Config {
-    fn path() -> Result<PathBuf> {
+    pub fn path() -> Result<PathBuf> {
         Ok(session::dirs()?.config_dir().join("config.json"))
     }
 
@@ -112,6 +120,15 @@ impl Config {
             .and_then(|v| parse_mb(&v).ok())
             .or(self.sync_max_mb)
             .unwrap_or(DEFAULT_SYNC_MAX_MB)
+    }
+
+    /// The chosen theme with the custom colours, and the entries that can't be used.
+    pub fn palette(&self) -> (Palette, Vec<String>) {
+        Palette::build(self.theme.as_deref(), &self.colors)
+    }
+
+    pub fn theme(&self) -> &str {
+        self.theme.as_deref().unwrap_or(theme::THEMES[0])
     }
 
     pub fn nerd_font(&self) -> bool {

@@ -59,10 +59,10 @@ impl Component for Confirm {
         };
         // Sync only reads from ILIAS; everything else asked here changes it.
         let (title, color) = match then {
-            Action::Sync(_) => (format!(" {}  Sync ", theme::sync()), theme::ACCENT),
+            Action::Sync(_) => (format!(" {}  Sync ", theme::sync()), theme::colors().accent),
             _ => (
                 format!(" {}  Changes ILIAS ", theme::warning()),
-                theme::YELLOW,
+                theme::colors().yellow,
             ),
         };
         let block = Block::bordered()
@@ -73,10 +73,14 @@ impl Component for Confirm {
                 Style::new().fg(color).add_modifier(Modifier::BOLD),
             ))
             .padding(Padding::horizontal(2))
-            .style(Style::new().bg(theme::BAR_BG));
+            .style(
+                Style::new()
+                    .bg(theme::colors().bar_bg)
+                    .fg(theme::colors().fg),
+            );
         let text = vec![
             Line::raw(""),
-            Line::styled(question.clone(), Style::new().fg(theme::FG)),
+            Line::styled(question.clone(), Style::new().fg(theme::colors().fg)),
             Line::raw(""),
             Line::from(vec![
                 Span::styled(" y ", theme::accent_bold()),

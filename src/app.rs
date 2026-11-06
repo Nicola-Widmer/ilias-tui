@@ -54,6 +54,7 @@ impl App {
         let download_dir = config.download_dir();
         let settings = Settings::new(config.clone(), download_dir.clone());
         crate::icons::set_nerd_font(config.nerd_font());
+        crate::theme::apply(config.palette().0);
         Self {
             client: Arc::new(client),
             config,
@@ -281,6 +282,7 @@ impl App {
                 self.config = config.clone();
                 self.config.save()?;
                 crate::icons::set_nerd_font(self.config.nerd_font());
+                crate::theme::apply(self.config.palette().0);
                 self.client.set_dry_run(self.config.dry_run());
                 if dir_changed {
                     // Chosen here, it applies now, even over ILIAS_DOWNLOAD_DIR.
@@ -364,6 +366,12 @@ impl App {
 
     fn draw(&mut self, frame: &mut Frame) {
         let area = frame.area();
+        let colors = crate::theme::colors();
+        frame.render_widget(
+            ratatui::widgets::Block::new()
+                .style(ratatui::style::Style::new().bg(colors.bg).fg(colors.fg)),
+            area,
+        );
         let filter_height = u16::from(self.filter.is_visible());
         let [main, filter, status] = Layout::vertical([
             Constraint::Fill(1),
