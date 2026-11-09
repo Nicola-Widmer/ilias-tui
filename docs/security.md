@@ -83,6 +83,7 @@ object:
 | `X` | Deletes a file you handed in, for good; ILIAS allows it only until the deadline | The Delete of that file on the assignment's page |
 | `u` | Uploads files into a course or folder; everyone who can open it sees them | That place's own upload form; files over ILIAS' size limit are not sent |
 | `S` / `A` with two-way sync | Uploads your new files of synced courses into their ILIAS folders | The same upload form, read again right before; nothing if a file of that name appeared since. Asks once more for more than 20 files or 30 % of a folder; every write goes into the journal |
+| `S` / `A` with two-way sync | Uploads a file you edited as its new version; ILIAS keeps the older ones | The file's Versions entry in its menu, that tab's "Create New Version" and its form (never "Replace File"), all for that file; nothing if the file changed on ILIAS since the plan |
 | `n` | Creates a folder in a course or folder | That place's own "Add New Item → Folder" and the form it leads to |
 | `D` | Moves an item into the ILIAS trash (never empties it) | The Delete in that item's own menu and ILIAS' question for it; refused where ILIAS has no trash |
 | `n` in a forum, `R` | Starts a thread or replies to a post; everyone in the forum sees it | That forum's "New Thread" form, or that post's Reply form |

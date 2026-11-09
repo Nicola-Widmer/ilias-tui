@@ -860,3 +860,69 @@ fn lists_every_participants_submission_with_assignments_as_tabs() {
         &Url::parse(&anna.url).unwrap()
     ));
 }
+
+#[test]
+fn reads_a_files_versions_and_its_create_new_version_form() {
+    let base = Url::parse("http://localhost:8080/ilias.php?baseClass=ilrepositorygui&cmdClass=ilFileVersionsGUI&ref_id=133").unwrap();
+    // As the local ILIAS 10 shows them (shortened).
+    let tab = r#"<button class="btn btn-default" data-action="ilias.php?baseClass=ilrepositorygui&amp;cmdNode=wq:mk:cv&amp;cmdClass=ilFileVersionsGUI&amp;cmd=addNewVersion&amp;ref_id=133">Create New Version</button>
+        <button class="btn btn-default" data-action="ilias.php?baseClass=ilrepositorygui&amp;cmdNode=wq:mk:cv&amp;cmdClass=ilFileVersionsGUI&amp;cmd=addReplacingVersion&amp;ref_id=133">Replace File</button>
+        <table class="table table-striped fullwidth" id="ilFileVersionsTableGUI"><thead><tr><td></td><th>Version</th></tr></thead><tbody>
+        <tr class="tblrow1"><td class="std"><input type="checkbox" name="hist_id[]" value="2" /></td><td class="std ilRight"> 2 </td><td>Zusammenfassung.md</td></tr>
+        <tr class="tblrow2"><td class="std"><input type="checkbox" name="hist_id[]" value="1" /></td><td class="std ilRight"> 1 </td><td>Zusammenfassung.md</td></tr>
+        </tbody></table>"#;
+    assert_eq!(versions(tab), [2, 1]);
+    assert_eq!(
+        new_version_link(tab, &base, 133).unwrap().as_str(),
+        "http://localhost:8080/ilias.php?baseClass=ilrepositorygui&cmdNode=wq:mk:cv&cmdClass=ilFileVersionsGUI&cmd=addNewVersion&ref_id=133"
+    );
+    assert!(new_version_link(tab, &base, 134).is_none());
+    let form = r#"<form class="c-form c-form--horizontal" enctype="multipart/form-data" action="ilias.php?baseClass=ilrepositorygui&amp;cmdNode=wq:mk:cv&amp;cmdClass=ilFileVersionsGUI&amp;cmd=post&amp;fallbackCmd=saveVersion&amp;ref_id=133&amp;rtoken=t" method="post">
+        <input id="a" type="text" value="Zusammenfassung.md" name="form/input_0/input_1" maxlength="255" class="c-field-text" />
+        <textarea id="b" class="c-field-textarea" name="form/input_0/input_2"></textarea>
+        <template><input id="c" type="hidden" name="form/input_0/input_3[input_0][]" value="" /></template></form>
+        <script>il.UI.Input.File.init(
+            'il_ui_fw_1',
+            'ilias.php?baseClass=ilrepositorygui&cmdNode=wq:mk:cv:cx&cmdClass=ilFileVersionsUploadHandlerGUI&cmd=upload&ref_id=133&upload_mode=append&cmdMode=asynch',
+            'ilias.php?baseClass=ilrepositorygui&cmdNode=wq:mk:cv:cx&cmdClass=ilFileVersionsUploadHandlerGUI&cmd=remove&ref_id=133&upload_mode=append&cmdMode=asynch',
+            'file_id',
+            0,
+            1,
+            209715200,
+            '',
+            false);</script>"#;
+    let parsed = version_form(form, &base, 133).unwrap();
+    assert_eq!(
+        parsed.title,
+        ("form/input_0/input_1".into(), "Zusammenfassung.md".into())
+    );
+    assert_eq!(parsed.description, "form/input_0/input_2");
+    assert_eq!(parsed.id, "form/input_0/input_3[input_0][]");
+    assert_eq!(parsed.max_size, Some(209_715_200));
+    assert!(parsed.upload.as_str().contains("upload_mode=append"));
+    assert!(
+        parsed
+            .save
+            .as_str()
+            .contains("fallbackCmd=saveVersion&ref_id=133")
+    );
+    // Another file's form, or one that replaces the file: not this form.
+    assert!(version_form(form, &base, 134).is_none());
+    let replacing = form.replace("upload_mode=append&cmdMode", "upload_mode=replace&cmdMode");
+    assert!(version_form(&replacing, &base, 133).is_none());
+}
+
+#[test]
+fn a_files_versions_entry_is_a_right_for_that_file() {
+    let url = Url::parse("http://localhost:8080/goto.php/crs/87").unwrap();
+    let html = r#"<div id="il_center_col"><div class="ilContainerListItemOuter"><a class="il_ContainerItemTitle" href="goto.php/file/133">Zusammenfassung</a>
+        <ul><li><button class="btn btn-link" data-action="http://localhost:8080/ilias.php?baseClass=ilrepositorygui&amp;cmdNode=wq:mk:cv&amp;cmdClass=ilFileVersionsGUI&amp;ref_id=133&amp;origin=dropzone">Versions</button></li>
+        <li><button class="btn btn-link" data-action="https://evil.example/ilias.php?cmdClass=ilFileVersionsGUI&amp;ref_id=134">Versions</button></li></ul></div></div>"#;
+    let page = parse_page(html, &url);
+    assert_eq!(page.rights.versions, [133]);
+    assert_eq!(
+        versions_link(html, &url, 133).unwrap().as_str(),
+        "http://localhost:8080/ilias.php?baseClass=ilrepositorygui&cmdNode=wq:mk:cv&cmdClass=ilFileVersionsGUI&ref_id=133&origin=dropzone"
+    );
+    assert!(versions_link(html, &url, 134).is_none());
+}

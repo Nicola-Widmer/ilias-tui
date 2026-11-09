@@ -548,7 +548,8 @@ fn two_way_sync_plans_what_to_send_and_sends_nothing_by_itself() {
             <div id="il_center_col"><div class="ilContainerListItemOuter">
             <a class="il_ContainerItemTitle" href="https://ilias.example/ilias/ilias.php?cmdClass=ilObjFileGUI&amp;cmd=sendfile&amp;ref_id=9">Blatt 3</a>
             <div class="il_ItemProperties"><span class="il_ItemProperty">pdf</span>
-            <span class="il_ItemProperty">1.2 MB</span></div></div></div>
+            <span class="il_ItemProperty">1.2 MB</span></div>
+            <ul><li><button class="btn btn-link" data-action="ilias.php?baseClass=ilrepositorygui&amp;cmdClass=ilFileVersionsGUI&amp;ref_id=9">Versions</button></li></ul></div></div>
             <form enctype="multipart/form-data" method="post" action="ilias.php?baseClass=ilrepositorygui&amp;cmdClass=ilObjFileGUI&amp;cmd=post&amp;fallbackCmd=uploadFiles&amp;ref_id=1&amp;new_type=file"></form>"#,
         ),
         other => Err(color_eyre::eyre::eyre!("unexpected {other}")),
@@ -600,7 +601,7 @@ fn two_way_sync_plans_what_to_send_and_sends_nothing_by_itself() {
         ["DEMO.101/Notizen.md"]
     );
     assert_eq!(
-        section("Would upload as a new version"),
+        section("Edited by you: to upload as a new version"),
         ["DEMO.101/Blatt 3.pdf"]
     );
     assert!(

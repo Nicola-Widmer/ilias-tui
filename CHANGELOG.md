@@ -18,6 +18,9 @@ features and changes in behaviour, the last one for fixes only. See
   since is a conflict. More than 20 files, or more than 30 % of a folder, asks once more.
   Uploaded files count as in sync afterwards, and every write goes into a journal
   (`<host>.journal.jsonl` next to the session).
+- **Two-way sync uploads your edits as new versions** through the file's own "Create New
+  Version" (never "Replace File", so ILIAS keeps the older versions), only if the file is
+  still at the version you edited, and checks that ILIAS lists the new version.
 - **Content hashes** in the saved-files list: a file whose date changed but whose content
   didn't is no longer "edited", so sync can update it.
 

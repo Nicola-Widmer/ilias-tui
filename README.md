@@ -26,7 +26,7 @@ with any ILIAS 10 that logs in through OpenID Connect. Runs on macOS, Linux and 
   the saved copy opens at once.
 - **Sync** whole courses (`S`, `A`): every file up to 50 MB, later only what changed, and
   never over files you edited. **Two-way sync** (settings, off by default) also uploads
-  your new files, after asking. See [Sync](#sync).
+  your new files and your edits (as new versions), after asking. See [Sync](#sync).
 - Works **offline** with what it has seen before. See [Offline](#offline).
 
 **Exercises and forums**
@@ -180,14 +180,14 @@ With "Two-way sync" on (settings, or `ILIAS_TWO_WAY=1`), sync also compares your
 synced course and folder with what it recorded when it last saved them (the **base**: the
 file's version on ILIAS, its size, date and a hash of its content) and with ILIAS now. The
 report lists what it would send, and it asks before anything is sent (with
-`ILIAS_DRY_RUN=1` it stops there). So far it sends new files; edited and deleted ones are
-only listed.
+`ILIAS_DRY_RUN=1` it stops there). So far it sends new files and edited ones; deleted
+ones are only listed.
 
 | Your copy vs base | ILIAS vs base | Sync                                                       |
 | --- | --- | --- |
 | new               | –             | uploads it, where ILIAS lets you                           |
 | unchanged         | changed       | downloads it, as always                                    |
-| edited            | unchanged     | would upload it as a new version                           |
+| edited            | unchanged     | uploads it as a new version (ILIAS keeps the old ones)     |
 | edited            | changed       | a **conflict**: saves ILIAS' copy beside yours, sends nothing |
 | deleted           | unchanged     | would propose moving it to the ILIAS trash                 |
 | deleted           | changed       | downloads it again                                         |
@@ -205,7 +205,10 @@ only listed.
   files and folders (`.git/` too), files over the sync limit, and the copies saved beside
   your edits (`… (ILIAS 2026-11-02).pdf`).
 - **Checked again before sending:** each folder is read again right before its files go
-  up; a file of the same name that appeared there since is a conflict, not an upload.
+  up; a file of the same name that appeared there since, or a file changed on ILIAS since
+  the plan, is a conflict and isn't sent.
+- **New versions, never replaced:** an edit goes up through the file's "Create New
+  Version", so ILIAS keeps every earlier version; only where its menu offers Versions.
 - **More than usual, asked twice:** more than 20 files at once, or more than 30 % of a
   folder's files replaced or moved to the trash, and sync asks once more.
 - **In sync afterwards:** each uploaded file is recorded like a download, so the next sync

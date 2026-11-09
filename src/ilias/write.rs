@@ -46,6 +46,9 @@ const WRITE_COMMANDS: &[&str] = &[
     "uploadZip",
     "confirmDeleteDelivered",
     "deleteDelivered",
+    "saveVersion",
+    "deleteVersions",
+    "rollbackVersion",
 ];
 
 /// The write guard's test: does requesting `url` look like it would change something?

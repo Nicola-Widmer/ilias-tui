@@ -22,6 +22,8 @@ pub const MAX_SHARE: f64 = 0.3;
 #[derive(Debug, Default, PartialEq)]
 pub struct Pushed {
     pub uploaded: Vec<PathBuf>,
+    /// Edited files sent as new versions.
+    pub new_versions: Vec<PathBuf>,
     /// Changed on ILIAS since the plan: nothing sent.
     pub conflicts: Vec<String>,
     pub failed: Vec<String>,
@@ -36,6 +38,9 @@ impl Pushed {
             return "Dry run: nothing sent to ILIAS".into();
         }
         let mut parts = vec![format!("{} uploaded", self.uploaded.len())];
+        if !self.new_versions.is_empty() {
+            parts.push(format!("{} new versions", self.new_versions.len()));
+        }
         if !self.conflicts.is_empty() {
             parts.push(format!(
                 "{} changed on ILIAS meanwhile (not sent)",
@@ -68,25 +73,51 @@ impl Pushed {
 /// The question before sending `changes`: what goes where, with sizes.
 pub fn question(changes: &[Change], dir: &Path) -> String {
     let short = |path: &Path| path.strip_prefix(dir).unwrap_or(path).display().to_string();
-    let files: Vec<String> = changes
+    let sized = |path: &Path| {
+        let size = std::fs::metadata(path).map(|m| m.len()).unwrap_or(0);
+        format!("{} ({})", short(path), megabytes(size))
+    };
+    let list = |files: Vec<String>| {
+        let mut shown = files.iter().take(8).cloned().collect::<Vec<_>>().join(", ");
+        if files.len() > 8 {
+            shown.push_str(&format!(" and {} more (see the report)", files.len() - 8));
+        }
+        shown
+    };
+    let plural = |n: usize, one: &str, many: &str| match n {
+        1 => format!("1 {one}"),
+        n => format!("{n} {many}"),
+    };
+    let new: Vec<String> = changes
         .iter()
-        .filter_map(|c| match c {
-            Change::Upload { path, .. } => {
-                let size = std::fs::metadata(path).map(|m| m.len()).unwrap_or(0);
-                Some(format!("{} ({})", short(path), megabytes(size)))
-            }
-            _ => None,
-        })
+        .filter(|c| matches!(c, Change::Upload { .. }))
+        .map(|c| sized(c.path()))
         .collect();
-    let mut shown = files.iter().take(8).cloned().collect::<Vec<_>>().join(", ");
-    if files.len() > 8 {
-        shown.push_str(&format!(" and {} more (see the report)", files.len() - 8));
+    let edited: Vec<String> = changes
+        .iter()
+        .filter(|c| matches!(c, Change::NewVersion { .. }))
+        .map(|c| sized(c.path()))
+        .collect();
+    let mut parts = Vec::new();
+    if !new.is_empty() {
+        parts.push(format!(
+            "upload {} into their ILIAS folders: {}",
+            plural(new.len(), "new file", "new files"),
+            list(new)
+        ));
     }
-    format!(
-        "Upload {} new file{} into their ILIAS folders? Everyone who can open them there sees them: {shown}",
-        files.len(),
-        if files.len() == 1 { "" } else { "s" },
-    )
+    if !edited.is_empty() {
+        parts.push(format!(
+            "upload {} as new versions (ILIAS keeps the old ones): {}",
+            plural(edited.len(), "edited file", "edited files"),
+            list(edited)
+        ));
+    }
+    let mut question = parts.join("; and ");
+    if let Some(first) = question.get(..1) {
+        question = first.to_uppercase() + &question[1..];
+    }
+    format!("{question}? Everyone who can open them on ILIAS sees them.")
 }
 
 /// Why `changes` are more than usual (more than [`MAX_FILES`] files, or more than
@@ -124,7 +155,18 @@ pub fn brake(changes: &[Change], listed: &HashMap<u64, usize>) -> Option<String>
 
 /// Notes a write that failed, in the journal and the result.
 fn fail(journal: &mut Journal, pushed: &mut Pushed, place: &Item, path: &Path, why: String) {
-    let _ = journal.write("upload", path, &object(place), &format!("failed: {why}"));
+    fail_as("upload", journal, pushed, place, path, why);
+}
+
+fn fail_as(
+    action: &str,
+    journal: &mut Journal,
+    pushed: &mut Pushed,
+    place: &Item,
+    path: &Path,
+    why: String,
+) {
+    let _ = journal.write(action, path, &object(place), &format!("failed: {why}"));
     pushed.failed.push(format!("{}: {why}", path.display()));
 }
 
@@ -250,7 +292,87 @@ pub fn push(
             }
         }
     }
+    for change in changes {
+        if let Change::NewVersion {
+            place,
+            file,
+            path,
+            base,
+        } = change
+        {
+            progress(format!("Two-way sync: new version of {}", file.title));
+            new_version(
+                client,
+                place,
+                file,
+                path,
+                base,
+                downloads,
+                journal,
+                &mut pushed,
+            );
+        }
+    }
     pushed
+}
+
+/// Sends one edited file as a new version, if ILIAS still has the version it was edited
+/// from (`base`); records the new version as in sync.
+#[allow(clippy::too_many_arguments)]
+fn new_version(
+    client: &Client,
+    place: &Item,
+    file: &Item,
+    path: &Path,
+    base: &str,
+    downloads: &mut Downloads,
+    journal: &mut Journal,
+    pushed: &mut Pushed,
+) {
+    let fail = |journal: &mut Journal, pushed: &mut Pushed, why: String| {
+        fail_as("new version", journal, pushed, place, path, why);
+    };
+    // The re-check: the file as ILIAS lists it now.
+    let now = match client.page(place, None) {
+        Ok(page) => page.items().find(|i| i.id == file.id).cloned(),
+        Err(e) => return fail(journal, pushed, format!("{e:#}")),
+    };
+    match now {
+        None => return fail(journal, pushed, "no longer on ILIAS".into()),
+        Some(now) if version(&now) != base => {
+            pushed.conflicts.push(format!(
+                "{}: changed on ILIAS since the plan ({} → {})",
+                path.display(),
+                base,
+                version(&now)
+            ));
+            return;
+        }
+        Some(_) if !path.is_file() => {
+            return fail(journal, pushed, "no longer on your disk".into());
+        }
+        Some(_) => {}
+    }
+    match client.upload_version(place, file, path) {
+        Ok(None) => pushed.dry_run = true,
+        Ok(Some(number)) => {
+            // In sync again: your copy is this new version.
+            let listed = client
+                .page(place, None)
+                .ok()
+                .and_then(|p| p.items().find(|i| i.id == file.id).cloned());
+            let recorded =
+                listed.map(|item| downloads.record(file.key(), path.to_path_buf(), version(&item)));
+            let result = match recorded {
+                Some(Ok(())) => format!("ok: version {number} of {}", object(file)),
+                Some(Err(e)) => format!("ok: version {number}, not recorded: {e:#}"),
+                None => format!("ok: version {number}, not recorded: not in the listing"),
+            };
+            let _ = journal.write("new version", path, &object(place), &result);
+            pushed.new_versions.push(path.to_path_buf());
+        }
+        Err(e) => fail(journal, pushed, format!("{e:#}")),
+    }
 }
 
 #[cfg(test)]
@@ -502,6 +624,51 @@ mod tests {
     }
 
     #[test]
+    fn a_file_changed_on_ilias_since_the_plan_gets_no_new_version() {
+        let mut s = setup("version-since");
+        // Planned from version "1 Byte"; ILIAS lists "Notizen" (140) with "4 Bytes" now.
+        let fake = ilias(UPLOAD, &[("Notizen", 140)]);
+        let client = Client::with_pages(base(), fake.clone());
+        let file = Item {
+            kind: Kind::File,
+            id: Id::Ref(140),
+            title: "Notizen".into(),
+            ..Item::default()
+        };
+        let edited = vec![Change::NewVersion {
+            place: folder(),
+            file: file.clone(),
+            path: s.file.clone(),
+            base: "1 Byte".into(),
+        }];
+        let pushed = push(&client, &edited, &mut s.downloads, &mut s.journal, |_| {});
+        assert_eq!(pushed.conflicts.len(), 1, "{pushed:?}");
+        assert!(pushed.conflicts[0].contains("changed on ILIAS since the plan"));
+        assert!(fake.posts(&base()).is_empty());
+        // As planned, but ILIAS offers no Versions for it here: it fails, nothing sent.
+        let unchanged = vec![Change::NewVersion {
+            place: folder(),
+            file,
+            path: s.file.clone(),
+            base: "4 Bytes".into(),
+        }];
+        let pushed = push(
+            &client,
+            &unchanged,
+            &mut s.downloads,
+            &mut s.journal,
+            |_| {},
+        );
+        assert!(
+            pushed.failed[0].contains("doesn't let you change"),
+            "{pushed:?}"
+        );
+        assert!(fake.posts(&base()).is_empty());
+        assert_eq!(journal(&s)[0]["action"], "new version");
+        let _ = std::fs::remove_dir_all(&s.dir);
+    }
+
+    #[test]
     fn asks_once_more_for_more_than_usual() {
         let uploads: Vec<Change> = (0..=MAX_FILES)
             .map(|n| Change::Upload {
@@ -552,7 +719,24 @@ mod tests {
         let question = question(&upload(&s.file), &s.dir);
         assert_eq!(
             question,
-            "Upload 1 new file into their ILIAS folders? Everyone who can open them there sees them: Notizen.md (0.0 MB)"
+            "Upload 1 new file into their ILIAS folders: Notizen.md (0.0 MB)? Everyone who can open them on ILIAS sees them."
+        );
+        let both = [
+            upload(&s.file),
+            vec![Change::NewVersion {
+                place: folder(),
+                file: Item::default(),
+                path: s.file.clone(),
+                base: "v1".into(),
+            }],
+        ]
+        .concat();
+        assert!(
+            super::question(&both, &s.dir).contains(
+                "; and upload 1 edited file as new versions (ILIAS keeps the old ones): Notizen.md"
+            ),
+            "{}",
+            super::question(&both, &s.dir)
         );
         let _ = std::fs::remove_dir_all(&s.dir);
     }

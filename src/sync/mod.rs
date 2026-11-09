@@ -269,7 +269,7 @@ impl Summary {
                 changes(&mut review.uploads()),
             ),
             (
-                "Would upload as a new version: edited by you (nothing sent yet)".to_string(),
+                "Edited by you: to upload as a new version".to_string(),
                 changes(&mut review.new_versions()),
             ),
             (
@@ -289,7 +289,7 @@ impl Summary {
                 paths(&review.gone),
             ),
             (
-                "Only on your disk: ILIAS doesn't let you upload there".to_string(),
+                "Only on your disk: ILIAS doesn't let you upload or change it there".to_string(),
                 paths(&review.local_only),
             ),
             (

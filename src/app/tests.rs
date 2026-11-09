@@ -536,7 +536,7 @@ fn two_way_sync_asks_before_sending_and_a_dry_run_stops_at_the_plan() {
     let Some(Action::Ask { question, then }) = asked.last() else {
         panic!("{asked:?}");
     };
-    assert!(question.starts_with("Upload 1 new file"), "{question}");
+    assert!(question.starts_with("Upload 1 new file into"), "{question}");
     assert!(matches!(**then, Action::Push(ref c) if c.len() == 1));
 
     // More than usual: a second question before anything is sent.

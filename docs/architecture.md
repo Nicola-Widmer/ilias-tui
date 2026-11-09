@@ -36,12 +36,13 @@ src/
 │   │   ├── rights.rs    Rights: what the page lets you change (upload, Add New Item, Delete)
 │   │   ├── show_more.rs "Show more" buttons
 │   │   ├── submissions.rs An assignment's submissions page: participants, assignments as tabs
+│   │   ├── versions.rs  A file's Versions tab: its versions, "Create New Version" and its form
 │   │   ├── html.rs      Selectors, visible text, link base
 │   │   └── tests.rs
 │   ├── write.rs         The write guard, favourites, logout; every other write is in write/
 │   └── write/
 │       ├── exercise.rs  Handing in, deleting a handed-in file
-│       ├── container.rs Courses and folders: uploading files, new folders, into the trash
+│       ├── container.rs Courses and folders: uploading files, new versions, new folders, into the trash
 │       └── forum.rs     New threads and replies
 ├── action.rs            Action enum (the app's messages)
 ├── compose.rs           Forum posts: text from $EDITOR (TUI suspended), the question before sending
@@ -275,6 +276,18 @@ pub struct Todo { assignment: Item, course, deadline, due, urgency }   // My cou
   form it leads to, and checks that the form posts to `ilObjFolderGUI` with
   `fallbackCmd=save` for that ref id and `new_type=fold` (`parse::create_form`). It posts the
   title (and an empty description), then checks that the page lists the folder.
+- **New version of a file** (two-way sync, `Client::upload_version`): offered for files
+  whose menu on the container page has Versions (`Rights::versions`: a button to
+  `ilFileVersionsGUI` with that file's `ref_id` and no command). The client reads the
+  container page again and takes that entry (`parse::versions_link`), reads the tab
+  (`parse::versions`: the numbers in `#ilFileVersionsTableGUI`) and its "Create New
+  Version" (`parse::new_version_link`: `cmd=addNewVersion`, never `addReplacingVersion`),
+  then the form (`parse::version_form`): it must post to `ilFileVersionsGUI` with
+  `fallbackCmd=saveVersion` and upload to `ilFileVersionsUploadHandlerGUI&cmd=upload` with
+  `upload_mode=append`, all for that file on this ILIAS. Files over the form's limit are
+  refused. It posts the file (as for uploads), then the form with ILIAS' own title, an
+  empty description and the file's id, and checks that the tab lists a higher version.
+  `saveVersion`, `deleteVersions` and `rollbackVersion` are in the write guard's list.
 - **Into the trash** (`D`, `Client::delete_item`): offered for the selected item if the
   rights' `delete` has it; `Ask` names title, kind and place and says it goes to the trash.
   The client reads the container's page again and takes that item's Delete from its action
@@ -521,7 +534,7 @@ places become conflicts; saved files in a place that ILIAS no longer lists are `
 report lists all of it.
 
 `Synced` carries the `Review`. `App::synced` takes what can be sent (`Review::sendable`:
-the uploads so far) and, unless it's a dry run, asks with `push::question` (each file
+uploads and new versions so far) and, unless it's a dry run, asks with `push::question` (each file
 and its size); if `push::brake` finds more than usual (over `MAX_FILES` = 20 files, or
 over `MAX_SHARE` = 30 % of a place's ILIAS files replaced or trashed) the "yes" leads to a
 second `Ask`. `Push(changes)` runs `push::push` on a worker, one at a time like a sync:
@@ -530,7 +543,10 @@ a file gone from disk a failure), sends the rest with `Client::upload_files`, re
 page once more and records each file in the saved-files list under its new ref id with
 ILIAS' version, so the next sync finds it in sync; for a rename it marks the missing
 files with that content `moved_to`, which keeps them out of the trash proposals for good.
-Every write is appended to the `Journal`. `Pushed` shows the result like a sync.
+A `NewVersion` is sent only if the place still lists the file with the version it was
+edited from (`base`), else it is a conflict; then `Client::upload_version` runs and the
+file is recorded with the listing's new version. Every write is appended to the
+`Journal`. `Pushed` shows the result like a sync.
 
 The crawl uses `Client::descendants_with_pages`, which hands every course and folder page it
 reads to a callback; sync puts them in the page cache under the key the TUI uses when it

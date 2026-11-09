@@ -56,7 +56,7 @@ Read-only; safe to build.
   - [x] The base (content hashes), the local scan with its ignore list, and the three-way
     plan, shown in the sync report.
   - [x] Upload new files (asks first, re-checks each folder, mass-change brake, journal).
-  - [ ] New versions of edited files.
+  - [x] New versions of edited files ("Create New Version", tested on the local ILIAS).
   - [ ] A review screen with the proposed deletions to tick.
   - [ ] New local folders become ILIAS folders.
 - [ ] **Sync from the command line** (`ilias-tui sync URL…`), e.g. for cron.

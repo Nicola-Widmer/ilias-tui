@@ -266,6 +266,7 @@ impl Client {
             let batch = parse_page(&answer.html, &more.url);
             let items = batch.items().cloned().collect();
             page.rights.delete.extend(batch.rights.delete);
+            page.rights.versions.extend(batch.rights.versions);
             if page.insert_after(after, items) == 0 {
                 continue;
             }

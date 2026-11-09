@@ -94,9 +94,9 @@ pub struct Review {
 }
 
 impl Review {
-    /// The changes sync can send so far: uploads of new files.
+    /// The changes sync can send so far: uploads of new files, new versions of edited ones.
     pub fn sendable(&self) -> Vec<Change> {
-        self.uploads().cloned().collect()
+        self.uploads().chain(self.new_versions()).cloned().collect()
     }
 
     pub fn uploads(&self) -> impl Iterator<Item = &Change> {
@@ -325,9 +325,10 @@ pub fn decide(
     review
 }
 
-/// Whether ILIAS lets you upload a new version of `file` in `place`.
-fn may_change(place: &Place, _file: &Item) -> bool {
-    place.rights.upload
+/// Whether ILIAS lets you upload a new version of `file` in `place`: its menu there has
+/// Versions.
+fn may_change(place: &Place, file: &Item) -> bool {
+    place.rights.versions.contains(&file.key())
 }
 
 #[cfg(test)]
@@ -356,6 +357,7 @@ mod tests {
             rights: Rights {
                 upload: true,
                 create: vec![Kind::Folder],
+                versions: items.iter().map(Item::key).collect(),
                 delete,
                 ..Rights::default()
             },

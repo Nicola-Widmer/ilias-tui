@@ -1,6 +1,6 @@
 //! Writes for courses and folders, by people ILIAS lets change them (see Rights in
-//! CONTEXT.md): uploading files into one, creating a folder in one, moving an item of one
-//! into the trash.
+//! CONTEXT.md): uploading files into one, a new version of a file in one, creating a folder
+//! in one, moving an item of one into the trash.
 
 use std::path::{Path, PathBuf};
 use std::sync::atomic::Ordering;
@@ -62,29 +62,7 @@ impl Client {
         self.ensure_online()?;
         let mut ids = Vec::new();
         for (path, name) in paths.iter().zip(&names) {
-            let answer = self.request(
-                &form.upload,
-                Some(&[Form::File {
-                    name: "file[0]",
-                    path,
-                }]),
-                true,
-            )?;
-            // Status 1 is ILIAS' "OK" for an upload; anything but this answer means it failed.
-            #[derive(Deserialize)]
-            struct Answer {
-                status: i64,
-                #[serde(default)]
-                message: String,
-                #[serde(default)]
-                file_id: String,
-            }
-            let answer: Answer = serde_json::from_str(&answer.html)
-                .map_err(|_| eyre!("ILIAS did not take {name}: unexpected answer"))?;
-            if answer.status != 1 || answer.file_id.is_empty() {
-                bail!("ILIAS did not take {name}: {}", answer.message);
-            }
-            ids.push(answer.file_id);
+            ids.push(self.send_file(&form.upload, path, name)?);
         }
         let [title, description, id] = &form.fields;
         let mut fields = Vec::new();
@@ -126,6 +104,102 @@ impl Client {
             );
         }
         Ok(Some(names))
+    }
+
+    /// Posts one file to an upload address of a form, as the browser does before sending
+    /// the form; returns the id ILIAS gives it.
+    fn send_file(&self, upload: &Url, path: &Path, name: &str) -> Result<String> {
+        let answer = self.request(
+            upload,
+            Some(&[Form::File {
+                name: "file[0]",
+                path,
+            }]),
+            true,
+        )?;
+        // Status 1 is ILIAS' "OK" for an upload; anything but this answer means it failed.
+        #[derive(Deserialize)]
+        struct Answer {
+            status: i64,
+            #[serde(default)]
+            message: String,
+            #[serde(default)]
+            file_id: String,
+        }
+        let answer: Answer = serde_json::from_str(&answer.html)
+            .map_err(|_| eyre!("ILIAS did not take {name}: unexpected answer"))?;
+        if answer.status != 1 || answer.file_id.is_empty() {
+            bail!("ILIAS did not take {name}: {}", answer.message);
+        }
+        Ok(answer.file_id)
+    }
+
+    /// Uploads `path` as a new version of `file` in `container`, through the file's own
+    /// "Create New Version" form (never "Replace File": the older versions stay). The way
+    /// there is read from the pages: the file's Versions entry in the container's menu,
+    /// then that tab's "Create New Version". Returns the new version's number once the tab
+    /// lists it, or `None` in dry-run mode, where nothing is sent.
+    pub fn upload_version(
+        &self,
+        container: &Item,
+        file: &Item,
+        path: &Path,
+    ) -> Result<Option<u32>> {
+        let (Id::Ref(_), Id::Ref(file_ref)) = (container.id, file.id) else {
+            bail!("ILIAS keeps no versions of {}", file.title);
+        };
+        let name = file_name(path)?;
+        let page = self.get_authed(&Url::parse(&container.url)?)?;
+        // Only ever send what this function is for: a new version of this very file.
+        let tab = parse::versions_link(&page.html, &page.url, file_ref)
+            .ok_or_else(|| eyre!("ILIAS doesn't let you change {}", file.title))?;
+        let tab = self.get_authed(&tab)?;
+        let before = parse::versions(&tab.html).into_iter().max().unwrap_or(0);
+        let link = parse::new_version_link(&tab.html, &tab.url, file_ref)
+            .ok_or_else(|| eyre!("ILIAS offers no new version of {}", file.title))?;
+        let screen = self.get_authed(&link)?;
+        let form = parse::version_form(&screen.html, &screen.url, file_ref)
+            .ok_or_else(|| eyre!("unexpected form for a new version of {}", file.title))?;
+        let size = std::fs::metadata(path)?.len();
+        if let Some(max) = form.max_size.filter(|max| size > *max) {
+            bail!(
+                "{name} is {}, ILIAS takes at most {} here",
+                megabytes(size),
+                megabytes(max)
+            );
+        }
+        if self.dry_run.load(Ordering::Relaxed) {
+            return Ok(None);
+        }
+
+        self.ensure_online()?;
+        let id = self.send_file(&form.upload, path, &name)?;
+        self.request(
+            &form.save,
+            Some(&[
+                Form::Field {
+                    name: &form.title.0,
+                    value: &form.title.1,
+                },
+                Form::Field {
+                    name: &form.description,
+                    value: "",
+                },
+                Form::Field {
+                    name: &form.id,
+                    value: &id,
+                },
+            ]),
+            true,
+        )?;
+        let after = self.get_authed(&tab.url)?;
+        match parse::versions(&after.html).into_iter().max() {
+            Some(version) if version > before => Ok(Some(version)),
+            _ => bail!(
+                "sent, but ILIAS lists no new version of {}: check it in ILIAS",
+                file.title
+            ),
+        }
     }
 
     /// Creates a folder `name` in `container` through its own "Add New Item" form. Returns
@@ -406,6 +480,181 @@ mod tests {
             .unwrap_err();
         assert!(error.to_string().contains("at most"), "{error}");
         assert!(ilias.posts(&base()).is_empty());
+    }
+
+    const VERSIONS: &str =
+        "ilias.php?baseClass=ilrepositorygui&cmdNode=wq:mk:cv&cmdClass=ilFileVersionsGUI&ref_id=95";
+    const NEW_VERSION: &str = "ilias.php?baseClass=ilrepositorygui&cmdNode=wq:mk:cv&cmdClass=ilFileVersionsGUI&cmd=addNewVersion&ref_id=95";
+    const SAVE_VERSION: &str = "ilias.php?baseClass=ilrepositorygui&cmdNode=wq:mk:cv&cmdClass=ilFileVersionsGUI&cmd=post&fallbackCmd=saveVersion&ref_id=95&rtoken=t";
+    const APPEND: &str = "ilias.php?baseClass=ilrepositorygui&cmdNode=wq:mk:cv:cx&cmdClass=ilFileVersionsUploadHandlerGUI&cmd=upload&ref_id=95&upload_mode=append&cmdMode=asynch";
+
+    /// Folder 89 listing file 95 with Versions in its menu (`versions`), the Versions tab
+    /// with "Create New Version" (`new_version`) and one more row once a version is saved
+    /// (unless `lists_new` is false), and the form posting to `save`, its file to `upload`.
+    fn versions_ilias(
+        versions: &'static str,
+        new_version: &'static str,
+        save: &'static str,
+        upload: &'static str,
+        lists_new: bool,
+    ) -> Arc<FakeIlias> {
+        let saved = std::sync::atomic::AtomicBool::new(false);
+        Arc::new(FakeIlias::new(move |url| {
+            let at = url.as_str();
+            if at.contains("cmd=upload&") {
+                return reply(url, r#"{"status":1,"message":"","file_id":"v-1"}"#);
+            }
+            if at.contains("fallbackCmd=saveVersion") {
+                saved.store(lists_new, Ordering::SeqCst);
+                return reply(url, "<p>Version saved</p>");
+            }
+            if at.contains("cmd=addNewVersion") {
+                return reply(
+                    url,
+                    &format!(
+                        r#"<form class="c-form c-form--horizontal" enctype="multipart/form-data" action="{}" method="post">
+                        <input type="text" value="Skript.pdf" name="form/input_0/input_1" maxlength="255" class="c-field-text" />
+                        <textarea class="c-field-textarea" name="form/input_0/input_2"></textarea>
+                        <template><input type="hidden" name="form/input_0/input_3[input_0][]" value="" /></template></form>
+                        <script>il.UI.Input.File.init('il_ui_fw_1', '{upload}',
+                            'ilias.php?baseClass=ilrepositorygui&cmdNode=wq:mk:cv:cx&cmdClass=ilFileVersionsUploadHandlerGUI&cmd=remove&ref_id=95&upload_mode=append&cmdMode=asynch',
+                            'file_id', 0, 1, 1000, '', false);</script>"#,
+                        save.replace('&', "&amp;")
+                    ),
+                );
+            }
+            if at.contains("cmdClass=ilFileVersionsGUI") {
+                let row = |n: u32| {
+                    format!(
+                        r#"<tr class="tblrow1"><td class="std"><input type="checkbox" name="hist_id[]" value="{n}" /></td>
+                        <td class="std ilRight"> {n} </td><td class="std"><a href="ilias.php?cmdClass=ilFileVersionsGUI&amp;cmd=sendFile&amp;ref_id=95&amp;hist_id={n}">Skript.pdf</a></td></tr>"#
+                    )
+                };
+                let rows = match saved.load(Ordering::SeqCst) {
+                    true => row(2) + &row(1),
+                    false => row(1),
+                };
+                return reply(
+                    url,
+                    &format!(
+                        r#"<button class="btn btn-default" data-action="{}">Create New Version</button>
+                        <button class="btn btn-default" data-action="ilias.php?baseClass=ilrepositorygui&amp;cmdNode=wq:mk:cv&amp;cmdClass=ilFileVersionsGUI&amp;cmd=addReplacingVersion&amp;ref_id=95">Replace File</button>
+                        <table class="table table-striped fullwidth" id="ilFileVersionsTableGUI"><thead><tr><th>Version</th></tr></thead><tbody>{rows}</tbody></table>"#,
+                        new_version.replace('&', "&amp;")
+                    ),
+                );
+            }
+            reply(
+                url,
+                &format!(
+                    r#"<div id="il_center_col"><div class="ilContainerListItemOuter"><a class="il_ContainerItemTitle" href="goto.php/file/95">Skript</a>
+                    <ul><li><button class="btn btn-link" data-action="http://ilias.example/x">Info</button></li>
+                    <li><button class="btn btn-link" data-action="{}">Versions</button></li></ul></div></div>"#,
+                    versions.replace('&', "&amp;")
+                ),
+            )
+        }))
+    }
+
+    #[test]
+    fn uploads_a_new_version_through_create_new_version_and_checks_it_is_listed() {
+        let ilias = versions_ilias(VERSIONS, NEW_VERSION, SAVE_VERSION, APPEND, true);
+        let client = Client::with_pages(base(), ilias.clone());
+        let path = &files(&["Skript.pdf"])[0];
+        assert_eq!(
+            client.upload_version(&folder(), &skript(), path).unwrap(),
+            Some(2)
+        );
+        assert_eq!(
+            ilias.requests(&base()),
+            ["goto.php/fold/89", VERSIONS, NEW_VERSION, VERSIONS]
+        );
+        assert_eq!(
+            ilias.posts(&base()),
+            [
+                format!("{APPEND} <- file[0]=@Skript.pdf"),
+                format!(
+                    "{SAVE_VERSION} <- form/input_0/input_1=Skript.pdf&form/input_0/input_2=&form/input_0/input_3[input_0][]=v-1"
+                ),
+            ]
+        );
+        // Sent, but no new row: an error, not a silent success.
+        let ilias = versions_ilias(VERSIONS, NEW_VERSION, SAVE_VERSION, APPEND, false);
+        let client = Client::with_pages(base(), ilias);
+        let error = client
+            .upload_version(&folder(), &skript(), path)
+            .unwrap_err();
+        assert!(error.to_string().contains("no new version"), "{error}");
+    }
+
+    #[test]
+    fn a_dry_run_uploads_no_version() {
+        let ilias = versions_ilias(VERSIONS, NEW_VERSION, SAVE_VERSION, APPEND, true);
+        let client = Client::with_pages(base(), ilias.clone());
+        client.set_dry_run(true);
+        let path = &files(&["Skript.pdf"])[0];
+        assert_eq!(
+            client.upload_version(&folder(), &skript(), path).unwrap(),
+            None
+        );
+        assert!(ilias.posts(&base()).is_empty());
+    }
+
+    #[test]
+    fn uploads_no_version_but_a_new_one_of_this_file_on_this_ilias() {
+        let path = &files(&["Skript.pdf"])[0];
+        for (versions, new_version, save, upload) in [
+            // The menu's Versions is another file's, or another site's.
+            (
+                "ilias.php?cmdClass=ilFileVersionsGUI&ref_id=96",
+                NEW_VERSION,
+                SAVE_VERSION,
+                APPEND,
+            ),
+            (
+                "https://evil.example/ilias/ilias.php?cmdClass=ilFileVersionsGUI&ref_id=95",
+                NEW_VERSION,
+                SAVE_VERSION,
+                APPEND,
+            ),
+            // The tab's button leads to replacing the file.
+            (
+                VERSIONS,
+                "ilias.php?cmdClass=ilFileVersionsGUI&cmd=addReplacingVersion&ref_id=95",
+                SAVE_VERSION,
+                APPEND,
+            ),
+            // The form saves for another file, or uploads to replace.
+            (
+                VERSIONS,
+                NEW_VERSION,
+                "ilias.php?cmdClass=ilFileVersionsGUI&cmd=post&fallbackCmd=saveVersion&ref_id=96",
+                APPEND,
+            ),
+            (
+                VERSIONS,
+                NEW_VERSION,
+                SAVE_VERSION,
+                "ilias.php?cmdClass=ilFileVersionsUploadHandlerGUI&cmd=upload&ref_id=95&upload_mode=replace",
+            ),
+            (
+                VERSIONS,
+                NEW_VERSION,
+                SAVE_VERSION,
+                "https://evil.example/ilias/ilias.php?cmdClass=ilFileVersionsUploadHandlerGUI&cmd=upload&ref_id=95&upload_mode=append",
+            ),
+        ] {
+            let ilias = versions_ilias(versions, new_version, save, upload, true);
+            let client = Client::with_pages(base(), ilias.clone());
+            assert!(
+                client.upload_version(&folder(), &skript(), path).is_err(),
+                "{versions} {new_version} {save} {upload}"
+            );
+            assert!(
+                ilias.posts(&base()).is_empty(),
+                "{versions} {new_version} {save} {upload}"
+            );
+        }
     }
 
     const CREATE: &str = "https://ilias.example/ilias/ilias.php?baseClass=ilrepositorygui&cmd=create&ref_id=89&new_type=fold";

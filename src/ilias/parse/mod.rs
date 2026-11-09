@@ -13,6 +13,7 @@ mod model;
 mod rights;
 mod show_more;
 mod submissions;
+mod versions;
 mod walker;
 
 pub use container::{confirm_delete, create_form, create_link, delete_link, files_form};
@@ -22,6 +23,7 @@ pub use forum::{PostForm, forum_link, message_html, post_form};
 pub use model::{Block, Id, Item, Kind, Page, Post, Tab, Todo, Urgency};
 pub use rights::{Rights, param};
 pub use show_more::{ShowMore, has_show_more, show_more};
+pub use versions::{new_version_link, version_form, versions, versions_link};
 
 use exercise::add_submission;
 use forum::post;

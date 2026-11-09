@@ -20,6 +20,10 @@ pub struct Rights {
     /// Items (by reference id) whose action menu offers Delete.
     #[serde(default)]
     pub delete: Vec<u64>,
+    /// Files (by reference id) whose action menu offers Versions, where a new version can
+    /// be uploaded.
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    pub versions: Vec<u64>,
     /// A forum that offers "New Thread".
     #[serde(default)]
     pub new_thread: bool,
@@ -55,6 +59,9 @@ impl std::fmt::Display for Rights {
         }
         if !self.delete.is_empty() {
             parts.push(format!("delete: {} items", self.delete.len()));
+        }
+        if !self.versions.is_empty() {
+            parts.push(format!("versions: {} files", self.versions.len()));
         }
         if self.new_thread {
             parts.push("new thread".to_string());
@@ -123,6 +130,16 @@ pub(super) fn rights(doc: &Html, page_url: &Url) -> Rights {
             && !rights.delete.contains(&item)
         {
             rights.delete.push(item);
+        }
+    }
+    // A file's Versions entry is for the file itself (its own ref id), not for the page.
+    for button in doc.select(&sel(r#"button[data-action*="ilFileVersionsGUI"]"#)) {
+        let url = button.attr("data-action").and_then(|l| base.join(l).ok());
+        if let Some(url) = url.filter(|u| u.origin() == base.origin() && param(u, "cmd").is_none())
+            && let Some(file) = param(&url, "ref_id").and_then(|n| n.parse().ok())
+            && !rights.versions.contains(&file)
+        {
+            rights.versions.push(file);
         }
     }
     let threads = links(r#"button[data-action*="cmd=createThread"]"#, "data-action");
