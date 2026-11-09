@@ -3,7 +3,7 @@
 What changed in each version of ilias-tui. Versions follow
 [semantic versioning](https://semver.org): before 1.0, the middle number goes up for new
 features and changes in behaviour, the last one for fixes only. See
-[Versions](README.md#versions) for how a release is made.
+[Versions](CONTRIBUTING.md#versions) for how a release is made.
 
 ## Unreleased
 
@@ -15,6 +15,8 @@ features and changes in behaviour, the last one for fixes only. See
 
 ### Changed
 
+- **A shorter README** (about half as long): the details of what is stored and sent moved
+  to `docs/security.md`, development and releases to `CONTRIBUTING.md`.
 - **The help (`?`) is grouped** (Items, Sync, Exercises, Edit, …) with shorter texts, wraps
   lines that don't fit instead of cutting them off, and uses two columns on wide terminals.
 
