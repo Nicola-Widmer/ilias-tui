@@ -171,7 +171,7 @@ ilias-tui get goto.php/file/123456
 
 | Key | What it does |
 | --- | ------------ |
-| `/` | Opens the filter bar under the list. Typing narrows the **current list** right away. Every word must appear in the title, in any order, ignoring case: `folien 3` finds "Woche 3 › Folien". `↑`/`↓` move through the matches while you type. `Enter` opens the selected match right away. `Esc` clears the filter. |
+| `/` | Opens the filter bar under the list. Typing narrows the **current list** right away. Every word must appear in the title, in any order, ignoring case: `folien 3` finds "Woche 3 › Folien". `↑`/`↓` move through the matches while you type. `Enter` opens the selected match right away. `Esc` clears the filter. A list keeps its filter while you open something in it: going back brings it back as you left it. |
 | `s` | **Deep search.** Collects every file and folder below where you are and lists them with their path (`Unterlagen › Woche 3 › Folien.pdf`), then opens the filter bar. In a course it covers that course. On "My courses" it covers all your courses, which takes longer (progress shows in the status bar). `r` re-runs it, `Esc` goes back. |
 
 ### Keys

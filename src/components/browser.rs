@@ -30,7 +30,9 @@ struct Level {
     page: Page,
     /// All items of `page`, in display order.
     items: Vec<Item>,
-    /// Indices into `items` that match the current filter.
+    /// The `/` filter on this list; kept when you go deeper and come back.
+    query: String,
+    /// Indices into `items` that match `query`.
     visible: Vec<usize>,
     /// Selection: position within `visible`.
     cursor: Option<usize>,
@@ -58,23 +60,24 @@ impl Level {
             deep,
             items: Vec::new(),
             page: Page::default(),
+            query: String::new(),
             visible: Vec::new(),
             cursor: None,
             list: ListState::default(),
             out_of_date: false,
         };
-        level.set_page(page, "");
+        level.set_page(page);
         level
     }
 
     /// Shows a newer version of the page, keeping the selection where it was. Nothing
     /// changes if the page is the same.
-    fn refresh(&mut self, page: &Page, query: &str) {
+    fn refresh(&mut self, page: &Page) {
         if self.page == *page {
             return;
         }
         let cursor = self.cursor;
-        self.set_page(page.clone(), query);
+        self.set_page(page.clone());
         if cursor.is_some_and(|c| c < self.visible.len()) {
             self.cursor = cursor;
         }
@@ -95,10 +98,10 @@ impl Level {
         }
     }
 
-    fn set_page(&mut self, page: Page, query: &str) {
+    fn set_page(&mut self, page: Page) {
         self.items = page.items().cloned().collect();
         self.page = page;
-        self.filter(query);
+        self.filter(&self.query.clone());
     }
 
     fn title(&self) -> String {
@@ -118,6 +121,7 @@ impl Level {
     }
 
     fn filter(&mut self, query: &str) {
+        self.query = query.to_string();
         self.visible = (0..self.items.len())
             .filter(|&i| {
                 let item = &self.items[i];
@@ -411,7 +415,6 @@ pub struct Browser {
     /// What is being loaded: ref id (`None` = "My courses") and whether it is a deep search.
     /// Responses for anything else are stale (the user navigated away) and get dropped.
     pending: Option<(Option<u64>, bool)>,
-    query: String,
     /// Ref ids of files saved locally; Enter opens these without downloading.
     saved: HashSet<u64>,
     /// Ref ids of items that are new since your last visit (marked for this run).
@@ -462,6 +465,11 @@ impl Browser {
 
     fn current(&self) -> Option<&Level> {
         self.stack.last()
+    }
+
+    /// The filter on the list on screen.
+    fn query(&self) -> &str {
+        self.current().map_or("", |l| l.query.as_str())
     }
 
     /// `A`: asks before syncing every course in My courses.
@@ -550,7 +558,7 @@ impl Browser {
             Hit::Crumb(index) if index + 1 < self.stack.len() => {
                 self.stack.truncate(index + 1);
                 self.pending = None;
-                Some(Action::Filter(String::new()))
+                Some(Action::Filter(self.query().to_string()))
             }
             Hit::Crumb(_) => None,
         }
@@ -643,8 +651,8 @@ impl Component for Browser {
                     self.stack.pop();
                 }
                 self.pending = None;
-                // Lists start unfiltered when you come back to them.
-                return Some(Action::Filter(String::new()));
+                // The list comes back with the filter you left it with; tell the search bar.
+                return Some(Action::Filter(self.query().to_string()));
             }
             KeyCode::Tab => return self.switch_tab(1),
             KeyCode::BackTab => return self.switch_tab(-1),
@@ -820,19 +828,17 @@ impl Component for Browser {
                 }
                 self.pending = None;
                 match self.stack.last_mut() {
-                    Some(level) if *refresh => level.refresh(page, &self.query),
+                    Some(level) if *refresh => level.refresh(page),
                     // Another tab of the page on screen (cached or fetched) takes its place.
                     Some(level)
                         if level.deep == *deep
                             && level.item.as_ref().map(|i| i.ref_id)
                                 == item.as_ref().map(|i| i.ref_id) =>
                     {
-                        self.query.clear();
                         *level = Level::new(item.clone(), *deep, page.clone());
                         return Some(Action::Filter(String::new()));
                     }
                     _ => {
-                        self.query.clear();
                         self.todo_focus = false;
                         self.stack
                             .push(Level::new(item.clone(), *deep, page.clone()));
@@ -842,11 +848,13 @@ impl Component for Browser {
                 }
             }
             Action::Filter(query) => {
-                self.query.clone_from(query);
                 let level = self.stack.last_mut()?;
-                level.filter(query);
-                // Going back (Esc, a breadcrumb) clears the filter: the moment a page that
-                // went out of date while hidden is on screen again.
+                // Coming back with the same filter keeps the selection where it was.
+                if level.query != *query {
+                    level.filter(query);
+                }
+                // Going back (Esc, a breadcrumb) sends the level's filter: the moment a page
+                // that went out of date while hidden is on screen again.
                 if std::mem::take(&mut level.out_of_date) {
                     return Some(level.reload());
                 }
@@ -957,7 +965,8 @@ impl Component for Browser {
                 x += width + 1;
             }
         }
-        let filtering = !self.query.is_empty();
+        let query = level.query.clone();
+        let filtering = !query.is_empty();
         if filtering {
             let count = Line::from(vec![
                 Span::styled(format!(" {} ", level.visible.len()), theme::accent_bold()),
@@ -1015,7 +1024,7 @@ impl Component for Browser {
                         new: self.new.contains(&item.ref_id),
                         new_inside: self.new_counts.get(&item.ref_id).copied().unwrap_or(0),
                     };
-                    item_row(item, &self.query, marks)
+                    item_row(item, &query, marks)
                 }
             })
             .collect();
@@ -1416,6 +1425,49 @@ mod tests {
             opens(&mut browser, KeyCode::Char('o')),
             "https://zoom.us/j/1"
         );
+    }
+
+    #[test]
+    fn going_back_keeps_the_filter_of_that_list() {
+        let mut browser = Browser::default();
+        let mut filter = super::super::Filter::default();
+        let courses = vec![
+            item("crs", 1, "Algebra"),
+            item("crs", 2, "Analysis"),
+            item("crs", 3, "Biologie"),
+        ];
+        load(&mut browser, None, Page::from_items(courses), false);
+        // `/an` finds Analysis.
+        for key in [KeyCode::Char('/'), KeyCode::Char('a'), KeyCode::Char('n')] {
+            if let Some(action) = filter.handle_key_event(key.into()) {
+                browser.update(&action);
+            }
+        }
+        filter.handle_key_event(KeyCode::Enter.into());
+        assert_eq!(browser.current().unwrap().visible.len(), 1, "Analysis");
+        let course = browser.current().unwrap().selected().unwrap().clone();
+        assert_eq!(course.title, "Analysis");
+
+        // Into the course: its list starts unfiltered.
+        load(
+            &mut browser,
+            Some(course),
+            Page::from_items(vec![item("fold", 4, "Woche 1")]),
+            false,
+        );
+        assert!(browser.update(&Action::Filter(String::new())).is_none());
+        filter.update(&Action::Filter(String::new()));
+        assert!(!filter.is_visible());
+
+        // Back: My courses comes back with "an", in the bar too, the selection unchanged.
+        let back = browser.handle_key_event(KeyCode::Char('h').into()).unwrap();
+        assert!(matches!(&back, Action::Filter(q) if q == "an"));
+        browser.update(&back);
+        filter.update(&back);
+        assert!(filter.is_visible());
+        let level = browser.current().unwrap();
+        assert_eq!(level.selected().map(|i| i.title.as_str()), Some("Analysis"));
+        assert_eq!(level.visible.len(), 1);
     }
 
     #[test]

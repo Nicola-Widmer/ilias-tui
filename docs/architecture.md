@@ -435,8 +435,10 @@ pages.
   the `ListState` selection indexes into that list.
 - **Matching.** Every word of the query must appear in the title, ignoring case
   (`filter::matches`).
-- **Reset.** When the browser shows a different list, it emits `Filter("")` so the bar
-  clears too.
+- **Per list.** Each `Level` keeps its own `query`. A new list starts unfiltered (the
+  browser emits `Filter("")`, so the bar clears too). Going back (`Esc`, `h`, a breadcrumb)
+  emits the level's own query, so the bar shows it again; the level isn't filtered again,
+  so the selection stays where it was.
 - **Deep search.** `s` sends `Load { deep: true }`. The worker calls
   `Client::descendants`. The result is pushed as its own level ("Search in X"), with path
   titles. On `Loaded { deep: true }`, `Filter` opens the bar right away, so you can start
@@ -447,7 +449,7 @@ pages.
 | Component   | State                                    | Notes                                    |
 | ----------- | ---------------------------------------- | ---------------------------------------- |
 | `Filter`    | `query`, `editing`                       | One line above the status bar, shown while editing or filtering. |
-| `Browser`   | stack of `Level { item, deep, page, items, visible, cursor, list }`, `query` | Tab bar, then the page laid out as rows: headings, wrapped text, items with icon and details. Only item rows can be selected. `Tab` loads another tab into the same level. Back = pop (no request, unless the level went out of date while hidden: then it reloads once). `r` refreshes the top level. Only responses for the page asked for last are applied. |
+| `Browser`   | stack of `Level { item, deep, page, items, query, visible, cursor, list }` | Tab bar, then the page laid out as rows: headings, wrapped text, items with icon and details. Only item rows can be selected. `Tab` loads another tab into the same level. Back = pop (no request, unless the level went out of date while hidden: then it reloads once). `r` refreshes the top level. Only responses for the page asked for last are applied. |
 | `StatusBar` | `Status` (idle/busy/done/info/error), start time | Spinner while busy, ✓ / ⚠ icons for results and errors; key hints on the right. |
 | `Help`      | `visible: bool`                          | Overlay drawn last, on top of everything. Keys come from `help::KEYS`, grouped into sections. |
 | `Report`    | the last sync's report lines, `scroll`   | Overlay after a sync that skipped, kept or failed files. `j`/`k` scroll, any other key closes. Keys it uses up return `Action::Handled`. |

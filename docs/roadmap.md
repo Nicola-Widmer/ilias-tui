@@ -111,7 +111,8 @@ front of every page request (only `src/ilias/write.rs` gets past it).
 ## App and quality of life
 
 - [x] **Copy permalink** of the selected item (`y`; `pbcopy` on macOS, else OSC 52).
-- [ ] **Keep the filter after going back.** Today the filter resets on every navigation.
+- [x] **Keep the filter after going back.** Each list keeps its `/` filter (and selection)
+  while you look at a deeper level.
 - [x] **Light theme / configurable colours.** Dark, light or hub in the settings, `colors` in
   `config.json` on top.
 - [ ] **Config file** for keys, download folder and theme. Today there are only environment

@@ -30,7 +30,7 @@ pub const KEYS: &[(&str, &[(&str, &str)])] = &[
     (
         "Search",
         &[
-            ("/", "Filter this list (Enter opens the match, Esc clears)"),
+            ("/", "Filter this list, kept when you come back (Esc clears)"),
             ("s", "Search everything below here"),
         ],
     ),
