@@ -43,7 +43,10 @@ fn marks_what_is_new_since_the_last_visit() {
         crate::seen::Counts { items: 3, posts: 2 },
     )])));
     let shown = screen(&mut browser);
-    assert!(shown.contains("Algebra  ● 3 new  ● new posts in 2 forums"), "{shown}");
+    assert!(
+        shown.contains("Algebra  ● 3 new  ● new posts in 2 forums"),
+        "{shown}"
+    );
     assert!(!shown.contains("Biologie  ●"), "{shown}");
 
     let files = vec![item("file", 10, "Folien"), item("file", 11, "Skript")];

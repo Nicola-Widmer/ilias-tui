@@ -9,7 +9,7 @@
 //! the way counts them, so the trail to a new file shows on each level. What a page you are
 //! looking at shows new is seen right away.
 
-use std::collections::{BTreeMap, BTreeSet, HashMap};
+use std::collections::{BTreeMap, BTreeSet, HashMap, HashSet};
 use std::path::PathBuf;
 
 use jiff::civil::Date;
@@ -53,20 +53,29 @@ pub struct Counts {
 /// fetched on, so that ILIAS' relative dates ("Today, 10:00" yesterday is "Yesterday, 10:00"
 /// today) compare as the same date.
 pub fn diff(old: &Page, old_day: Date, new: &Page, new_day: Date) -> New {
-    let before: HashMap<u64, Vec<String>> = old
-        .items()
-        .map(|i| (i.key(), version(i, old_day)))
-        .collect();
+    // An item can be listed twice (a favourite on My courses), with other properties in
+    // each place: it is unchanged if one of its old copies is the same.
+    let mut before: HashMap<u64, Vec<Vec<String>>> = HashMap::new();
+    for item in old.items() {
+        before
+            .entry(item.key())
+            .or_default()
+            .push(version(item, old_day));
+    }
     let mut found = New::default();
+    let mut reported = HashSet::new();
     for item in new.items() {
         let now = version(item, new_day);
-        match (before.get(&item.key()), &item.kind) {
-            (Some(was), _) if *was == now => {}
+        let was = before.get(&item.key());
+        if was.is_some_and(|was| was.contains(&now)) || !reported.insert(item.key()) {
+            continue;
+        }
+        match (was, &item.kind) {
             // A new thread is a new post; a new forum is new content.
             (None, Kind::Thread) => found.posts.push(item.key()),
             (None, _) => found.items.push(item.key()),
             (Some(was), Kind::Forum | Kind::Thread) => {
-                if went_up(was, &now) {
+                if was.iter().all(|was| went_up(was, &now)) {
                     found.posts.push(item.key());
                 }
             }
@@ -210,6 +219,7 @@ mod tests {
     use std::fs;
 
     use super::*;
+    use crate::ilias::Block;
     use crate::ilias::Id;
     use jiff::civil::date;
     use pretty_assertions::assert_eq;
@@ -256,6 +266,26 @@ mod tests {
         ]);
         assert_eq!(diff(&old, day, &new, day).items, [2, 4]);
         assert!(diff(&new, day, &new, day).is_empty());
+    }
+
+    #[test]
+    fn an_item_listed_twice_is_compared_with_its_own_copy() {
+        // My courses lists a favourite twice: as a tile (no properties) and in the course list.
+        let day = date(2026, 11, 9);
+        let page = Page {
+            blocks: vec![
+                Block::Items {
+                    title: "Favoriten".into(),
+                    items: vec![item(1, &[])],
+                },
+                Block::Items {
+                    title: "2026".into(),
+                    items: vec![item(1, &["Registration: none"]), item(2, &[])],
+                },
+            ],
+            ..Page::default()
+        };
+        assert!(diff(&page, day, &page, day).is_empty(), "nothing changed");
     }
 
     #[test]
