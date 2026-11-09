@@ -162,6 +162,20 @@ impl Component for StatusBar {
                 true => Status::Done(format!("Created the folder {name} in {}", container.title)),
                 false => Status::Info(format!("Dry run: would have created the folder {name}")),
             },
+            Action::Delete { item, .. } => {
+                Status::Busy(format!("Moving {} to the trash…", item.title))
+            }
+            Action::Deleted {
+                container,
+                item,
+                deleted,
+            } => match deleted {
+                true => Status::Done(format!(
+                    "Moved {} from {} to the ILIAS trash",
+                    item.title, container.title
+                )),
+                false => Status::Info(format!("Dry run: would have deleted {}", item.title)),
+            },
             // Everything else says nothing here.
             _ => return None,
         };
@@ -171,6 +185,7 @@ impl Component for StatusBar {
                 | Action::SubmissionDeleted { deleted: true, .. }
                 | Action::Uploaded { files: Some(_), .. }
                 | Action::FolderCreated { created: true, .. }
+                | Action::Deleted { deleted: true, .. }
         );
         None
     }

@@ -68,6 +68,7 @@ impl Browser {
             Command::DeleteSubmission => return Some(self.delete_submission()),
             Command::Upload => return Some(self.upload()),
             Command::NewFolder => return Some(self.new_folder()),
+            Command::Delete => return Some(self.delete()),
             Command::Login => return Some(Action::Login),
             // Other components' keys, and search inside search results.
             Command::Search
@@ -247,6 +248,39 @@ impl Browser {
                 place: self.place(),
             },
             None => Action::Error("ILIAS doesn't let you add a folder here".into()),
+        }
+    }
+}
+
+impl Browser {
+    /// `D`: asks before moving the selected item to the trash, if its menu offers Delete.
+    fn delete(&self) -> Action {
+        let chosen = self
+            .current()
+            .filter(|level| !level.deep)
+            .and_then(|level| {
+                let item = level.selected()?;
+                let container = level.item.clone()?;
+                level
+                    .page
+                    .rights
+                    .may_delete(item)
+                    .then(|| (container, item.clone()))
+            });
+        let Some((container, item)) = chosen else {
+            return Action::Error("ILIAS doesn't let you delete this".into());
+        };
+        let kind = match item.kind_label() {
+            "" => String::new(),
+            label => format!(" ({label})"),
+        };
+        Action::Ask {
+            question: format!(
+                "Move “{}”{kind} from {} to the ILIAS trash? It can be restored from there in ILIAS.",
+                item.title,
+                self.place()
+            ),
+            then: Box::new(Action::Delete { container, item }),
         }
     }
 }

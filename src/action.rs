@@ -112,6 +112,17 @@ pub enum Action {
         name: String,
         created: bool,
     },
+    /// Move `item` from `container` into the ILIAS trash.
+    Delete {
+        container: Item,
+        item: Item,
+    },
+    /// `deleted` is `false` after a dry run.
+    Deleted {
+        container: Item,
+        item: Item,
+        deleted: bool,
+    },
     /// Ask the user first; `then` only runs on "yes". Everything that changes data on ILIAS
     /// goes through this.
     Ask {

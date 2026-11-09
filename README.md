@@ -92,6 +92,9 @@ What it does:
   lists them.
 - **Creates folders** in the course or folder on screen (`n`), where ILIAS offers "Add New
   Item → Folder": it asks for the name, then to confirm, and shows the new folder.
+- **Deletes items** into the ILIAS trash (`D`), where the item's ILIAS menu offers Delete: it
+  names the item, its kind and the place, says it goes to the trash, and asks first. Where
+  ILIAS has no trash (it would be deleted for good), it refuses. It never empties the trash.
 - Opens everything else (tests, surveys, …) in your normal web browser, and copies any
   item's permalink with `y`.
 - Logs in once through Switch edu-ID (2FA included) and keeps the session in a private
@@ -213,6 +216,7 @@ ilias-tui get goto.php/file/123456
 | `X`             | Handed-in files: delete the selected file (asks first) |
 | `u`             | Upload files into the course or folder on screen (where ILIAS lets you; asks first) |
 | `n`             | New folder in the course or folder on screen (where ILIAS lets you; asks first) |
+| `D`             | Move the selected item to the ILIAS trash (where ILIAS lets you; asks first) |
 | `L`             | Log in again / go online (opens Chrome if needed) |
 | `c`             | Settings (download folder, sync, icons, theme, …) |
 | `?`             | Toggle help                                     |
@@ -441,6 +445,11 @@ download.
     that place's own "Add New Item → Folder" link and posts the form ILIAS shows for it
     (checked to create a folder in that very place, on your ILIAS). Nothing is sent with
     `ILIAS_DRY_RUN=1`.
+  - `D` moves an item into the ILIAS trash. It names the item, its kind and the place and
+    asks first, follows only the Delete in that item's own menu, and posts ILIAS' question
+    only if it is for that item in that place, on your ILIAS. If ILIAS warns that the item
+    would be deleted for good (no trash), nothing is sent. Nothing is sent with
+    `ILIAS_DRY_RUN=1`, and the trash is never emptied.
   - `f` adds or removes a favourite. It asks first, only sends the favourites link from
     that item's own ILIAS menu (checked to be for that item, on your ILIAS), and does
     nothing with `ILIAS_DRY_RUN=1`.

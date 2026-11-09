@@ -310,7 +310,8 @@ impl Component for Browser {
             Action::HandedIn { file: Some(_), .. }
             | Action::SubmissionDeleted { deleted: true, .. }
             | Action::Uploaded { files: Some(_), .. }
-            | Action::FolderCreated { created: true, .. } => {
+            | Action::FolderCreated { created: true, .. }
+            | Action::Deleted { deleted: true, .. } => {
                 let (top, hidden) = self.stack.split_last_mut()?;
                 for level in hidden {
                     level.out_of_date = true;

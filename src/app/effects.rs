@@ -84,6 +84,7 @@ impl App {
             Action::NewFolder { container, name } => {
                 self.new_folder(container.clone(), name.clone())
             }
+            Action::Delete { container, item } => self.delete(container.clone(), item.clone()),
             Action::Sync(roots) => self.sync(roots.clone()),
             Action::Synced { .. } => self.synced()?,
             Action::SetConfig(config) => self.set_config(config.clone())?,
@@ -285,6 +286,17 @@ impl App {
                 container,
                 name,
                 created,
+            })
+        });
+    }
+
+    fn delete(&self, container: Item, item: Item) {
+        self.spawn(move |client, _| {
+            let deleted = client.delete_item(&container, &item)?;
+            Ok(Action::Deleted {
+                container,
+                item,
+                deleted,
             })
         });
     }

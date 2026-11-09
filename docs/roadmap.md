@@ -122,7 +122,7 @@ write](#rules-for-features-that-write). Tried only on the local test ILIAS.
 - [x] **Upload files** into the course or folder on screen (`u`; several at once, sizes in
   the question, checked against ILIAS' limit, listed afterwards).
 - [x] **New folder** in the course or folder on screen (`n`).
-- [ ] **Delete** an item (into the ILIAS trash).
+- [x] **Delete** an item into the ILIAS trash (`D`; refuses where ILIAS has no trash).
 - [ ] **Forum posts**: start a thread, reply to a post.
 - [ ] **Submissions of an assignment**: list and download all participants' submissions.
 

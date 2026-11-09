@@ -54,7 +54,8 @@ from that link; in code these are the variants of `Id`.
 A request that changes something on ILIAS: your account, your favourites, read marks,
 memberships, notifications or the session (logout). ilias-tui sends writes only from
 the `ilias/write` module (`write.rs` and `write/`): favourites changes, handing in a file
-and deleting a handed-in one, uploads, new folders (each after asking), and the logout
+and deleting a handed-in one, uploads, new folders, moving items to the **trash** (each after
+asking), and the logout
 (which you ask for).
 _Avoid_: action, command (ILIAS's `cmd=` parameter is a command; only some commands are
 writes).
@@ -65,6 +66,11 @@ New Item"), delete items. Read from the page's own menus and forms for that page
 reference id), never guessed; students usually have none. They decide which editing keys
 work.
 _Avoid_: permissions (ILIAS' own tab for setting them), capabilities.
+
+**Trash**
+Where ILIAS keeps deleted items until someone with the rights restores them or empties it.
+ilias-tui's `D` only moves items there, never empties it, and refuses where ILIAS has no
+trash.
 
 **Write guard**
 The check every page request passes: a request that looks like a write (it carries an

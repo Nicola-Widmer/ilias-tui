@@ -30,6 +30,10 @@ impl Rights {
     pub fn may_create(&self, kind: &Kind) -> bool {
         self.create.contains(kind)
     }
+
+    pub fn may_delete(&self, item: &Item) -> bool {
+        matches!(item.id, Id::Ref(n) if self.delete.contains(&n))
+    }
 }
 
 /// For `ilias-tui show`: `upload · new: fold, file · delete: 3 items`.

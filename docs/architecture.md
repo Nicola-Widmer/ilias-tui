@@ -25,7 +25,7 @@ src/
 │   │   ├── walker.rs    The content column → headings, text, items, text links
 │   │   ├── forum.rs     Thread posts
 │   │   ├── exercise.rs  Submission item, handed-in files, upload and delete forms
-│   │   ├── container.rs Forms of courses and folders (upload, Add New Item)
+│   │   ├── container.rs Forms of courses and folders (upload, Add New Item, Delete)
 │   │   ├── dashboard.rs Favourites, To-Do, course in a breadcrumb, dates
 │   │   ├── rights.rs    Rights: what the page lets you change (upload, Add New Item, Delete)
 │   │   ├── show_more.rs "Show more" buttons
@@ -34,7 +34,7 @@ src/
 │   ├── write.rs         The write guard, favourites, logout; every other write is in write/
 │   └── write/
 │       ├── exercise.rs  Handing in, deleting a handed-in file
-│       └── container.rs Courses and folders: uploading files, new folders
+│       └── container.rs Courses and folders: uploading files, new folders, into the trash
 ├── action.rs            Action enum (the app's messages)
 ├── keymap.rs            Keys of the main view → Command, with their help text
 ├── app/
@@ -258,6 +258,16 @@ pub struct Todo { assignment: Item, course, deadline, due, urgency }   // My cou
   form it leads to, and checks that the form posts to `ilObjFolderGUI` with
   `fallbackCmd=save` for that ref id and `new_type=fold` (`parse::create_form`). It posts the
   title (and an empty description), then checks that the page lists the folder.
+- **Into the trash** (`D`, `Client::delete_item`): offered for the selected item if the
+  rights' `delete` has it; `Ask` names title, kind and place and says it goes to the trash.
+  The client reads the container's page again and takes that item's Delete from its action
+  menu (`parse::delete_link`: `cmd=delete`, the container's `ref_id`, the item's
+  `item_ref_id`, this ILIAS), GETs it through the write path (its command is a write's) and
+  reads ILIAS' question (`parse::confirm_delete`): a modal whose form posts to
+  `fallbackCmd=confirmedDelete` for that container, with the item's ref id in its hidden
+  field. Without a trash ILIAS adds "(WARNING: … irretrievably deleted …)" to the question,
+  which then no longer ends in `?`; `to_trash` is false and nothing is sent. Otherwise it
+  posts the form and checks that the page no longer lists the item.
 - **Handed-in files**: `parse_page` turns an assignment's Submission tab into a `sub` item
   (in place of the overview's heading of the same name), so it opens as a level like any
   container. `H` and `X` there act for the nearest level above that isn't a `sub`.

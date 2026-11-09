@@ -16,6 +16,8 @@ features and changes in behaviour, the last one for fixes only. See
   shared folders): one or more at once, with each file's size in the question. ilias-tui
   checks that ILIAS lists them afterwards.
 - **New folder** (`n`) in the course or folder on screen, where ILIAS offers it.
+- **Delete into the trash** (`D`): moves the selected item to the ILIAS trash, where its menu
+  offers Delete. Refuses where ILIAS has no trash.
 
 ## 0.2.0 - 2026-11-09
 

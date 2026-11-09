@@ -127,3 +127,81 @@ pub fn create_form(
         description: name("textarea")?,
     })
 }
+
+/// The Delete of item `item` in the action menu of container `ref_id`, if the page has one.
+pub fn delete_link(html: &str, page_url: &Url, ref_id: u64, item: u64) -> Option<Url> {
+    let base = link_base(page_url);
+    let (own, item) = (ref_id.to_string(), item.to_string());
+    let doc = Html::parse_document(html);
+    let (button, anchor) = (
+        sel(r#"button[data-action*="cmd=delete"]"#),
+        sel(r#"a[href*="cmd=delete"]"#),
+    );
+    // Action menus hold buttons that go to their `data-action`.
+    let buttons = doc.select(&button).filter_map(|b| b.attr("data-action"));
+    let links = doc.select(&anchor).filter_map(|a| a.attr("href"));
+    buttons
+        .chain(links)
+        .filter_map(|link| base.join(link).ok())
+        .find(|url| {
+            url.origin() == base.origin()
+                && param(url, "cmd").as_deref() == Some("delete")
+                && param(url, "ref_id").as_deref() == Some(own.as_str())
+                && param(url, "item_ref_id").as_deref() == Some(item.as_str())
+        })
+}
+
+/// ILIAS' question before deleting an item.
+#[derive(Debug, PartialEq, Eq)]
+pub struct ConfirmDelete {
+    /// Where "Delete" posts.
+    pub action: Url,
+    /// The field that names the item, and its value.
+    pub field: String,
+    pub value: String,
+    /// Whether the item goes to the trash. Without a trash ILIAS adds a warning that it is
+    /// deleted for good ("… irretrievably deleted …").
+    pub to_trash: bool,
+}
+
+/// The confirmation for deleting item `item` from container `ref_id`.
+pub fn confirm_delete(html: &str, page_url: &Url, ref_id: u64, item: u64) -> Option<ConfirmDelete> {
+    let base = link_base(page_url);
+    let (own, item) = (ref_id.to_string(), item.to_string());
+    let doc = Html::parse_document(html);
+    let modal = doc.select(&sel(".c-modal, .modal")).find_map(|modal| {
+        let form = modal.select(&sel("form[action]")).find(|form| {
+            form.attr("action")
+                .and_then(|a| base.join(a).ok())
+                .is_some_and(|url| {
+                    url.origin() == base.origin()
+                        && param(&url, "fallbackCmd").as_deref() == Some("confirmedDelete")
+                        && param(&url, "ref_id").as_deref() == Some(own.as_str())
+                })
+        })?;
+        Some((modal, form))
+    });
+    let (modal, form) = modal?;
+    let input = form
+        .select(&sel(r#"input[type="hidden"]"#))
+        .find(|input| input.attr("value") == Some(item.as_str()))?;
+    let question = modal
+        .select(&sel(".alert"))
+        .next()
+        .map(visible_text)
+        .unwrap_or_default();
+    let warned = [
+        "irretrievably",
+        "unwiderruflich",
+        "définitivement",
+        "definitivamente",
+    ]
+    .iter()
+    .any(|word| question.to_lowercase().contains(word));
+    Some(ConfirmDelete {
+        action: base.join(form.attr("action")?).ok()?,
+        field: input.attr("name")?.to_string(),
+        value: item,
+        to_trash: question.trim_end().ends_with('?') && !warned,
+    })
+}

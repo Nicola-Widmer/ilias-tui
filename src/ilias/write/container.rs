@@ -1,5 +1,6 @@
 //! Writes for courses and folders, by people ILIAS lets change them (see Rights in
-//! CONTEXT.md): uploading files into one, creating a folder in one.
+//! CONTEXT.md): uploading files into one, creating a folder in one, moving an item of one
+//! into the trash.
 
 use std::path::{Path, PathBuf};
 use std::sync::atomic::Ordering;
@@ -176,6 +177,55 @@ impl Client {
         if !listed {
             bail!(
                 "sent, but ILIAS doesn't list the folder {name}: check {} in ILIAS",
+                container.title
+            );
+        }
+        Ok(true)
+    }
+
+    /// Moves `item` from `container` into the ILIAS trash, as its Delete in the action menu
+    /// does: ILIAS asks, then deletes. Refuses where ILIAS has no trash (it would be gone for
+    /// good). Returns `false` in dry-run mode, where nothing is sent.
+    pub fn delete_item(&self, container: &Item, item: &Item) -> Result<bool> {
+        let (Id::Ref(ref_id), Id::Ref(item_ref)) = (container.id, item.id) else {
+            bail!("ILIAS can't delete {} here", item.title);
+        };
+        let page = self.get_authed(&Url::parse(&container.url)?)?;
+        // Only ever send what this function is for: this very item, from this container.
+        let link = parse::delete_link(&page.html, &page.url, ref_id, item_ref)
+            .ok_or_else(|| eyre!("ILIAS doesn't let you delete {}", item.title))?;
+        // Only shows ILIAS' question, but its command is a write's (`delete`).
+        let asked = self.authed(&link, true)?;
+        let form =
+            parse::confirm_delete(&asked.html, &asked.url, ref_id, item_ref).ok_or_else(|| {
+                eyre!(
+                    "ILIAS did not ask to confirm; {} was not deleted",
+                    item.title
+                )
+            })?;
+        if !form.to_trash {
+            bail!(
+                "ILIAS would delete {} for good here (it has no trash): not deleted. Use the browser if you mean it.",
+                item.title
+            );
+        }
+        if self.dry_run.load(Ordering::Relaxed) {
+            return Ok(false);
+        }
+
+        self.ensure_online()?;
+        self.request(
+            &form.action,
+            Some(&[Form::Field {
+                name: &form.field,
+                value: &form.value,
+            }]),
+            true,
+        )?;
+        if self.page(container, None)?.items().any(|i| i.id == item.id) {
+            bail!(
+                "ILIAS still lists {}: check {} in ILIAS",
+                item.title,
                 container.title
             );
         }
@@ -451,5 +501,139 @@ mod tests {
         }
         let client = Client::with_pages(base(), folder_ilias(true, SAVE, "x"));
         assert!(client.create_folder(&folder(), "  ").is_err());
+    }
+
+    const DELETE: &str = "ilias.php?baseClass=ilrepositorygui&cmdNode=wq:mp&cmdClass=ilObjFolderGUI&cmd=delete&ref_id=89&item_ref_id=95";
+    const CONFIRMED: &str = "ilias.php?baseClass=ilrepositorygui&cmdNode=wq:mp&cmdClass=ilObjFolderGUI&cmd=post&fallbackCmd=confirmedDelete&ref_id=89&id=95&rtoken=t";
+    const ASKED: &str = "Are you sure that you want to delete the following?";
+
+    fn skript() -> Item {
+        Item {
+            kind: Kind::File,
+            id: Id::Ref(95),
+            title: "Skript".into(),
+            ..Item::default()
+        }
+    }
+
+    /// Folder 89 listing file 95 with a Delete going to `delete` (until it's deleted), and
+    /// ILIAS' question `question` posting to `confirmed`.
+    fn delete_ilias(
+        delete: &'static str,
+        confirmed: &'static str,
+        question: &'static str,
+    ) -> Arc<FakeIlias> {
+        let gone = Arc::new(std::sync::atomic::AtomicBool::new(false));
+        Arc::new(FakeIlias::new(move |url| {
+            if url.as_str().contains("fallbackCmd=confirmedDelete") {
+                gone.store(true, Ordering::SeqCst);
+            }
+            let question = format!(
+                r#"<dialog class="c-modal"><div class="modal-body">
+                <div class="alert alert-warning" role="status"><div class="ilAccHeadingHidden">-confirmation_message-</div>{question}</div>
+                <ul><li>Skript.pdf</li></ul>
+                <form class="c-form" action="{}" method="post"><input type="hidden" name="form/input_0" value="95" /></form>
+                </div></dialog>"#,
+                confirmed.replace('&', "&amp;")
+            );
+            let listing = match gone.load(Ordering::SeqCst) {
+                true => String::new(),
+                false => format!(
+                    r#"<div class="ilContainerListItemOuter"><a class="il_ContainerItemTitle" href="goto.php/file/95">Skript</a>
+                    <ul><li><button class="btn btn-link" data-action="{}">Delete</button></li></ul></div>"#,
+                    delete.replace('&', "&amp;")
+                ),
+            };
+            let asking = url.as_str().contains("cmd=delete");
+            reply(
+                url,
+                &format!(
+                    r#"<div id="il_center_col">{listing}</div>{}"#,
+                    if asking { question } else { String::new() }
+                ),
+            )
+        }))
+    }
+
+    #[test]
+    fn deletes_into_the_trash_after_confirming_like_ilias_asks() {
+        let ilias = delete_ilias(DELETE, CONFIRMED, ASKED);
+        let client = Client::with_pages(base(), ilias.clone());
+        assert!(client.delete_item(&folder(), &skript()).unwrap());
+        assert_eq!(
+            ilias.requests(&base()),
+            ["goto.php/fold/89", DELETE, "goto.php/fold/89"]
+        );
+        assert_eq!(
+            ilias.posts(&base()),
+            [format!("{CONFIRMED} <- form/input_0=95")]
+        );
+    }
+
+    #[test]
+    fn a_dry_run_deletes_nothing() {
+        let ilias = delete_ilias(DELETE, CONFIRMED, ASKED);
+        let client = Client::with_pages(base(), ilias.clone());
+        client.set_dry_run(true);
+        assert!(!client.delete_item(&folder(), &skript()).unwrap());
+        assert!(ilias.posts(&base()).is_empty());
+    }
+
+    #[test]
+    fn deletes_nothing_for_good() {
+        // ILIAS without a trash warns that the item would be gone for good.
+        let warned = "Are you sure that you want to delete the following? (WARNING: The selected object(s) will be irretrievably deleted from the system.)";
+        let ilias = delete_ilias(DELETE, CONFIRMED, warned);
+        let client = Client::with_pages(base(), ilias.clone());
+        let error = client.delete_item(&folder(), &skript()).unwrap_err();
+        assert!(error.to_string().contains("for good"), "{error}");
+        assert!(ilias.posts(&base()).is_empty());
+    }
+
+    #[test]
+    fn deletes_nothing_but_this_item_from_this_folder() {
+        for (delete, confirmed) in [
+            // The menu's Delete is for another item, another folder, another site.
+            (
+                "ilias.php?cmdClass=ilObjFolderGUI&cmd=delete&ref_id=89&item_ref_id=96",
+                CONFIRMED,
+            ),
+            (
+                "ilias.php?cmdClass=ilObjFolderGUI&cmd=delete&ref_id=90&item_ref_id=95",
+                CONFIRMED,
+            ),
+            (
+                "https://evil.example/ilias/ilias.php?cmd=delete&ref_id=89&item_ref_id=95",
+                CONFIRMED,
+            ),
+            // ILIAS' question posts to another folder or another command.
+            (
+                DELETE,
+                "ilias.php?cmdClass=ilObjFolderGUI&cmd=post&fallbackCmd=confirmedDelete&ref_id=90&id=95",
+            ),
+            (
+                DELETE,
+                "ilias.php?cmdClass=ilObjFolderGUI&cmd=post&fallbackCmd=cut&ref_id=89&id=95",
+            ),
+            (
+                DELETE,
+                "https://evil.example/ilias/ilias.php?cmd=post&fallbackCmd=confirmedDelete&ref_id=89",
+            ),
+        ] {
+            let ilias = delete_ilias(delete, confirmed, ASKED);
+            let client = Client::with_pages(base(), ilias.clone());
+            assert!(
+                client.delete_item(&folder(), &skript()).is_err(),
+                "{delete} {confirmed}"
+            );
+            assert!(ilias.posts(&base()).is_empty(), "{delete} {confirmed}");
+        }
+        // An item without a reference id.
+        let client = Client::with_pages(base(), delete_ilias(DELETE, CONFIRMED, ASKED));
+        let link = Item {
+            id: Id::Local(1 << 63),
+            ..skript()
+        };
+        assert!(client.delete_item(&folder(), &link).is_err());
     }
 }

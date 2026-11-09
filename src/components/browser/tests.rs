@@ -875,3 +875,39 @@ fn n_adds_a_folder_only_where_ilias_offers_it() {
     });
     assert!(matches!(created, Some(Action::Load { refresh: true, .. })));
 }
+
+#[test]
+fn d_deletes_only_what_ilias_offers_to_delete_and_says_it_goes_to_the_trash() {
+    let press = |browser: &mut Browser| browser.handle_key_event(KeyCode::Char('D').into());
+    let mut browser = Browser::default();
+    let mut page = Page::from_items(vec![item("file", 3, "Skript"), item("file", 4, "Folien")]);
+    load(
+        &mut browser,
+        Some(item("crs", 1, "DEMO")),
+        page.clone(),
+        false,
+    );
+    assert!(matches!(press(&mut browser), Some(Action::Error(_))));
+    assert!(!screen(&mut browser).contains("delete"));
+
+    page.rights.delete = vec![4];
+    load(&mut browser, Some(item("crs", 1, "DEMO")), page, false);
+    // Skript is selected: its menu has no Delete.
+    assert!(matches!(press(&mut browser), Some(Action::Error(_))));
+    browser.handle_key_event(KeyCode::Char('j').into());
+    let Some(Action::Ask { question, then }) = press(&mut browser) else {
+        panic!("expected the question");
+    };
+    assert_eq!(
+        question,
+        "Move “Folien” (File) from DEMO to the ILIAS trash? It can be restored from there in ILIAS."
+    );
+    assert!(matches!(*then, Action::Delete { ref item, ref container }
+        if item.title == "Folien" && container.title == "DEMO"));
+    let deleted = browser.update(&Action::Deleted {
+        container: item("crs", 1, "DEMO"),
+        item: item("file", 4, "Folien"),
+        deleted: true,
+    });
+    assert!(matches!(deleted, Some(Action::Load { refresh: true, .. })));
+}
