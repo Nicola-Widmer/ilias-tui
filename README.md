@@ -78,7 +78,8 @@ What it does:
   Its **Handed-in files** entry (in the Submission section, open it like any other entry)
   lists what you handed in; `X` deletes the selected file again (asks first), as long as
   ILIAS allows it, which is until the deadline.
-- Opens everything else (tests, surveys, …) in your normal web browser.
+- Opens everything else (tests, surveys, …) in your normal web browser, and copies any
+  item's permalink with `y`.
 - Logs in once through Switch edu-ID (2FA included) and keeps the session in a private
   file. Later runs refresh the session on their own, without a browser.
 
@@ -188,6 +189,7 @@ ilias-tui get goto.php/file/123456
 | `S`             | Sync the marked courses (or the selected one)   |
 | `A`             | Sync all courses in My courses (asks first)     |
 | `o`             | Open selected item or link in your web browser (asks first for links to other sites) |
+| `y`             | Copy the selected item's permalink (or the page's) to the clipboard |
 | `f`             | Add to / remove from your ILIAS favourites (asks first) |
 | `Tab` / `Shift-Tab` | Next / previous tab (Inhalt, Info, …); on My courses, in and out of the To-Do panel |
 | `r`             | Reload current list                             |

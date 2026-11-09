@@ -61,6 +61,11 @@ A web link in a page's text, such as the Zoom link on a course page. ilias-tui l
 entry below its paragraph. ILIAS links open in the browser at once, others after asking.
 _Avoid_: weblink (that is the ILIAS object `webr`).
 
+**Permalink**
+An object's lasting address on ILIAS 10, `goto.php/<kind>/<ref_id>` (what ILIAS shows as
+"Permanent Link"). `y` copies it; things without a reference id (assignments, threads,
+links) copy their own link instead.
+
 **Show more list**
 A list ILIAS cuts short after a container's block limit, with a "Show more" button
 (`ilContainerShowMore`) that loads the next batch. ilias-tui loads every batch, so a page

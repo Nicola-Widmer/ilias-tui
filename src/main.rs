@@ -2,6 +2,7 @@ mod action;
 mod app;
 mod auth;
 mod cache;
+mod clipboard;
 mod components;
 mod config;
 mod downloads;

@@ -76,6 +76,7 @@ impl Component for StatusBar {
                 path.file_name().unwrap_or_default().to_string_lossy()
             )),
             Action::OpenFile(path) => Status::Done(format!("Opened {}", path.display())),
+            Action::Copied(link) => Status::Done(format!("Copied {link}")),
             Action::OpenLink(url) => Status::Info(format!("Opened {url} in your browser")),
             Action::Login => Status::Busy("Complete the login in the Chrome window…".into()),
             Action::LoggedIn => {
@@ -142,6 +143,7 @@ impl Component for StatusBar {
             | Action::SetConfig(_)
             | Action::NewItems(_)
             | Action::OpenInBrowser(_)
+            | Action::CopyLink(_)
             | Action::NewCounts(_)
             | Action::Filter(_) => {
                 return None;

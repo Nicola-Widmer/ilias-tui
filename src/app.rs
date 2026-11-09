@@ -263,6 +263,11 @@ impl App {
             Action::OpenInBrowser(item) if open::is_ilias_link(&item.url, &self.client.base) => {
                 self.tx.send(Action::OpenLink(item.url.clone()))?;
             }
+            Action::CopyLink(item) => {
+                let link = item.permalink(&self.client.base);
+                crate::clipboard::copy(&link)?;
+                self.tx.send(Action::Copied(link))?;
+            }
             // Another site: only after asking (it could be anything someone put on a page).
             Action::OpenInBrowser(item) if open::is_web_link(&item.url) => {
                 self.tx.send(Action::Ask {

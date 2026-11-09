@@ -659,6 +659,10 @@ impl Component for Browser {
                 let item = level.selected().or(level.item.as_ref())?;
                 return Some(Action::OpenInBrowser(item.clone()));
             }
+            KeyCode::Char('y') => {
+                let item = level.selected().or(level.item.as_ref())?;
+                return Some(Action::CopyLink(item.clone()));
+            }
             KeyCode::Char('r') => {
                 let url = level
                     .page
@@ -1404,6 +1408,10 @@ mod tests {
             Some(Action::Download { .. })
         ));
         browser.handle_key_event(KeyCode::Char('k').into());
+        assert!(matches!(
+            browser.handle_key_event(KeyCode::Char('y').into()),
+            Some(Action::CopyLink(item)) if item.ref_id == 99
+        ));
         assert_eq!(
             opens(&mut browser, KeyCode::Char('o')),
             "https://zoom.us/j/1"

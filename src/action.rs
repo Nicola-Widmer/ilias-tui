@@ -51,6 +51,10 @@ pub enum Action {
     OpenFile(PathBuf),
     /// Open the item's link in the web browser: ILIAS links at once, others after asking.
     OpenInBrowser(Item),
+    /// Copy the item's permalink to the clipboard.
+    CopyLink(Item),
+    /// This address is in the clipboard now.
+    Copied(String),
     /// Open a web link now: an ILIAS link, or another site after asking.
     OpenLink(String),
     /// Ask which file to hand in for `assignment`; `url` is its submission page.

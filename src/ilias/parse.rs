@@ -81,6 +81,18 @@ impl Item {
         }
     }
 
+    /// The address to share: the ILIAS permalink (`goto.php/<kind>/<ref_id>`), or the item's
+    /// own link for what has no reference id (assignments, threads, text links, …).
+    pub fn permalink(&self, base: &Url) -> String {
+        let own_link = matches!(self.kind.as_str(), "ass" | "sub" | "thr" | "link")
+            || self.ref_id == 0
+            || self.ref_id & 1 << 63 != 0;
+        match own_link {
+            true => self.url.clone(),
+            false => format!("{base}goto.php/{}/{}", self.kind, self.ref_id),
+        }
+    }
+
     /// File extension, lowercase. ILIAS lists the file type as the first property;
     /// the title is the fallback.
     pub fn extension(&self) -> Option<String> {
@@ -1180,6 +1192,42 @@ mod tests {
         assert_eq!(found[0].last_ref_id(), Some(111));
         assert!(has_show_more(html));
         assert!(show_more("<p>no button</p>", &url("https://ilias.example/ilias/")).is_empty());
+    }
+
+    #[test]
+    fn permalinks_to_share() {
+        let base = url("https://ilias.example/ilias/");
+        let item = |kind: &str, ref_id: u64, link: &str| Item {
+            kind: kind.into(),
+            ref_id,
+            url: link.into(),
+            ..Item::default()
+        };
+        let sendfile =
+            "https://ilias.example/ilias/ilias.php?cmdClass=ilObjFileGUI&cmd=sendfile&ref_id=5";
+        assert_eq!(
+            item("file", 5, sendfile).permalink(&base),
+            "https://ilias.example/ilias/goto.php/file/5"
+        );
+        assert_eq!(
+            item("crs", 1, "x").permalink(&base),
+            "https://ilias.example/ilias/goto.php/crs/1"
+        );
+        for own in [
+            item(
+                "thr",
+                42,
+                "https://ilias.example/ilias/ilias.php?cmd=viewThread&thr_pk=42",
+            ),
+            item("link", 9, "https://zoom.us/j/1"),
+            item(
+                "file",
+                attachment_id("a"),
+                "https://ilias.example/ilias/ilias.php?cmd=downloadFile",
+            ),
+        ] {
+            assert_eq!(own.permalink(&base), own.url);
+        }
     }
 
     #[test]

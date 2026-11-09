@@ -10,6 +10,7 @@ src/
 ├── theme.rs             Dark and light palettes, custom colours and UI glyphs; the one place to restyle
 ├── auth.rs              Interactive login in Chrome → CookieStore
 ├── session.rs           Cookie jar ⇄ private JSON file
+├── clipboard.rs         `y`: copy a permalink (pbcopy on macOS, else the terminal's OSC 52)
 ├── downloads.rs         Saved files: path, ILIAS version, size + mtime when saved
 ├── sync.rs              Sync whole courses: plan per file, parallel downloads
 ├── cache.rs             Parsed pages on disk, for instant display (stale-while-revalidate)
@@ -198,6 +199,10 @@ pub struct Item {
   leaf to root) from the course or group down, and every file on the page gets it as
   `Item::path`. `Client::download` saves into `<download dir>/<path…>/`, each part
   sanitised. Deep search results keep the path of the page they came from.
+- **Permalinks** (`y`): `Browser` sends `CopyLink(item)` for the selected item (else the
+  page's own); `App` builds `Item::permalink` with the client's base URL (`goto.php/<kind>/<ref_id>`,
+  or the item's own link when it has no reference id) and `clipboard::copy` puts it in the
+  clipboard, then `Copied` shows it in the status bar. No request is sent.
 - **Icons**: `icons.rs` picks the glyph from `kind`, and for files from
   `Item::extension()`. That is the first property, where ILIAS shows the file type, with
   the title as fallback.
