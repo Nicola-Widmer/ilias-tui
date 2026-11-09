@@ -36,6 +36,10 @@ pub struct Saved {
     /// hashes were recorded.
     #[serde(default, skip_serializing_if = "String::is_empty")]
     pub hash: String,
+    /// Two-way sync uploaded this file's content under another name or in another folder
+    /// (you renamed or moved it), so it is not proposed for the trash.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub moved_to: Option<PathBuf>,
 }
 
 /// What became of a saved file on disk.
@@ -59,6 +63,7 @@ impl Saved {
             len,
             modified_ms,
             hash,
+            moved_to: None,
         }
     }
 
@@ -142,6 +147,7 @@ impl Downloads {
                         len: 0,
                         modified_ms: 0,
                         hash: String::new(),
+                        moved_to: None,
                     },
                 };
                 Some((id.parse().ok()?, saved))
@@ -210,6 +216,25 @@ impl Downloads {
                 saved.hash = hash_file(&saved.path).unwrap_or_default();
             }
         })
+    }
+
+    /// Notes that the content `hash` was uploaded as `to`: every saved file with it that
+    /// is gone from your disk was renamed or moved, not deleted.
+    pub fn mark_moved(&mut self, hash: &str, to: &Path) -> Result<()> {
+        let moved: Vec<u64> = self
+            .entries
+            .iter()
+            .filter(|(_, s)| s.hash == hash && !hash.is_empty() && s.local() == Local::Missing)
+            .map(|(key, _)| *key)
+            .collect();
+        for key in moved {
+            self.update(key, |entry| {
+                if let Some(saved) = entry {
+                    saved.moved_to = Some(to.to_path_buf());
+                }
+            })?;
+        }
+        Ok(())
     }
 
     /// Applies a change to one entry and writes the index. The file is read again first

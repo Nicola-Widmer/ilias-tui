@@ -153,6 +153,10 @@ _Avoid_: clash, collision.
 A deletion two-way sync suggests because you deleted a file it saved and ILIAS still has
 it as saved: moving that file to the ILIAS trash, unticked until you tick it.
 
+**Journal**:
+The log of every write two-way sync sent or tried (time, action, file, ILIAS object,
+result), `<host>.journal.jsonl` next to the session. One sync's writes share a `run`.
+
 **Upload**:
 Putting files into a course, group or folder (`u`), as its "Upload Files" form does. Everyone
 who can open the place sees them. Only where the page's rights include it.

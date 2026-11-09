@@ -23,7 +23,8 @@ impl App {
             | Action::AskUpload { .. }
             | Action::AskFolderName { .. }
             | Action::Compose(_)
-            | Action::Sync(_) => true,
+            | Action::Sync(_)
+            | Action::Push(_) => true,
             _ => false,
         };
         if self.client.is_offline() && sends {
@@ -32,7 +33,7 @@ impl App {
             );
         }
         let wants_sync = match action {
-            Action::Sync(_) => true,
+            Action::Sync(_) | Action::Push(_) => true,
             Action::Ask { then, .. } => matches!(**then, Action::Sync(_)),
             _ => false,
         };
@@ -96,7 +97,9 @@ impl App {
                 self.downloads = Downloads::load(&self.client.base);
             }
             Action::Sync(roots) => self.sync(roots.clone()),
-            Action::Synced { .. } => self.synced()?,
+            Action::Synced { review, .. } => self.synced(review)?,
+            Action::Push(changes) => self.push(changes.clone()),
+            Action::Pushed { .. } => self.downloads = Downloads::load(&self.client.base),
             Action::SetConfig(config) => self.set_config(config.clone())?,
             Action::Login => self.login(),
             _ => {}
@@ -400,16 +403,54 @@ impl App {
                 summary: summary.text(rules.max_mb),
                 report: summary.report(&dir, rules.max_mb),
                 saved: summary.saved,
+                review: Box::new(summary.review),
             })
         });
     }
 
-    /// The sync wrote its own copies of the index and of what's new; read them again.
-    fn synced(&mut self) -> Result<()> {
+    /// The sync wrote its own copies of the index and of what's new; read them again. If
+    /// two-way sync found something to send, ask (twice, for more than usual); a dry run
+    /// stops here.
+    fn synced(&mut self, review: &sync::Review) -> Result<()> {
         self.downloads = Downloads::load(&self.client.base);
         self.seen = Seen::load(&self.client.base);
         self.tx.send(Action::NewCounts(self.seen.counts()))?;
+        let changes = review.sendable();
+        if changes.is_empty() || self.client.is_dry_run() {
+            return Ok(());
+        }
+        let push = Action::Push(changes.clone());
+        let then = match sync::push::brake(&changes, &review.listed) {
+            Some(question) => Action::Ask {
+                question,
+                then: Box::new(push),
+            },
+            None => push,
+        };
+        self.tx.send(Action::Ask {
+            question: sync::push::question(&changes, &self.download_dir),
+            then: Box::new(then),
+        })?;
         Ok(())
+    }
+
+    /// Sends what you agreed to after a two-way sync, on a worker; one at a time, like syncs.
+    fn push(&self, changes: Vec<sync::Change>) {
+        let dir = self.download_dir.clone();
+        self.syncing.store(true, Ordering::SeqCst);
+        let syncing = Running(self.syncing.clone());
+        self.spawn(move |client, tx| {
+            let _syncing = syncing;
+            let mut downloads = Downloads::load(&client.base);
+            let mut journal = sync::journal::Journal::open(&client.base);
+            let pushed = sync::push::push(client, &changes, &mut downloads, &mut journal, |p| {
+                let _ = tx.send(Action::Progress(p));
+            });
+            Ok(Action::Pushed {
+                summary: pushed.text(),
+                report: pushed.report(&dir),
+            })
+        });
     }
 
     fn set_config(&mut self, config: Config) -> Result<()> {

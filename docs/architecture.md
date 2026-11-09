@@ -16,6 +16,8 @@ src/
 │   ├── mod.rs           Plan per file, parallel downloads, the report
 │   ├── local.rs         Two-way: what is in a local folder, without the ignore list
 │   ├── review.rs        Two-way: what to send to ILIAS, decided three-way from the base
+│   ├── push.rs          Two-way: the question, the brake, sending what you agreed to
+│   ├── journal.rs       Two-way: every write, one JSON line each
 │   └── tests.rs
 ├── cache.rs             Parsed pages on disk, for instant display (stale-while-revalidate)
 ├── seen.rs              What's new: page diff, and the unseen items per course on disk
@@ -516,7 +518,19 @@ folder (`local::scan`: one level, no links, without `local::ignored`) and builds
 of the place is called; renames (a new file with the hash of a missing saved one) drop that
 file's proposal; same names on ILIAS, copies of saved files and folders shared by two ILIAS
 places become conflicts; saved files in a place that ILIAS no longer lists are `gone`. The
-report lists all of it. Nothing is sent yet.
+report lists all of it.
+
+`Synced` carries the `Review`. `App::synced` takes what can be sent (`Review::sendable`:
+the uploads so far) and, unless it's a dry run, asks with `push::question` (each file
+and its size); if `push::brake` finds more than usual (over `MAX_FILES` = 20 files, or
+over `MAX_SHARE` = 30 % of a place's ILIAS files replaced or trashed) the "yes" leads to a
+second `Ask`. `Push(changes)` runs `push::push` on a worker, one at a time like a sync:
+per place it reads the page again (the re-check: a file of that name now is a conflict,
+a file gone from disk a failure), sends the rest with `Client::upload_files`, reads the
+page once more and records each file in the saved-files list under its new ref id with
+ILIAS' version, so the next sync finds it in sync; for a rename it marks the missing
+files with that content `moved_to`, which keeps them out of the trash proposals for good.
+Every write is appended to the `Journal`. `Pushed` shows the result like a sync.
 
 The crawl uses `Client::descendants_with_pages`, which hands every course and folder page it
 reads to a callback; sync puts them in the page cache under the key the TUI uses when it

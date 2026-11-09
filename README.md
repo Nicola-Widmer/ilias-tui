@@ -25,8 +25,8 @@ with any ILIAS 10 that logs in through OpenID Connect. Runs on macOS, Linux and 
 - `Enter` downloads a file into the same folders as on ILIAS and opens it; the next time
   the saved copy opens at once.
 - **Sync** whole courses (`S`, `A`): every file up to 50 MB, later only what changed, and
-  never over files you edited. **Two-way sync** (settings, off by default) also shows what
-  of yours it would send to ILIAS. See [Sync](#sync).
+  never over files you edited. **Two-way sync** (settings, off by default) also uploads
+  your new files, after asking. See [Sync](#sync).
 - Works **offline** with what it has seen before. See [Offline](#offline).
 
 **Exercises and forums**
@@ -103,7 +103,7 @@ opens again when the HSLU login itself has expired.
 | `r`             | Reload current list                             |
 | **Sync**        |                                                 |
 | `Space`         | Mark a course or folder for sync                |
-| `S`             | Sync the marked courses (or the selected one)   |
+| `S`             | Sync the marked courses (or the selected one); with two-way sync, asks before sending anything |
 | `A`             | Sync all courses in My courses (asks first)     |
 | **Exercises**   |                                                 |
 | `H`             | On an assignment: hand in a file (asks first; `Tab` completes the path) |
@@ -178,12 +178,14 @@ files skipped for their size, saved beside your copy, or failed.
 
 With "Two-way sync" on (settings, or `ILIAS_TWO_WAY=1`), sync also compares your copy of each
 synced course and folder with what it recorded when it last saved them (the **base**: the
-file's version on ILIAS, its size, date and a hash of its content) and with ILIAS now. For
-now it only lists in the report what it would send; nothing is sent yet.
+file's version on ILIAS, its size, date and a hash of its content) and with ILIAS now. The
+report lists what it would send, and it asks before anything is sent (with
+`ILIAS_DRY_RUN=1` it stops there). So far it sends new files; edited and deleted ones are
+only listed.
 
 | Your copy vs base | ILIAS vs base | Sync                                                       |
 | --- | --- | --- |
-| new               | –             | would upload it, where ILIAS lets you                      |
+| new               | –             | uploads it, where ILIAS lets you                           |
 | unchanged         | changed       | downloads it, as always                                    |
 | edited            | unchanged     | would upload it as a new version                           |
 | edited            | changed       | a **conflict**: saves ILIAS' copy beside yours, sends nothing |
@@ -202,6 +204,14 @@ now it only lists in the report what it would send; nothing is sent yet.
 - **Never sent:** `.DS_Store`, `Thumbs.db`, `~$…` (Office lock files), `*.tmp`, hidden
   files and folders (`.git/` too), files over the sync limit, and the copies saved beside
   your edits (`… (ILIAS 2026-11-02).pdf`).
+- **Checked again before sending:** each folder is read again right before its files go
+  up; a file of the same name that appeared there since is a conflict, not an upload.
+- **More than usual, asked twice:** more than 20 files at once, or more than 30 % of a
+  folder's files replaced or moved to the trash, and sync asks once more.
+- **In sync afterwards:** each uploaded file is recorded like a download, so the next sync
+  sees it as unchanged; a renamed file's old name is never proposed for the trash.
+- **A journal** of every write (time, action, file, ILIAS object, result) is kept next to
+  the session, as `<ilias host>.journal.jsonl`.
 - **Nothing is ever deleted**, on your disk or on ILIAS.
 
 ## Offline

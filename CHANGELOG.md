@@ -12,7 +12,12 @@ features and changes in behaviour, the last one for fixes only. See
 - **Two-way sync** (settings, `ILIAS_TWO_WAY=1`; off by default), first part: sync compares
   your copy of each synced course with what it last saved and with ILIAS, and lists in the
   report what it would send: new files, edited files (as new versions), files you deleted
-  (for the trash), new folders, conflicts and files gone on ILIAS. Nothing is sent yet.
+  (for the trash), new folders, conflicts and files gone on ILIAS.
+- **Two-way sync uploads new files** after naming each one and asking (a dry run stops at
+  the plan). Each folder is read again right before; a file of the same name that appeared
+  since is a conflict. More than 20 files, or more than 30 % of a folder, asks once more.
+  Uploaded files count as in sync afterwards, and every write goes into a journal
+  (`<host>.journal.jsonl` next to the session).
 - **Content hashes** in the saved-files list: a file whose date changed but whose content
   didn't is no longer "edited", so sync can update it.
 

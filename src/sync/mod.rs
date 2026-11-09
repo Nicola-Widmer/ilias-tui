@@ -31,7 +31,9 @@ use crate::cache::Cache;
 use crate::downloads::{Downloads, Local, Saved};
 use crate::ilias::{Client, Id, Item, Kind, Page};
 
+pub mod journal;
 mod local;
+pub mod push;
 pub mod review;
 
 use review::{Candidates, Place};
@@ -157,7 +159,7 @@ pub fn plan(item: &Item, saved: Option<(&Saved, Local)>, rules: Rules) -> Plan {
         Local::Edited if rules.two_way && !changed => Plan::NewVersion(path()),
         _ if rules.missing_only => Plan::Unchanged,
         Local::Missing if changed => fetch(Plan::New),
-        Local::Missing if rules.two_way => Plan::Trash(path()),
+        Local::Missing if rules.two_way && saved.moved_to.is_none() => Plan::Trash(path()),
         Local::Missing => Plan::Deleted,
         _ if !changed => Plan::Unchanged,
         Local::Untouched => fetch(Plan::Update(saved.path.clone())),
@@ -182,8 +184,10 @@ pub struct Summary {
     /// What's new on the pages read, compared to their cached copies, for
     /// [`crate::seen::Seen::record`].
     pub unseen: Vec<FoundNew>,
-    /// Two-way: what to send to ILIAS (nothing is sent yet).
+    /// Two-way: what to send to ILIAS, once you agree.
     pub review: Review,
+    /// Dry run: two-way sync stops after the plan.
+    pub dry_run: bool,
 }
 
 /// New items a sync found on one page.
@@ -217,6 +221,9 @@ impl Summary {
         let to_send = self.review.changes.len();
         if to_send > 0 {
             parts.push(format!("{to_send} to send to ILIAS (see the report)"));
+        }
+        if to_send > 0 && self.dry_run {
+            parts.push("dry run: nothing will be sent".into());
         }
         if !self.too_big.is_empty() {
             parts.push(format!("{} over {max_mb} MB skipped", self.too_big.len()));
@@ -258,7 +265,7 @@ impl Summary {
                 self.beside.iter().map(|p| shorten(p)).collect(),
             ),
             (
-                "Would upload: new on your disk (nothing sent yet)".to_string(),
+                "New on your disk: to upload".to_string(),
                 changes(&mut review.uploads()),
             ),
             (
@@ -452,6 +459,7 @@ pub fn sync(
         let places = places.into_inner().unwrap_or_else(PoisonError::into_inner);
         summary.review =
             review::decide(&places, &on_ilias, candidates, downloads, rules.max_bytes());
+        summary.dry_run = client.is_dry_run();
     }
     Ok(summary)
 }

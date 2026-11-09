@@ -182,12 +182,20 @@ pub enum Action {
     },
     /// Save the files of these courses or folders (see `sync.rs`).
     Sync(Vec<Item>),
-    /// A sync finished: what happened (one line), the files worth a look (by section) and
-    /// the ref ids of all files saved now.
+    /// A sync finished: what happened (one line), the files worth a look (by section),
+    /// the ref ids of all files saved now and (two-way) what it would send to ILIAS.
     Synced {
         summary: String,
         report: Vec<(String, Vec<String>)>,
         saved: Vec<u64>,
+        review: Box<crate::sync::Review>,
+    },
+    /// Two-way sync: send these changes to ILIAS (you agreed to them).
+    Push(Vec<crate::sync::Change>),
+    /// What a push sent (one line) and what deserves a look (by section).
+    Pushed {
+        summary: String,
+        report: Vec<(String, Vec<String>)>,
     },
     /// The app runs offline: only cached pages and saved files, nothing is sent.
     Offline,

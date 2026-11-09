@@ -89,9 +89,16 @@ pub struct Review {
     pub unsure: Vec<PathBuf>,
     /// New files over the sync size limit.
     pub too_big: Vec<PathBuf>,
+    /// How many files ILIAS lists in each place (by key), for the mass-change brake.
+    pub listed: HashMap<u64, usize>,
 }
 
 impl Review {
+    /// The changes sync can send so far: uploads of new files.
+    pub fn sendable(&self) -> Vec<Change> {
+        self.uploads().cloned().collect()
+    }
+
     pub fn uploads(&self) -> impl Iterator<Item = &Change> {
         self.changes
             .iter()
@@ -139,6 +146,13 @@ pub fn decide(
 ) -> Review {
     let mut review = Review {
         unsure: candidates.unsure,
+        listed: places
+            .iter()
+            .map(|p| {
+                let files = p.items.iter().filter(|i| i.kind == Kind::File).count();
+                (p.item.key(), files)
+            })
+            .collect(),
         ..Review::default()
     };
     let place_of = |file: &Item| {

@@ -18,6 +18,7 @@ fn saved(version: &str) -> Saved {
         len: 1,
         modified_ms: 1,
         hash: String::new(),
+        moved_to: None,
     }
 }
 
@@ -470,6 +471,15 @@ fn two_way_decides_every_row_from_base_disk_and_ilias() {
         super::plan(&same, Some((&hashed(V1), Local::Missing)), RULES),
         Plan::Deleted
     );
+    // Renamed by you and uploaded under the new name: not proposed for the trash.
+    let moved = Saved {
+        moved_to: Some(PathBuf::from("/dl/DEMO.101/Sheet 3.pdf")),
+        ..hashed(V1)
+    };
+    assert_eq!(
+        super::plan(&same, Some((&moved, Local::Missing)), TWO_WAY),
+        Plan::Deleted
+    );
 }
 
 #[test]
@@ -490,7 +500,14 @@ fn a_touched_file_with_the_same_content_is_not_edited() {
         .set_modified(later)
         .unwrap();
     assert_eq!(downloads.entry(1).unwrap().local(), Local::Untouched);
+    // Same size, other content (and, as any edit, another date).
     std::fs::write(&path, "0riginal").unwrap();
+    std::fs::File::options()
+        .write(true)
+        .open(&path)
+        .unwrap()
+        .set_modified(later + std::time::Duration::from_secs(60))
+        .unwrap();
     assert_eq!(downloads.entry(1).unwrap().local(), Local::Edited);
     let _ = std::fs::remove_dir_all(dir);
 }
@@ -520,7 +537,7 @@ fn an_old_entry_gets_its_hash_while_the_file_is_as_saved() {
 }
 
 #[test]
-fn two_way_reports_what_it_would_send_and_sends_nothing() {
+fn two_way_sync_plans_what_to_send_and_sends_nothing_by_itself() {
     use crate::ilias::pages::{FakeIlias, reply};
     use std::sync::Arc;
     // Course 1 lists file 9; the page has a breadcrumb (its place) and an upload form.
@@ -578,7 +595,10 @@ fn two_way_reports_what_it_would_send_and_sends_nothing() {
             .map(|(_, lines)| lines.clone())
             .unwrap_or_default()
     };
-    assert_eq!(section("Would upload: new"), ["DEMO.101/Notizen.md"]);
+    assert_eq!(
+        section("New on your disk: to upload"),
+        ["DEMO.101/Notizen.md"]
+    );
     assert_eq!(
         section("Would upload as a new version"),
         ["DEMO.101/Blatt 3.pdf"]

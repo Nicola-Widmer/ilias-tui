@@ -54,7 +54,7 @@ impl Component for Report {
     }
 
     fn update(&mut self, action: &Action) -> Option<Action> {
-        if let Action::Synced { report, .. } = action
+        if let Action::Synced { report, .. } | Action::Pushed { report, .. } = action
             && !report.is_empty()
         {
             let mut lines = Vec::new();
@@ -122,6 +122,7 @@ mod tests {
             summary: String::new(),
             report,
             saved: Vec::new(),
+            review: Box::default(),
         }
     }
 

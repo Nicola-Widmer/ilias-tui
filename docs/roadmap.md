@@ -55,7 +55,7 @@ Read-only; safe to build.
   deletions proposed for the trash, conflicts kept as both copies.
   - [x] The base (content hashes), the local scan with its ignore list, and the three-way
     plan, shown in the sync report.
-  - [ ] Upload new files.
+  - [x] Upload new files (asks first, re-checks each folder, mass-change brake, journal).
   - [ ] New versions of edited files.
   - [ ] A review screen with the proposed deletions to tick.
   - [ ] New local folders become ILIAS folders.

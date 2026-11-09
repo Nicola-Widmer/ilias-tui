@@ -503,3 +503,74 @@ fn offline_shows_cached_pages_and_never_refreshes() {
     assert!(matches!(app.rx.try_recv(), Ok(Action::Error(_))));
     let _ = std::fs::remove_dir_all(dir);
 }
+
+#[test]
+fn two_way_sync_asks_before_sending_and_a_dry_run_stops_at_the_plan() {
+    let dir = std::env::temp_dir().join(format!("ilias-tui-push-ask-{}", std::process::id()));
+    let mut app = app(&dir);
+    let folder = Item {
+        kind: "fold".into(),
+        id: Id::Ref(89),
+        title: "Unterlagen".into(),
+        ..Item::default()
+    };
+    let upload = |n: usize| crate::sync::Change::Upload {
+        place: folder.clone(),
+        path: dir.join(format!("{n}.md")),
+        renamed_from: None,
+    };
+    let synced = |changes: Vec<crate::sync::Change>| Action::Synced {
+        summary: String::new(),
+        report: Vec::new(),
+        saved: Vec::new(),
+        review: Box::new(crate::sync::Review {
+            changes,
+            ..Default::default()
+        }),
+    };
+    let drain =
+        |app: &mut App| -> Vec<Action> { std::iter::from_fn(|| app.rx.try_recv().ok()).collect() };
+
+    app.dispatch(synced(vec![upload(1)])).unwrap();
+    let asked = drain(&mut app);
+    let Some(Action::Ask { question, then }) = asked.last() else {
+        panic!("{asked:?}");
+    };
+    assert!(question.starts_with("Upload 1 new file"), "{question}");
+    assert!(matches!(**then, Action::Push(ref c) if c.len() == 1));
+
+    // More than usual: a second question before anything is sent.
+    app.dispatch(synced(
+        (0..=crate::sync::push::MAX_FILES).map(upload).collect(),
+    ))
+    .unwrap();
+    let asked = drain(&mut app);
+    let Some(Action::Ask { then, .. }) = asked.last() else {
+        panic!("{asked:?}");
+    };
+    assert!(
+        matches!(**then, Action::Ask { ref then, .. } if matches!(**then, Action::Push(_))),
+        "{then:?}"
+    );
+
+    // A dry run shows the plan and asks nothing.
+    app.client.set_dry_run(true);
+    app.dispatch(synced(vec![upload(1)])).unwrap();
+    assert!(
+        !drain(&mut app)
+            .iter()
+            .any(|a| matches!(a, Action::Ask { .. }))
+    );
+    app.client.set_dry_run(false);
+
+    // Offline nothing is sent.
+    app.client.set_offline(true);
+    app.dispatch(Action::Push(vec![upload(1)])).unwrap();
+    assert!(
+        drain(&mut app)
+            .iter()
+            .any(|a| matches!(a, Action::Error(e) if e.contains("Offline")))
+    );
+    assert!(!app.syncing.load(Ordering::SeqCst));
+    let _ = std::fs::remove_dir_all(dir);
+}

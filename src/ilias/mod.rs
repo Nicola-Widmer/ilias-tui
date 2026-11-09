@@ -88,6 +88,11 @@ impl Client {
         self.dry_run.store(dry_run, Ordering::Relaxed);
     }
 
+    /// Dry run: every write only says what it would have sent.
+    pub fn is_dry_run(&self) -> bool {
+        self.dry_run.load(Ordering::Relaxed)
+    }
+
     /// Offline mode: from now on nothing is sent to ILIAS.
     pub fn set_offline(&self, offline: bool) {
         self.offline.store(offline, Ordering::Relaxed);
