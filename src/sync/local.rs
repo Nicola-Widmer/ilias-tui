@@ -63,6 +63,40 @@ pub fn scan(dir: &Path) -> Found {
     found
 }
 
+/// What a new local folder holds, all the way down (at most [`MAX_DEPTH`] folders deep and
+/// [`MAX_ENTRIES`] entries): its folders and files, each folder before what is in it, and
+/// the files over `max_bytes`, which are left out.
+pub fn walk(dir: &Path, max_bytes: u64) -> (Vec<PathBuf>, Vec<PathBuf>) {
+    let (mut contents, mut too_big) = (Vec::new(), Vec::new());
+    let mut stack = vec![(dir.to_path_buf(), 0)];
+    while let Some((at, depth)) = stack.pop() {
+        let found = scan(&at);
+        for (file, len) in found.files {
+            match len > max_bytes {
+                true => too_big.push(file),
+                false => contents.push(file),
+            }
+        }
+        for folder in found.folders.into_iter().rev() {
+            if depth < MAX_DEPTH {
+                contents.push(folder.clone());
+                stack.push((folder, depth + 1));
+            }
+        }
+        if contents.len() > MAX_ENTRIES {
+            contents.truncate(MAX_ENTRIES);
+            break;
+        }
+    }
+    // Each folder before what is in it.
+    contents.sort();
+    (contents, too_big)
+}
+
+/// How deep [`walk`] goes, and how many entries it takes at most.
+pub const MAX_DEPTH: usize = 10;
+pub const MAX_ENTRIES: usize = 1000;
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -89,6 +123,28 @@ mod tests {
         ] {
             assert!(!ignored(name), "{name}");
         }
+    }
+
+    #[test]
+    fn walks_a_new_folder_all_the_way_down() {
+        let dir = std::env::temp_dir().join(format!("ilias-tui-walk-{}", std::process::id()));
+        let _ = fs::remove_dir_all(&dir);
+        fs::create_dir_all(dir.join("Eigenes/Woche 1")).unwrap();
+        fs::write(dir.join("Eigenes/a.md"), "a").unwrap();
+        fs::write(dir.join("Eigenes/Woche 1/b.md"), "b").unwrap();
+        fs::write(dir.join("Eigenes/Woche 1/big.mp4"), "0123456789").unwrap();
+        fs::write(dir.join("Eigenes/.DS_Store"), "x").unwrap();
+        let (contents, too_big) = walk(&dir.join("Eigenes"), 5);
+        assert_eq!(
+            contents,
+            [
+                dir.join("Eigenes/Woche 1"),
+                dir.join("Eigenes/Woche 1/b.md"),
+                dir.join("Eigenes/a.md"),
+            ]
+        );
+        assert_eq!(too_big, [dir.join("Eigenes/Woche 1/big.mp4")]);
+        let _ = fs::remove_dir_all(dir);
     }
 
     #[test]

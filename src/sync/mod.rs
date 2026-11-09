@@ -31,6 +31,7 @@ use crate::cache::Cache;
 use crate::downloads::{Downloads, Local, Saved};
 use crate::ilias::{Client, Id, Item, Kind, Page};
 
+pub mod ask;
 pub mod journal;
 mod local;
 pub mod push;
@@ -248,6 +249,10 @@ impl Summary {
                         path,
                         ..
                     } => format!("{} (renamed from {})", shorten(path), shorten(old)),
+                    Change::NewFolder { dir, contents, .. } => {
+                        let files = contents.iter().filter(|p| !p.is_dir()).count();
+                        format!("{}/ ({files} files in it)", shorten(dir))
+                    }
                     c => shorten(c.path()),
                 })
                 .collect()
@@ -275,7 +280,7 @@ impl Summary {
             ),
             (PROPOSALS.to_string(), changes(&mut review.proposals())),
             (
-                "New folders on your disk (nothing sent yet)".to_string(),
+                "New folders on your disk: to create on ILIAS, with what is in them".to_string(),
                 changes(&mut review.new_folders()),
             ),
             (

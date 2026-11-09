@@ -58,8 +58,13 @@ pub enum Change {
         path: PathBuf,
         base: String,
     },
-    /// A folder only on your disk: create it in `place`, then upload its files.
-    NewFolder { place: Item, dir: PathBuf },
+    /// A folder only on your disk: create it in `place`, then what is in it: `contents`,
+    /// its folders and files all the way down, each folder before what is in it.
+    NewFolder {
+        place: Item,
+        dir: PathBuf,
+        contents: Vec<PathBuf>,
+    },
 }
 
 impl Change {
@@ -96,9 +101,14 @@ pub struct Review {
 }
 
 impl Review {
-    /// The changes sync can send so far: uploads of new files, new versions of edited ones.
+    /// What sync sends after the review (besides the ticked proposals): uploads of new
+    /// files, new folders with what is in them, new versions of edited files.
     pub fn sendable(&self) -> Vec<Change> {
-        self.uploads().chain(self.new_versions()).cloned().collect()
+        self.uploads()
+            .chain(self.new_folders())
+            .chain(self.new_versions())
+            .cloned()
+            .collect()
     }
 
     pub fn uploads(&self) -> impl Iterator<Item = &Change> {
@@ -289,13 +299,23 @@ pub fn decide(
             if known {
                 continue;
             }
-            if place.rights.may_create(&Kind::Folder) {
+            if !place.rights.may_create(&Kind::Folder) {
+                review.local_only.push(folder);
+            } else if sanitize(name) != name {
+                // Sync would save the ILIAS folder under another name.
+                review.conflicts.push(format!(
+                    "{}: a folder of this name would come back as {}; not sent",
+                    folder.display(),
+                    sanitize(name)
+                ));
+            } else {
+                let (contents, too_big) = local::walk(&folder, max_bytes);
+                review.too_big.extend(too_big);
                 review.changes.push(Change::NewFolder {
                     place: place.item.clone(),
                     dir: folder,
+                    contents,
                 });
-            } else {
-                review.local_only.push(folder);
             }
         }
     }
@@ -661,6 +681,9 @@ mod tests {
         for name in ["Woche 1", "Blatt 0: Abgabe", "Eigenes", ".git"] {
             fs::create_dir_all(folder.join(name.replace(':', "_"))).unwrap();
         }
+        fs::write(folder.join("Eigenes/Notizen.md"), "mine").unwrap();
+        // ILIAS' folder "Entwurf." would be saved as "Entwurf": not sent.
+        fs::create_dir_all(folder.join("Entwurf.")).unwrap();
         let listed = vec![
             item("fold", 5, "Woche 1"),
             item("exc", 6, "Blatt 0: Abgabe"),
@@ -683,7 +706,12 @@ mod tests {
             [Change::NewFolder {
                 place: places[0].item.clone(),
                 dir: folder.join("Eigenes"),
+                contents: vec![folder.join("Eigenes/Notizen.md")],
             }]
+        );
+        assert!(
+            review.conflicts[0].contains("would come back as Entwurf"),
+            "{review:?}"
         );
         let _ = fs::remove_dir_all(dir);
     }

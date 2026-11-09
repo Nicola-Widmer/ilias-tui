@@ -570,7 +570,7 @@ fn two_way_sync_asks_before_sending_and_a_dry_run_stops_at_the_plan() {
         "{then:?}"
     );
     app.dispatch(Action::AskPush(
-        (0..=crate::sync::push::MAX_FILES).map(upload).collect(),
+        (0..=crate::sync::ask::MAX_FILES).map(upload).collect(),
     ))
     .unwrap();
     assert!(matches!(

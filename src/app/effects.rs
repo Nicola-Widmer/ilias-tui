@@ -431,7 +431,7 @@ impl App {
             return Ok(());
         }
         let push = Action::Push(changes.to_vec());
-        let then = match sync::push::brake(changes, &self.listed) {
+        let then = match sync::ask::brake(changes, &self.listed) {
             Some(question) => Action::Ask {
                 question,
                 then: Box::new(push),
@@ -439,7 +439,7 @@ impl App {
             None => push,
         };
         self.tx.send(Action::Ask {
-            question: sync::push::question(changes, &self.download_dir),
+            question: sync::ask::question(changes, &self.download_dir),
             then: Box::new(then),
         })?;
         Ok(())

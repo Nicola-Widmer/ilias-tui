@@ -51,14 +51,16 @@ Read-only; safe to build.
   only changed ones, your edits never overwritten.
 - [x] **Sync report** listing the skipped big files, new versions saved beside your edits,
   and failures.
-- [ ] **Two-way sync** (settings, off by default): your new and edited files to ILIAS, your
+- [x] **Two-way sync** (settings, off by default): your new and edited files to ILIAS, your
   deletions proposed for the trash, conflicts kept as both copies.
   - [x] The base (content hashes), the local scan with its ignore list, and the three-way
     plan, shown in the sync report.
   - [x] Upload new files (asks first, re-checks each folder, mass-change brake, journal).
   - [x] New versions of edited files ("Create New Version", tested on the local ILIAS).
   - [x] A review screen with the proposed deletions to tick (unticked by default).
-  - [ ] New local folders become ILIAS folders.
+  - [x] New local folders become ILIAS folders, with what is in them.
+- [ ] **Two-way sync from the review straight away**: today a run downloads first and
+  then shows the review; downloads could wait for it too.
 - [ ] **Sync from the command line** (`ilias-tui sync URL…`), e.g. for cron.
 - [ ] **Sync through the fake ILIAS in tests.** Downloads bypass the `Pages` seam, so only
   sync's rules are tested, not a whole run.

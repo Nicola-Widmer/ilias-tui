@@ -26,8 +26,9 @@ with any ILIAS 10 that logs in through OpenID Connect. Runs on macOS, Linux and 
   the saved copy opens at once.
 - **Sync** whole courses (`S`, `A`): every file up to 50 MB, later only what changed, and
   never over files you edited. **Two-way sync** (settings, off by default) also uploads
-  your new files and your edits (as new versions), and moves files you deleted to the
-  ILIAS trash if you tick them; it shows everything first and asks. See [Sync](#sync).
+  your new files and folders and your edits (as new versions), and moves files you
+  deleted to the ILIAS trash if you tick them; it shows everything first and asks. See
+  [Sync](#sync).
 - Works **offline** with what it has seen before. See [Offline](#offline).
 
 **Exercises and forums**
@@ -195,7 +196,7 @@ is a plain report and nothing is sent.
 
 | Your copy vs base | ILIAS vs base | Sync                                                       |
 | --- | --- | --- |
-| new               | –             | uploads it, where ILIAS lets you                           |
+| new               | –             | uploads it, where ILIAS lets you; a new folder is created there with what is in it |
 | unchanged         | changed       | downloads it, as always                                    |
 | edited            | unchanged     | uploads it as a new version (ILIAS keeps the old ones)     |
 | edited            | changed       | a **conflict**: saves ILIAS' copy beside yours, sends nothing |

@@ -25,6 +25,8 @@ features and changes in behaviour, the last one for fixes only. See
   the files you deleted as proposals for the ILIAS trash, unticked until you tick them
   (`Space`); `Esc` sends nothing. Ticked ones go to the trash only if ILIAS has one and
   still has the version you deleted.
+- **Two-way sync creates your new folders** on ILIAS (where "Add New Item" offers a
+  folder), with the folders and files in them, and uploads those files.
 - **Content hashes** in the saved-files list: a file whose date changed but whose content
   didn't is no longer "edited", so sync can update it.
 

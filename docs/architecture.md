@@ -16,7 +16,8 @@ src/
 │   ├── mod.rs           Plan per file, parallel downloads, the report
 │   ├── local.rs         Two-way: what is in a local folder, without the ignore list
 │   ├── review.rs        Two-way: what to send to ILIAS, decided three-way from the base
-│   ├── push.rs          Two-way: the question, the brake, sending what you agreed to
+│   ├── ask.rs           Two-way: the question before sending, and the mass-change brake
+│   ├── push.rs          Two-way: sending what you agreed to, with the re-checks
 │   ├── journal.rs       Two-way: every write, one JSON line each
 │   └── tests.rs
 ├── cache.rs             Parsed pages on disk, for instant display (stale-while-revalidate)
@@ -529,8 +530,10 @@ crawl also keeps every page with a place below a course (`Page::path`, its bread
 them), its rights and its items. After the downloads, `review::decide` scans each place's
 folder (`local::scan`: one level, no links, without `local::ignored`) and builds the
 `Review`: `Change::Upload` for files the base doesn't know (where `rights.upload`),
-`NewVersion`, `Trash` (where `rights.delete` has the file), `NewFolder` for folders no item
-of the place is called; renames (a new file with the hash of a missing saved one) drop that
+`NewVersion` (where `rights.versions` has the file), `Trash` (where `rights.delete` has
+it), `NewFolder` for folders no item of the place is called (where `rights.create` has
+`fold`), with what is in them all the way down (`local::walk`, ignore list and size limit
+applied; a name sync would save differently, `sanitize`, is a conflict); renames (a new file with the hash of a missing saved one) drop that
 file's proposal; same names on ILIAS, copies of saved files and folders shared by two ILIAS
 places become conflicts; saved files in a place that ILIAS no longer lists are `gone`. The
 report lists all of it.
@@ -538,10 +541,11 @@ report lists all of it.
 `Synced` carries the `Review`, and `Report` shows it as the **review**: the report's
 sections, with the proposals (`sync::PROPOSALS`) as `[ ]` rows, its own keys
 (`keymap::REVIEW`: move, `Space` ticks, `Enter`, `Esc`), the cursor kept on screen with
-`Paragraph::line_count`. `Enter` sends `AskPush` with `Review::sendable` (uploads and new
-versions) plus the ticked proposals; `Esc` or a click sends `Cancelled`. In a dry run the
-review is a plain report. `App::ask_push` asks with `push::question` (each file and its
-size); if `push::brake` finds more than usual (over `MAX_FILES` = 20 files, or
+`Paragraph::line_count`. `Enter` sends `AskPush` with `Review::sendable` (uploads, new
+folders, new versions) plus the ticked proposals; `Esc` or a click sends `Cancelled`. In a dry run the
+review is a plain report. `App::ask_push` asks with `ask::question` (each file and its
+size); if `ask::brake` finds more than usual (over `MAX_FILES` = 20 files, those in new
+folders included, or
 over `MAX_SHARE` = 30 % of a place's ILIAS files replaced or trashed) the "yes" leads to a
 second `Ask`. `Push(changes)` runs `push::push` on a worker, one at a time like a sync:
 per place it reads the page again (the re-check: a file of that name now is a conflict,
@@ -549,7 +553,11 @@ a file gone from disk a failure), sends the rest with `Client::upload_files`, re
 page once more and records each file in the saved-files list under its new ref id with
 ILIAS' version, so the next sync finds it in sync; for a rename it marks the missing
 files with that content `moved_to`, which keeps them out of the trash proposals for good.
-A `NewVersion` is sent only if the place still lists the file with the version it was
+New folders come next: `push::new_folder` reads the place again (anything of that name now
+is a conflict), creates the folder with `Client::create_folder`, takes it from the
+listing, creates the folders below it in order, then uploads each one's planned files
+through `push::upload_into` (the same re-check and recording as above). A `NewVersion` is
+sent only if the place still lists the file with the version it was
 edited from (`base`), else it is a conflict; then `Client::upload_version` runs and the
 file is recorded with the listing's new version. A `Trash` is sent only if ILIAS still
 has the version and the file is still gone from your disk, through `Client::delete_item`
