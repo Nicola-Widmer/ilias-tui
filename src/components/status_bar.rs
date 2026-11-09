@@ -142,6 +142,8 @@ impl Component for StatusBar {
             | Action::ToggleHelp
             | Action::ToggleSettings
             | Action::SetConfig(_)
+            | Action::NewItems(_)
+            | Action::NewCounts(_)
             | Action::Filter(_) => {
                 return None;
             }

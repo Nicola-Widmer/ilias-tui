@@ -62,6 +62,16 @@ A list ILIAS cuts short after a container's block limit, with a "Show more" butt
 always has all its items; if it can't, the page says so.
 _Avoid_: pagination (ILIAS pages forums differently).
 
+**New** (what's new since your last visit)
+An item of a course or folder that appeared, or whose properties (size, date, …) changed,
+since the cached copy of that page. Countdowns ("5 Hours, 8 Minutes") don't count. Marked
+`● new` while ilias-tui runs.
+
+**Unseen**
+New items a sync found in a course you haven't opened since. Kept per ILIAS host in
+`<host>.seen.json`; My courses counts them per course. Opening the course (or the folder)
+makes them seen.
+
 **Deep search**
 Collecting everything below a place (`s`). On My courses it covers the course list only,
 not favourites or To-Do.

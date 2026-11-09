@@ -31,6 +31,10 @@ pub enum Action {
         refresh: bool,
         deep: bool,
     },
+    /// These items are new since your last visit (by ref id): mark them.
+    NewItems(Vec<u64>),
+    /// How many items are new in each course (by ref id) that you haven't opened since.
+    NewCounts(std::collections::HashMap<u64, usize>),
     /// Show only items whose title or description matches the query (empty = show all).
     Filter(String),
     /// Save a file; with `open`, open it afterwards (reusing an earlier copy if there is one).

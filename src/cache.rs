@@ -10,7 +10,7 @@ use std::time::{Duration, SystemTime};
 use url::Url;
 
 use crate::ilias::{self, Item, Page};
-use crate::session;
+use crate::{seen, session};
 
 /// Cached pages older than this are deleted; course pages rarely matter after a month.
 const MAX_AGE: Duration = Duration::from_secs(30 * 24 * 60 * 60);
@@ -76,6 +76,20 @@ impl Cache {
         serde_json::from_str(&json).ok()
     }
 
+    /// Stores `page` and returns its items that are new or changed compared to the copy it
+    /// replaces (see [`crate::seen::diff`]); none if there was no copy.
+    pub fn update(&self, key: &str, page: &Page) -> Vec<u64> {
+        let old = self.file(key).and_then(|file| {
+            let fetched = fs::metadata(&file).ok()?.modified().ok()?;
+            Some((self.get(key)?, day(fetched)?))
+        });
+        self.put(key, page);
+        match old {
+            Some((old, old_day)) => seen::diff(&old, old_day, page, jiff::Zoned::now().date()),
+            None => Vec::new(),
+        }
+    }
+
     /// Best effort: a failed write only means a slower next visit.
     pub fn put(&self, key: &str, page: &Page) {
         let Some(file) = self.file(key) else {
@@ -113,6 +127,12 @@ impl Cache {
     }
 }
 
+/// The local calendar day of `time`.
+fn day(time: SystemTime) -> Option<jiff::civil::Date> {
+    let time = jiff::Timestamp::try_from(time).ok()?;
+    Some(time.to_zoned(jiff::tz::TimeZone::system()).date())
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -133,6 +153,27 @@ mod tests {
         cache.remove_older_than(MAX_AGE);
         assert!(cache.get("old").is_none());
         assert!(cache.get("new").is_some());
+        cache.clear();
+    }
+
+    #[test]
+    fn update_tells_what_is_new_since_the_cached_copy() {
+        let dir = std::env::temp_dir().join(format!("ilias-tui-cache-new-{}", std::process::id()));
+        let cache = Cache::in_dir(dir);
+        let file = |ref_id, date: &str| Item {
+            ref_id,
+            properties: vec![date.into()],
+            ..Item::default()
+        };
+        let old = Page::from_items(vec![file(1, "1. Nov 2026, 10:00")]);
+        assert!(
+            cache.update("page", &old).is_empty(),
+            "nothing to compare with"
+        );
+        let new = Page::from_items(vec![file(1, "1. Nov 2026, 10:00"), file(2, "Today, 09:00")]);
+        assert_eq!(cache.update("page", &new), [2]);
+        assert_eq!(cache.get("page"), Some(new.clone()));
+        assert!(cache.update("page", &new).is_empty());
         cache.clear();
     }
 }

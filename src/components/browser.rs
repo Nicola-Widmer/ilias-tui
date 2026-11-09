@@ -1,7 +1,7 @@
 //! The main view: "My courses" and, below it, a stack of opened containers. Each level shows
 //! the ILIAS page like the web UI does: tabs, page text, section headings and items.
 
-use std::collections::HashSet;
+use std::collections::{HashMap, HashSet};
 use std::time::{Duration, Instant};
 
 use ratatui::Frame;
@@ -308,7 +308,19 @@ fn wrap(text: &str, width: usize) -> Vec<String> {
     lines
 }
 
-fn item_row(item: &Item, query: &str, saved: bool, marked: bool) -> ListItem<'static> {
+/// What is marked on an item row besides the item itself.
+#[derive(Default)]
+struct Marks {
+    saved: bool,
+    /// Marked for sync.
+    marked: bool,
+    /// New or changed since your last visit.
+    new: bool,
+    /// A course: how many items in it are new since you last opened it.
+    new_inside: usize,
+}
+
+fn item_row(item: &Item, query: &str, marks: Marks) -> ListItem<'static> {
     let (glyph, color) = icon(item);
     let title_style = if item.is_container() {
         Style::new()
@@ -322,13 +334,22 @@ fn item_row(item: &Item, query: &str, saved: bool, marked: bool) -> ListItem<'st
     if item.favorite {
         title.push(Span::styled("  ★", Style::new().fg(theme::colors().yellow)));
     }
-    if saved {
+    let new = Style::new()
+        .fg(theme::colors().green)
+        .add_modifier(Modifier::BOLD);
+    if marks.new {
+        title.push(Span::styled("  ● new", new));
+    }
+    if marks.new_inside > 0 {
+        title.push(Span::styled(format!("  ● {} new", marks.new_inside), new));
+    }
+    if marks.saved {
         title.push(Span::styled(
             format!("  {} saved", theme::check()),
             Style::new().fg(theme::colors().green),
         ));
     }
-    if marked {
+    if marks.marked {
         title.push(Span::styled("  ◉ sync", theme::accent_bold()));
     }
     let mut lines = vec![Line::from(title)];
@@ -393,6 +414,10 @@ pub struct Browser {
     query: String,
     /// Ref ids of files saved locally; Enter opens these without downloading.
     saved: HashSet<u64>,
+    /// Ref ids of items that are new since your last visit (marked for this run).
+    new: HashSet<u64>,
+    /// New items per course you haven't opened since (from `Seen`).
+    new_counts: HashMap<u64, usize>,
     /// Clickable areas from the last draw.
     hits: Vec<(Rect, Hit)>,
     /// What was clicked last and when, to detect double-clicks.
@@ -826,6 +851,8 @@ impl Component for Browser {
                 self.saved.insert(item.ref_id);
             }
             Action::Synced { saved, .. } => self.saved.extend(saved),
+            Action::NewItems(items) => self.new.extend(items),
+            Action::NewCounts(counts) => self.new_counts.clone_from(counts),
             Action::Error(_) => self.pending = None,
             // The ★ marks (and My courses' favourites) are now wrong: reload the page on
             // screen, and mark the hidden ones that show the item, or the favourites.
@@ -978,8 +1005,13 @@ impl Component for Browser {
                 Row::Styled(line) => ListItem::new(line),
                 Row::Item(i) => {
                     let item = &level.items[i];
-                    let marked = self.marked.iter().any(|m| m.ref_id == item.ref_id);
-                    item_row(item, &self.query, self.saved.contains(&item.ref_id), marked)
+                    let marks = Marks {
+                        saved: self.saved.contains(&item.ref_id),
+                        marked: self.marked.iter().any(|m| m.ref_id == item.ref_id),
+                        new: self.new.contains(&item.ref_id),
+                        new_inside: self.new_counts.get(&item.ref_id).copied().unwrap_or(0),
+                    };
+                    item_row(item, &self.query, marks)
                 }
             })
             .collect();
@@ -1256,6 +1288,29 @@ mod tests {
             refresh: false,
             deep,
         });
+    }
+
+    #[test]
+    fn marks_what_is_new_since_the_last_visit() {
+        let mut browser = Browser::new(HashSet::new(), Default::default());
+        let courses = vec![item("crs", 1, "Algebra"), item("crs", 2, "Biologie")];
+        load(&mut browser, None, Page::from_items(courses), false);
+        browser.update(&Action::NewCounts(HashMap::from([(1, 3)])));
+        let shown = screen(&mut browser);
+        assert!(shown.contains("Algebra  ● 3 new"), "{shown}");
+        assert!(!shown.contains("Biologie  ●"), "{shown}");
+
+        let files = vec![item("file", 10, "Folien"), item("file", 11, "Skript")];
+        load(
+            &mut browser,
+            Some(item("crs", 1, "Algebra")),
+            Page::from_items(files),
+            false,
+        );
+        browser.update(&Action::NewItems(vec![11]));
+        let shown = screen(&mut browser);
+        assert!(shown.contains("Skript  ● new"), "{shown}");
+        assert!(!shown.contains("Folien  ●"), "{shown}");
     }
 
     #[test]

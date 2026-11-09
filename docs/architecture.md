@@ -13,6 +13,7 @@ src/
 ├── downloads.rs         Saved files: path, ILIAS version, size + mtime when saved
 ├── sync.rs              Sync whole courses: plan per file, parallel downloads
 ├── cache.rs             Parsed pages on disk, for instant display (stale-while-revalidate)
+├── seen.rs              What's new: page diff, and the unseen items per course on disk
 ├── ilias/
 │   ├── mod.rs           HTTP client: session check, silent re-login, pages, downloads
 │   ├── my_courses.rs    My courses: course list + favourites + To-Do, assembled
@@ -351,6 +352,22 @@ reads to a callback; sync puts them in the page cache under the key the TUI uses
 opens that item (`Cache::key(item.url)`), so a synced course can be browsed offline. The
 `Summary` counts everything for the status bar and lists the files worth a look (`report`:
 skipped for size, saved beside, failed); the `Report` overlay shows them after the sync.
+
+**What's new** (`seen.rs`, see [CONTEXT.md](../CONTEXT.md)): `Cache::update` stores a
+freshly fetched page and returns `seen::diff` against the copy it replaces: the items with a
+ref id the old copy lacks, or with other properties. Relative dates are made absolute with the
+day each copy was fetched (the cache file's mtime), and countdowns are left out, so a page
+that didn't change gives nothing. No cached copy, no diff.
+
+- `App::fetch` (a page on screen) sends the diff as `NewItems`; `Browser` marks those items
+  `● new` for the rest of the run. Nothing is stored: you are looking at it.
+- Sync diffs every page it caches (`Summary::unseen`, by sync root) and the job records them
+  in `Seen` (`<host>.seen.json` next to the session) as unseen. On `Synced` the app reads the
+  file again and sends `NewCounts`; `Browser` shows `● 3 new` on those courses.
+- A `Load` of a container (online or offline) calls `Seen::open`, which takes the unseen
+  items of that container, and of all its folders if it is a course, and sends them as
+  `NewItems`. So opening a course marks it seen, and its new files stay marked while you
+  browse it.
 
 My courses has no special case: on the first start with an empty cache it takes ~2–3 s
 (course list, dashboard and the To-Do exercises), later starts show the cached copy.

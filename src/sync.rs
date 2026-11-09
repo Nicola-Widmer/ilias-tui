@@ -149,6 +149,9 @@ pub struct Summary {
     pub failed: Vec<String>,
     /// Ref ids of files that are saved now.
     pub saved: Vec<u64>,
+    /// What's new on the pages read, compared to their cached copies: `(root, container,
+    /// items)`, for [`crate::seen::Seen::record`].
+    pub unseen: Vec<(u64, u64, Vec<u64>)>,
 }
 
 impl Summary {
@@ -212,7 +215,7 @@ pub fn sync(
 ) -> Result<Summary> {
     let mut summary = Summary::default();
     let mut work: Vec<(Item, Plan)> = Vec::new();
-    let keep = |item: &Item, page: &Page| cache.put(&Cache::key(Some(&item.url), false), page);
+    let unseen = Mutex::new(Vec::new());
     // Ref ids of the containers read and the files planned so far.
     let mut read: HashSet<u64> = HashSet::new();
     let mut planned: HashSet<u64> = HashSet::new();
@@ -221,6 +224,13 @@ pub fn sync(
         if !read.insert(root.ref_id) {
             continue;
         }
+        let keep = |item: &Item, page: &Page| {
+            let new = cache.update(&Cache::key(Some(&item.url), false), page);
+            if !new.is_empty() {
+                let mut unseen = unseen.lock().unwrap_or_else(PoisonError::into_inner);
+                unseen.push((root.ref_id, item.ref_id, new));
+            }
+        };
         let items = client.descendants_with_pages(
             Some(root),
             |n| progress(format!("Sync: reading {} … {n} folders", root.title)),
@@ -281,6 +291,7 @@ pub fn sync(
         .into_inner()
         .unwrap_or_else(PoisonError::into_inner);
     summary.saved = downloads.saved().collect();
+    summary.unseen = unseen.into_inner().unwrap_or_else(PoisonError::into_inner);
     Ok(summary)
 }
 

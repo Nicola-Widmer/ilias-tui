@@ -8,6 +8,7 @@ mod downloads;
 mod icons;
 mod ilias;
 mod open;
+mod seen;
 mod session;
 mod sync;
 mod theme;

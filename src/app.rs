@@ -21,6 +21,7 @@ use crate::components::{
 use crate::config::Config;
 use crate::downloads::Downloads;
 use crate::ilias::{Client, Item, Page};
+use crate::seen::Seen;
 use crate::{auth, open, session, sync};
 
 pub struct App {
@@ -29,6 +30,8 @@ pub struct App {
     download_dir: PathBuf,
     downloads: Downloads,
     cache: Cache,
+    /// What's new since your last visit, until you open it.
+    seen: Seen,
     confirm: Confirm,
     hand_in: HandIn,
     report: Report,
@@ -53,6 +56,7 @@ impl App {
         let (tx, rx) = mpsc::channel();
         let downloads = Downloads::load(&client.base);
         let cache = Cache::new(&client.base);
+        let seen = Seen::load(&client.base);
         let browser = Browser::new(downloads.saved().collect(), sync::Rules::new(&config));
         let download_dir = config.download_dir();
         let settings = Settings::new(config.clone(), download_dir.clone());
@@ -64,6 +68,7 @@ impl App {
             download_dir,
             downloads,
             cache,
+            seen,
             confirm: Confirm::default(),
             hand_in: HandIn::default(),
             report: Report::default(),
@@ -98,6 +103,7 @@ impl App {
         if self.client.is_offline() {
             self.tx.send(Action::Offline)?;
         }
+        self.tx.send(Action::NewCounts(self.seen.counts()))?;
         self.tx.send(Action::Load {
             item: None,
             url: None,
@@ -181,6 +187,14 @@ impl App {
                 deep,
             } => {
                 let (item, url, refresh, deep) = (item.clone(), url.clone(), *refresh, *deep);
+                // Opening a course (or folder) marks what a sync found new in it as seen.
+                if let Some(opened) = item.as_ref().filter(|_| !deep) {
+                    let new = self.seen.open(opened.ref_id);
+                    if !new.is_empty() {
+                        self.tx.send(Action::NewItems(new))?;
+                        self.tx.send(Action::NewCounts(self.seen.counts()))?;
+                    }
+                }
                 let key = Cache::key(
                     url.as_deref().or(item.as_ref().map(|i| i.url.as_str())),
                     deep,
@@ -300,6 +314,10 @@ impl App {
                         sync::sync(client, &roots, &dir, &mut downloads, &cache, rules, |p| {
                             let _ = tx.send(Action::Progress(p));
                         })?;
+                    let mut seen = Seen::load(&client.base);
+                    for (root, container, items) in &summary.unseen {
+                        seen.record(*root, *container, items);
+                    }
                     Ok(Action::Synced {
                         summary: summary.text(rules.max_mb),
                         report: summary.report(&dir, rules.max_mb),
@@ -307,8 +325,12 @@ impl App {
                     })
                 });
             }
-            // The sync wrote its own copy of the index; read it again.
-            Action::Synced { .. } => self.downloads = Downloads::load(&self.client.base),
+            // The sync wrote its own copies of the index and of what's new; read them again.
+            Action::Synced { .. } => {
+                self.downloads = Downloads::load(&self.client.base);
+                self.seen = Seen::load(&self.client.base);
+                self.tx.send(Action::NewCounts(self.seen.counts()))?;
+            }
             Action::SetConfig(config) => {
                 let dir_changed = config.download_dir != self.config.download_dir;
                 self.config = config.clone();
@@ -376,7 +398,17 @@ impl App {
                 (Some(item), false) => client.page(item, url.as_deref())?,
                 (None, false) => client.my_courses()?,
             };
-            cache.put(&key, &page);
+            // A page on screen: what's new on it is seen now, so only mark it.
+            let new = match deep {
+                true => {
+                    cache.put(&key, &page);
+                    Vec::new()
+                }
+                false => cache.update(&key, &page),
+            };
+            if !new.is_empty() {
+                let _ = tx.send(Action::NewItems(new));
+            }
             Ok(Action::Loaded {
                 item,
                 page,
@@ -449,6 +481,7 @@ mod tests {
         let client = Client::with_pages(base, std::sync::Arc::new(offline));
         let mut app = App::new(client, Config::default());
         app.cache = Cache::in_dir(cache_dir.to_path_buf());
+        app.seen = Seen::default();
         app
     }
 

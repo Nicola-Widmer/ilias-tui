@@ -8,7 +8,6 @@ When a feature is built, tick it off here in the same commit.
 
 ## Suggested next steps
 
-1. **What's new since my last visit**
 ## Reading content
 
 Read-only; safe to build and to try against ILIAS.
@@ -16,8 +15,8 @@ Read-only; safe to build and to try against ILIAS.
 - [x] **"Show more" lists.** Lists ILIAS cuts short behind "Show more" (a container's
   block limit) are loaded in full for browsing, sync and deep search. Tested on the local
   ILIAS; whether HSLU uses it is unchecked (`ilias-tui dump <url> | grep ilContainerShowMore`).
-- [ ] **What's new since my last visit.** Show new or changed files per course. The page
-  cache (`src/cache.rs`) already holds the previous version to compare against.
+- [x] **What's new since my last visit.** Items new or changed since the cached copy are
+  marked `● new`; after a sync, My courses counts them per course until you open it.
 - [x] **Upcoming deadlines.** The To-Do list on "My courses" (from the ILIAS dashboard).
   Covers exercise assignments only.
 - [ ] **Test and session dates** in the To-Do list. The dashboard block only lists
