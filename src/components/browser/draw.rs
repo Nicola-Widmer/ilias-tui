@@ -284,13 +284,20 @@ impl Browser {
             titles[i].0 = "…".into();
         }
         titles.dedup_by(|a, b| a.0 == "…" && b.0 == "…");
+        // The version sits on the right, where the breadcrumb leaves room for it.
+        let version = format!("v{} ", crate::VERSION);
+        let room = (area.width as usize).saturating_sub(version.chars().count() + 2);
+        let show_version = width(&titles) <= room;
+        let room = if show_version {
+            room
+        } else {
+            area.width as usize
+        };
         let description = self
             .current()
             .and_then(|l| l.item.as_ref())
             .map(|i| i.description.clone())
-            .filter(|d| {
-                !d.is_empty() && width(&titles) + d.chars().count() + 3 <= area.width as usize
-            });
+            .filter(|d| !d.is_empty() && width(&titles) + d.chars().count() + 3 <= room);
         let mut x = area.x + spans[0].width() as u16;
         for (i, (title, level)) in titles.iter().enumerate() {
             let last = i + 1 == titles.len();
@@ -326,6 +333,13 @@ impl Browser {
             Paragraph::new(Line::from(spans)).style(Style::new().bg(theme::colors().header_bg)),
             area,
         );
+        if show_version {
+            frame.render_widget(
+                Paragraph::new(Line::styled(version, Style::new().fg(theme::colors().gray)))
+                    .right_aligned(),
+                area,
+            );
+        }
     }
 }
 

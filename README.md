@@ -159,6 +159,7 @@ the background; Chrome only opens again when the session has expired.
 | `ilias-tui todo`      | Print the assignments still to hand in, soonest first    |
 | `ilias-tui show URL`  | Print how a page is parsed: tabs, headings, text, items (for debugging) |
 | `ilias-tui dump URL`  | Print the HTML ILIAS returns for `URL` (for debugging)   |
+| `ilias-tui --version` | Print the version (also shown in the top bar and the help) |
 
 `URL` can be absolute or relative to the ILIAS root, e.g. `ilias-tui ls goto.php/crs/123`.
 `ls` also works for scripting:
@@ -486,6 +487,22 @@ The parser tests run against real, public HSLU pages stored in `tests/fixtures/`
 architecture and how to add a feature.
 [docs/roadmap.md](docs/roadmap.md) lists the features that are missing, and the rules for
 anything that would change data on ILIAS.
+
+## Versions
+
+ilias-tui uses [semantic versioning](https://semver.org). The version is in `Cargo.toml`;
+`ilias-tui --version`, the top bar and the help (`?`) show it. Before 1.0, the middle number
+goes up for new features and changes in behaviour (0.2.0 → 0.3.0), the last one for fixes
+only (0.2.0 → 0.2.1). [CHANGELOG.md](CHANGELOG.md) lists what changed in each version.
+
+To release a version:
+
+1. Add what changed under "Unreleased" in `CHANGELOG.md` as you go.
+2. Pick the new version, rename "Unreleased" to it with the date, and add a new empty
+   "Unreleased" above.
+3. Set the same version in `Cargo.toml` and run `cargo build` (it updates `Cargo.lock`).
+   A test fails while the changelog has no section for the version in `Cargo.toml`.
+4. Commit, then tag the commit, e.g. `git tag v0.3.0`, and push the tag.
 
 ## Disclaimer
 

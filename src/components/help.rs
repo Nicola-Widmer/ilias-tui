@@ -82,7 +82,11 @@ impl Component for Help {
             .border_type(BorderType::Rounded)
             .border_style(Style::new().fg(theme::colors().accent))
             .title(Line::styled(
-                format!(" {}  Keys ", theme::keyboard()),
+                format!(
+                    " {}  Keys  ·  ilias-tui v{} ",
+                    theme::keyboard(),
+                    crate::VERSION
+                ),
                 theme::accent_bold(),
             ))
             .title_bottom(Line::styled(" any key to close ", theme::muted()).centered())

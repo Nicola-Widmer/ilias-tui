@@ -22,6 +22,9 @@ use url::Url;
 
 use crate::ilias::Client;
 
+/// The version, from `Cargo.toml` (semantic versioning; see CHANGELOG.md).
+pub const VERSION: &str = env!("CARGO_PKG_VERSION");
+
 const USAGE: &str = "\
 ilias-tui — browse ILIAS courses from the terminal
 
@@ -38,6 +41,7 @@ USAGE:
                          with --deep everything below it (tab-separated)
     ilias-tui get URL…   Download files (e.g. goto.php/file/123) to the download dir
     ilias-tui todo       Print assignments still to hand in, soonest first
+    ilias-tui --version  Print the version
 
 ENVIRONMENT (each wins over the settings page, c):
     ILIAS_URL            ILIAS root URL (default: https://elearning.hslu.ch/ilias/)
@@ -199,6 +203,10 @@ fn main() -> Result<()> {
             }
             Ok(())
         }
+        ["-V" | "--version" | "version"] => {
+            println!("ilias-tui {VERSION}");
+            Ok(())
+        }
         ["-h" | "--help" | "help"] => {
             println!("{USAGE}");
             Ok(())
@@ -235,4 +243,19 @@ fn connect(base: &Url, force_login: bool) -> Result<Client> {
     }
     session::save(base, &client.cookies())?;
     Ok(client)
+}
+
+#[cfg(test)]
+mod tests {
+    /// Every version has its entry in the changelog.
+    #[test]
+    fn the_changelog_has_this_version() {
+        let changelog = include_str!("../CHANGELOG.md");
+        let heading = format!("\n## {} - ", super::VERSION);
+        assert!(
+            changelog.contains(&heading),
+            "CHANGELOG.md has no section for {}",
+            super::VERSION
+        );
+    }
 }

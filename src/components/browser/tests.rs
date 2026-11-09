@@ -92,6 +92,19 @@ fn hidden_kinds_of_news_are_neither_marked_nor_counted() {
 }
 
 #[test]
+fn the_top_bar_shows_the_version() {
+    let mut browser = Browser::default();
+    load(
+        &mut browser,
+        None,
+        Page::from_items(vec![item("crs", 1, "DEMO")]),
+        false,
+    );
+    let shown = screen(&mut browser);
+    assert!(shown.contains(&format!("v{}", crate::VERSION)), "{shown}");
+}
+
+#[test]
 fn a_asks_before_syncing_all_courses_from_anywhere() {
     let mut browser = Browser::new(HashSet::new(), &Default::default());
     assert!(matches!(
