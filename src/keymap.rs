@@ -109,23 +109,31 @@ pub const SECTIONS: &[(&str, &[Binding])] = &[
         "Items",
         &[
             bind(Download, &[Char('d')], "Download a fresh copy (no open)"),
-            bind(
-                DownloadAll,
-                &[Char('a')],
-                "Submissions page: download everyone's submissions",
-            ),
-            bind(
-                OpenInBrowser,
-                &[Char('o')],
-                "Open item or link in your web browser",
-            ),
+            bind(OpenInBrowser, &[Char('o')], "Open in your web browser"),
             bind(CopyLink, &[Char('y')], "Copy the permalink"),
             bind(
                 Favorite,
                 &[Char('f')],
-                "Add to / remove from ILIAS favourites (asks first)",
+                "Add to / remove from favourites (asks first)",
             ),
             bind(Reload, &[Char('r')], "Reload"),
+        ],
+    ),
+    (
+        "Sync",
+        &[
+            bind(MarkForSync, &[Char(' ')], "Mark a course / folder for sync"),
+            bind(
+                Sync,
+                &[Char('S')],
+                "Sync files (≤ 50 MB) of the marked or selected",
+            ),
+            bind(SyncAll, &[Char('A')], "Sync all courses (asks first)"),
+        ],
+    ),
+    (
+        "Exercises",
+        &[
             bind(
                 HandIn,
                 &[Char('H')],
@@ -134,39 +142,26 @@ pub const SECTIONS: &[(&str, &[Binding])] = &[
             bind(
                 DeleteSubmission,
                 &[Char('X')],
-                "Handed-in files: delete the selected file (asks first)",
+                "Handed-in files: delete one (asks first)",
             ),
             bind(
-                Upload,
-                &[Char('u')],
-                "Upload files into this course or folder (where ILIAS lets you; asks first)",
+                DownloadAll,
+                &[Char('a')],
+                "Submissions page: download everyone's",
             ),
+        ],
+    ),
+    (
+        "Edit · where ILIAS lets you, asks first",
+        &[
+            bind(Upload, &[Char('u')], "Upload files here"),
             bind(
                 NewFolder,
                 &[Char('n')],
-                "New folder here; in a forum, new thread (where ILIAS lets you; asks first)",
+                "New folder; in a forum, new thread",
             ),
-            bind(
-                Delete,
-                &[Char('D')],
-                "Move the selected item to the ILIAS trash (where ILIAS lets you; asks first)",
-            ),
-            bind(
-                Reply,
-                &[Char('R')],
-                "Forum thread: reply to the post at the top (marked ↩; asks first)",
-            ),
-            bind(MarkForSync, &[Char(' ')], "Mark a course / folder for sync"),
-            bind(
-                Sync,
-                &[Char('S')],
-                "Sync files (≤ 50 MB) of the marked or selected courses",
-            ),
-            bind(
-                SyncAll,
-                &[Char('A')],
-                "Sync all courses in My courses (asks first)",
-            ),
+            bind(Delete, &[Char('D')], "Move the selected item to the trash"),
+            bind(Reply, &[Char('R')], "Thread: reply to the post marked ↩"),
         ],
     ),
     (

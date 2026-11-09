@@ -13,6 +13,11 @@ features and changes in behaviour, the last one for fixes only. See
   does: the only file or folder that fits, else as far as all of them agree, with the
   matches listed below the input.
 
+### Changed
+
+- **The help (`?`) is grouped** (Items, Sync, Exercises, Edit, …) with shorter texts, wraps
+  lines that don't fit instead of cutting them off, and uses two columns on wide terminals.
+
 ## 0.3.0 - 2026-11-09
 
 ### Added

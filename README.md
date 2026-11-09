@@ -210,28 +210,35 @@ ilias-tui get goto.php/file/123456
 
 | Key             | Action                                          |
 | --------------- | ----------------------------------------------- |
+| **Navigate**    |                                                 |
 | `↑ ↓` / `k j`   | Move selection; scroll in a forum thread        |
 | `g` / `G`       | First / last item                               |
 | `Enter` `→` `l` | Open folder, forum, thread or exercise; open file (downloads it the first time); open a link or anything else in the browser (asks first for links to other sites) |
 | `Esc` `←` `h`   | Clear filter, then go back                      |
+| `Tab` / `Shift-Tab` | Next / previous tab (Inhalt, Info, …); on My courses, in and out of the To-Do panel |
+| **Search**      |                                                 |
 | `/`             | Filter the current list                         |
 | `s`             | Search everything below here                    |
+| **Items**       |                                                 |
 | `d`             | Download a fresh copy without opening it        |
-| `a`             | On an assignment's submissions page: download every participant's submission |
-| `Space`         | Mark a course or folder for sync                |
-| `S`             | Sync the marked courses (or the selected one)   |
-| `A`             | Sync all courses in My courses (asks first)     |
 | `o`             | Open selected item or link in your web browser (asks first for links to other sites) |
 | `y`             | Copy the selected item's permalink (or the page's) to the clipboard |
 | `f`             | Add to / remove from your ILIAS favourites (asks first) |
-| `Tab` / `Shift-Tab` | Next / previous tab (Inhalt, Info, …); on My courses, in and out of the To-Do panel |
 | `r`             | Reload current list                             |
+| **Sync**        |                                                 |
+| `Space`         | Mark a course or folder for sync                |
+| `S`             | Sync the marked courses (or the selected one)   |
+| `A`             | Sync all courses in My courses (asks first)     |
+| **Exercises**   |                                                 |
 | `H`             | On an assignment: hand in a file (asks first)   |
 | `X`             | Handed-in files: delete the selected file (asks first) |
-| `u`             | Upload files into the course or folder on screen (where ILIAS lets you; asks first) |
-| `n`             | New folder in the course or folder on screen; in a forum, a new thread (where ILIAS lets you; asks first) |
-| `R`             | In a forum thread: reply to the post at the top of the view, marked `↩ R reply` (asks first) |
-| `D`             | Move the selected item to the ILIAS trash (where ILIAS lets you; asks first) |
+| `a`             | On an assignment's submissions page: download every participant's submission |
+| **Edit**        | Only where ILIAS lets you; each asks first      |
+| `u`             | Upload files into the course or folder on screen |
+| `n`             | New folder in the course or folder on screen; in a forum, a new thread |
+| `D`             | Move the selected item to the ILIAS trash       |
+| `R`             | In a forum thread: reply to the topmost post on screen, marked `↩ R reply` |
+| **App**         |                                                 |
 | `L`             | Log in again / go online (opens Chrome if needed) |
 | `c`             | Settings (download folder, sync, icons, theme, …) |
 | `?`             | Toggle help                                     |

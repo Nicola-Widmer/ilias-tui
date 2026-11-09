@@ -598,7 +598,7 @@ pages.
 | `Filter`    | `query`, `editing`                       | One line above the status bar, shown while editing or filtering. |
 | `Browser`   | stack of `Level { item, deep, page, items, query, visible, cursor, list }` | Tab bar, then the page laid out as rows: headings, wrapped text, items with icon and details. Only item rows can be selected. `Tab` loads another tab into the same level. Back = pop (no request, unless the level went out of date while hidden: then it reloads once). `r` refreshes the top level. Only responses for the page asked for last are applied. |
 | `StatusBar` | `Status` (idle/busy/done/info/error), start time | Spinner while busy, ✓ / ⚠ icons for results and errors; key hints on the right. |
-| `Help`      | `visible: bool`                          | Overlay drawn last, on top of everything. Keys come from `keymap::SECTIONS`, plus a few lines on the mouse. |
+| `Help`      | `visible: bool`                          | Overlay drawn last, on top of everything. Keys come from `keymap::SECTIONS` (a title like `Edit · where ILIAS lets you` shows its note beside the name), plus a few lines on the mouse. Texts wrap; two columns when the terminal is at least 154 wide. |
 | `Report`    | the last sync's report lines, `scroll`   | Overlay after a sync that skipped, kept or failed files. `j`/`k` scroll, any other key closes. Keys it uses up return `Action::Handled`. |
 | `Confirm`   | `pending: Option<(question, Action)>`    | Yes/no dialog, first in the z-order. `Action::Ask { question, then }` opens it; `y` sends `then`, anything that cancels sends `Cancelled`. Every write goes through it, and opening a link to another site. |
 
