@@ -56,8 +56,9 @@ What it does:
   - each item's description and properties (file type, size, date, unread posts, …),
   - every item of long lists, also the ones ILIAS hides behind its "Show more" button.
 - **Shows what's new since your last visit**: files and other items that appeared or changed
-  since you last opened the page are marked `● new`. After a sync, My courses shows how many
-  new items each course has (`● 3 new`) until you open it.
+  since you last opened the page are marked `● new`. After a sync, each course on My courses
+  and each folder on the way to new files shows how many new items are below it
+  (`● 3 new`), so you can follow the counts down to them.
 - **Nerd Font icons** per object type and file type: PDF, Word, Excel, PowerPoint,
   images, archives, code, …
 - **Filters** any list as you type (`/`).
@@ -395,7 +396,7 @@ until the sessions expire. So:
 - the **saved-files list**: which ILIAS file was saved to which path (in the private data
   folder).
 - the **what's-new list** (`<host>.seen.json`, also in the private data folder): the ref ids
-  of items a sync found new, until you open their course.
+  of items a sync found new and the folders they are in, until you open those pages.
 
 Downloaded files go to `~/Downloads/ILIAS` with normal permissions, like any browser
 download.

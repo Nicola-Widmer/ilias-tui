@@ -279,8 +279,8 @@ impl App {
                 let _ = tx.send(Action::Progress(p));
             })?;
             let mut seen = Seen::load(&client.base);
-            for (root, container, items) in &summary.unseen {
-                seen.record(*root, *container, items);
+            for new in &summary.unseen {
+                seen.record(new.root, &new.path, new.container, &new.items);
             }
             Ok(Action::Synced {
                 summary: summary.text(rules.max_mb),

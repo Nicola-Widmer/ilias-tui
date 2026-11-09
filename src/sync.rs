@@ -17,7 +17,7 @@
 //! - Every course and folder page read on the way is cached, so synced courses can be
 //!   browsed offline.
 
-use std::collections::HashSet;
+use std::collections::{HashMap, HashSet};
 use std::path::{Path, PathBuf};
 use std::sync::atomic::{AtomicUsize, Ordering};
 use std::sync::{Mutex, PoisonError};
@@ -149,9 +149,20 @@ pub struct Summary {
     pub failed: Vec<String>,
     /// Ref ids of files that are saved now.
     pub saved: Vec<u64>,
-    /// What's new on the pages read, compared to their cached copies: `(root, container,
-    /// items)`, for [`crate::seen::Seen::record`].
-    pub unseen: Vec<(u64, u64, Vec<u64>)>,
+    /// What's new on the pages read, compared to their cached copies, for
+    /// [`crate::seen::Seen::record`].
+    pub unseen: Vec<FoundNew>,
+}
+
+/// New items a sync found on one page.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct FoundNew {
+    /// The synced course or folder.
+    pub root: u64,
+    /// The folders between `root` and `container`, from the top.
+    pub path: Vec<u64>,
+    pub container: u64,
+    pub items: Vec<u64>,
 }
 
 impl Summary {
@@ -215,7 +226,7 @@ pub fn sync(
 ) -> Result<Summary> {
     let mut summary = Summary::default();
     let mut work: Vec<(Item, Plan)> = Vec::new();
-    let unseen = Mutex::new(Vec::new());
+    let mut unseen = Vec::new();
     // Ref ids of the containers read and the files planned so far.
     let mut read: HashSet<Id> = HashSet::new();
     let mut planned: HashSet<Id> = HashSet::new();
@@ -224,11 +235,18 @@ pub fn sync(
         if !read.insert(root.id) {
             continue;
         }
+        // Which page listed each folder, to find the way down to the new items.
+        let parents = Mutex::new(HashMap::new());
+        let found = Mutex::new(Vec::new());
         let keep = |item: &Item, page: &Page| {
+            let mut parents = parents.lock().unwrap_or_else(PoisonError::into_inner);
+            for child in page.items().filter(|i| i.is_container()) {
+                parents.entry(child.key()).or_insert(item.key());
+            }
             let new = cache.update(&Cache::key(Some(&item.url), false), page);
             if !new.is_empty() {
-                let mut unseen = unseen.lock().unwrap_or_else(PoisonError::into_inner);
-                unseen.push((root.key(), item.key(), new));
+                let mut found = found.lock().unwrap_or_else(PoisonError::into_inner);
+                found.push((item.key(), new));
             }
         };
         let items = client.descendants_with_pages(
@@ -236,6 +254,15 @@ pub fn sync(
             |n| progress(format!("Sync: reading {} … {n} folders", root.title)),
             &keep,
         )?;
+        let parents = parents.into_inner().unwrap_or_else(PoisonError::into_inner);
+        for (container, items) in found.into_inner().unwrap_or_else(PoisonError::into_inner) {
+            unseen.push(FoundNew {
+                root: root.key(),
+                path: path_below(root.key(), container, &parents),
+                container,
+                items,
+            });
+        }
         read.extend(items.iter().filter(|i| i.kind != Kind::File).map(|i| i.id));
         let files = items
             .into_iter()
@@ -291,8 +318,24 @@ pub fn sync(
         .into_inner()
         .unwrap_or_else(PoisonError::into_inner);
     summary.saved = downloads.saved().collect();
-    summary.unseen = unseen.into_inner().unwrap_or_else(PoisonError::into_inner);
+    summary.unseen = unseen;
     Ok(summary)
+}
+
+/// The folders between `root` and `container`, from the top, following each folder's
+/// parent (the page that listed it).
+fn path_below(root: u64, container: u64, parents: &HashMap<u64, u64>) -> Vec<u64> {
+    let mut path = Vec::new();
+    let mut at = container;
+    while let Some(&parent) = parents.get(&at) {
+        if parent == root || path.contains(&parent) || path.len() > 100 {
+            break;
+        }
+        path.push(parent);
+        at = parent;
+    }
+    path.reverse();
+    path
 }
 
 /// Downloads one file and puts it where `plan` says; returns where it ended up.
@@ -558,6 +601,72 @@ mod tests {
             );
             assert!(cache.get(&key).is_some(), "{url} cached");
         }
+        let _ = std::fs::remove_dir_all(dir);
+    }
+
+    #[test]
+    fn finds_whats_new_with_the_folders_on_the_way() {
+        use crate::ilias::pages::{FakeIlias, reply};
+        use std::sync::Arc;
+        use std::sync::atomic::{AtomicBool, Ordering};
+        let link = |kind: &str, id: u32| {
+            format!(
+                r#"<div class="ilContainerListItemOuter"><a class="il_ContainerItemTitle" href="https://ilias.example/ilias/goto.php/{kind}/{id}">{kind} {id}</a>
+                <div class="il_ItemProperties"><span class="il_ItemProperty">pdf</span><span class="il_ItemProperty">900 MB</span></div></div>"#
+            )
+        };
+        // Course 1 › folder 2 › folder 3, whose file 10 is new in the second sync. (The
+        // files are too big to download, so nothing goes to the network.)
+        let second = Arc::new(AtomicBool::new(false));
+        let later = second.clone();
+        let ilias = Arc::new(FakeIlias::new(move |url| {
+            let html = match url.path() {
+                "/ilias/goto.php/crs/1" => link("fold", 2),
+                "/ilias/goto.php/fold/2" => link("fold", 3),
+                "/ilias/goto.php/fold/3" if later.load(Ordering::SeqCst) => {
+                    [link("file", 9), link("file", 10)].concat()
+                }
+                "/ilias/goto.php/fold/3" => link("file", 9),
+                other => return Err(color_eyre::eyre::eyre!("unexpected {other}")),
+            };
+            reply(url, &format!(r#"<div id="il_center_col">{html}</div>"#))
+        }));
+        let base = url::Url::parse("https://ilias.example/ilias/").unwrap();
+        let client = Client::with_pages(base, ilias);
+        let dir = std::env::temp_dir().join(format!("ilias-tui-new-{}", std::process::id()));
+        let cache = Cache::in_dir(dir.join("cache"));
+        let mut downloads = Downloads::in_file(dir.join("index.json"));
+        let course = Item {
+            kind: "crs".into(),
+            id: Id::Ref(1),
+            title: "DEMO".into(),
+            url: "https://ilias.example/ilias/goto.php/crs/1".into(),
+            ..Item::default()
+        };
+        let mut run = || {
+            sync(
+                &client,
+                std::slice::from_ref(&course),
+                &dir,
+                &mut downloads,
+                &cache,
+                RULES,
+                |_| {},
+            )
+            .unwrap()
+            .unseen
+        };
+        assert!(run().is_empty(), "nothing to compare with yet");
+        second.store(true, Ordering::SeqCst);
+        assert_eq!(
+            run(),
+            [FoundNew {
+                root: 1,
+                path: vec![2],
+                container: 3,
+                items: vec![10],
+            }]
+        );
         let _ = std::fs::remove_dir_all(dir);
     }
 

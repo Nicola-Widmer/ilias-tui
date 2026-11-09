@@ -2,10 +2,12 @@
 //! since you last looked at it.
 //!
 //! [`diff`] compares a freshly fetched page with the cached copy. What a sync finds this way
-//! is kept as *unseen* until you open the course (or folder) it belongs to; [`Seen`] stores
-//! that next to the session as `<ilias host>.seen.json`:
-//! `{ "<container ref_id>": { "course": <ref_id>, "items": [<ref_id>, …] } }`.
-//! What a page you are looking at shows new is seen right away.
+//! is kept as *unseen* until you open the course or folder it is in; [`Seen`] stores that
+//! next to the session as `<ilias host>.seen.json`:
+//! `{ "<container>": { "course": <id>, "path": [<folder>, …], "items": [<id>, …] } }`
+//! (`path`: the folders from the course down to the container). Every course and folder on
+//! the way counts them, so the trail to a new file shows on each level. What a page you are
+//! looking at shows new is seen right away.
 
 use std::collections::{BTreeMap, BTreeSet, HashMap};
 use std::path::PathBuf;
@@ -69,6 +71,9 @@ fn is_countdown(property: &str) -> bool {
 struct Unseen {
     /// The course (or the synced folder) it belongs to, where My courses counts it.
     course: u64,
+    /// The folders between the course and the container, from the top.
+    #[serde(default)]
+    path: Vec<u64>,
     items: BTreeSet<u64>,
 }
 
@@ -94,39 +99,39 @@ impl Seen {
         Self::from_file(Some(file))
     }
 
-    /// Remembers `items` of `container` (in `course`) as not seen yet.
-    pub fn record(&mut self, course: u64, container: u64, items: &[u64]) {
+    /// Remembers `items` of `container` as not seen yet; `path` leads from `course` down to
+    /// `container` (the folders in between).
+    pub fn record(&mut self, course: u64, path: &[u64], container: u64, items: &[u64]) {
         if items.is_empty() {
             return;
         }
         let entry = self.unseen.entry(container).or_default();
         entry.course = course;
+        entry.path = path.to_vec();
         entry.items.extend(items);
         self.save();
     }
 
-    /// You opened `place` (a course, or any container): everything unseen in it, and in its
-    /// folders if it is a course, is seen now. Returns those items, to mark them on screen.
+    /// You opened `place`: what is unseen on its own page is seen now. Folders below keep
+    /// theirs (and keep counting) until you open them. Returns the items, to mark them.
     pub fn open(&mut self, place: u64) -> Vec<u64> {
-        let mut items = Vec::new();
-        self.unseen.retain(|container, unseen| {
-            let opened = *container == place || unseen.course == place;
-            if opened {
-                items.extend(&unseen.items);
-            }
-            !opened
-        });
-        if !items.is_empty() {
-            self.save();
-        }
-        items
+        let Some(unseen) = self.unseen.remove(&place) else {
+            return Vec::new();
+        };
+        self.save();
+        unseen.items.into_iter().collect()
     }
 
-    /// Unseen items per course.
+    /// Unseen items per course and folder: each counts what is below it, its own page
+    /// included.
     pub fn counts(&self) -> HashMap<u64, usize> {
         let mut counts = HashMap::new();
-        for unseen in self.unseen.values() {
-            *counts.entry(unseen.course).or_default() += unseen.items.len();
+        for (container, unseen) in &self.unseen {
+            let mut places: BTreeSet<u64> = unseen.path.iter().copied().collect();
+            places.extend([unseen.course, *container]);
+            for place in places {
+                *counts.entry(place).or_default() += unseen.items.len();
+            }
         }
         counts
     }
@@ -200,34 +205,47 @@ mod tests {
     }
 
     #[test]
-    fn opening_a_course_marks_it_and_its_folders_seen() {
+    fn every_level_counts_what_is_new_below_it() {
         let dir = std::env::temp_dir().join(format!("ilias-tui-seen-{}", std::process::id()));
         let file = dir.join("host.seen.json");
         let _ = fs::remove_dir_all(&dir);
         let mut seen = Seen::in_file(file.clone());
-        // A sync of course 1 found new files in it (container 1) and in its folder 2;
-        // course 5 got one too.
-        seen.record(1, 1, &[10]);
-        seen.record(1, 2, &[20, 21]);
-        seen.record(5, 5, &[50]);
-        seen.record(5, 5, &[]);
-        assert_eq!(seen.counts(), HashMap::from([(1, 3), (5, 1)]));
+        // A sync of course 1 found new files on its page, in its folder 2 and in folder 3
+        // inside 2; course 5 got one too.
+        seen.record(1, &[], 1, &[10]);
+        seen.record(1, &[], 2, &[20, 21]);
+        seen.record(1, &[2], 3, &[30]);
+        seen.record(5, &[], 5, &[50]);
+        seen.record(5, &[], 5, &[]);
+        let all = HashMap::from([(1, 4), (2, 3), (3, 1), (5, 1)]);
+        assert_eq!(seen.counts(), all);
 
         // Kept per host, across runs.
         let mut again = Seen::in_file(file.clone());
-        assert_eq!(again.counts(), seen.counts());
+        assert_eq!(again.counts(), all);
 
-        // Opening the folder takes only its own items.
-        assert_eq!(again.open(2), [20, 21]);
-        assert_eq!(again.counts(), HashMap::from([(1, 1), (5, 1)]));
-        // Opening the course takes the rest of it.
+        // Opening the course takes only what is on its own page; its folders keep counting.
         assert_eq!(again.open(1), [10]);
         assert!(again.open(1).is_empty(), "seen now");
+        assert_eq!(
+            again.counts(),
+            HashMap::from([(1, 3), (2, 3), (3, 1), (5, 1)])
+        );
+        // Down the trail, folder by folder.
+        assert_eq!(again.open(2), [20, 21]);
+        assert_eq!(
+            again.counts(),
+            HashMap::from([(1, 1), (2, 1), (3, 1), (5, 1)])
+        );
+        assert_eq!(again.open(3), [30]);
         assert_eq!(
             Seen::in_file(file.clone()).counts(),
             HashMap::from([(5, 1)])
         );
 
+        // Files written before folders were counted (no `path`) still load.
+        fs::write(&file, r#"{"7":{"course":7,"items":[70]}}"#).unwrap();
+        assert_eq!(Seen::in_file(file).counts(), HashMap::from([(7, 1)]));
         let _ = fs::remove_dir_all(&dir);
     }
 }

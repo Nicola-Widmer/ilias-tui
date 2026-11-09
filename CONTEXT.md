@@ -86,9 +86,10 @@ since the cached copy of that page. Countdowns ("5 Hours, 8 Minutes") don't coun
 `● new` while ilias-tui runs.
 
 **Unseen**
-New items a sync found in a course you haven't opened since. Kept per ILIAS host in
-`<host>.seen.json`; My courses counts them per course. Opening the course (or the folder)
-makes them seen.
+New items a sync found on a page (a course or folder) you haven't opened since. Kept per
+ILIAS host in `<host>.seen.json`, with the folders on the way down from the course. The
+course and every folder on the way count them (`● 3 new`), so the count leads to the new
+files. Opening a page makes the items on that page seen; folders below keep theirs.
 
 **Deep search**
 Collecting everything below a place (`s`). On My courses it covers the course list only,

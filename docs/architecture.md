@@ -422,13 +422,16 @@ that didn't change gives nothing. No cached copy, no diff.
 
 - `App::fetch` (a page on screen) sends the diff as `NewItems`; `Browser` marks those items
   `● new` for the rest of the run. Nothing is stored: you are looking at it.
-- Sync diffs every page it caches (`Summary::unseen`, by sync root) and the job records them
-  in `Seen` (`<host>.seen.json` next to the session) as unseen. On `Synced` the app reads the
-  file again and sends `NewCounts`; `Browser` shows `● 3 new` on those courses.
+- Sync diffs every page it caches. It also notes which page listed each folder, so it can
+  give every page with new items its `path`: the folders between the sync root and that
+  page (`sync::FoundNew`). The job records them in `Seen` (`<host>.seen.json` next to the
+  session) as unseen. On `Synced` the app reads the file again and sends `NewCounts`:
+  `Seen::counts` credits each entry to its course, every folder on its path and its own
+  page, and `Browser` shows `● 3 new` on any row with a count, on My courses and inside
+  courses alike.
 - A `Load` of a container (online or offline) calls `Seen::open`, which takes the unseen
-  items of that container, and of all its folders if it is a course, and sends them as
-  `NewItems`. So opening a course marks it seen, and its new files stay marked while you
-  browse it.
+  items of that page only and sends them as `NewItems` (and fresh `NewCounts`). Folders
+  below keep counting until they are opened, so the counts lead down to the new files.
 
 My courses has no special case: on the first start with an empty cache it takes ~2–3 s
 (course list, dashboard and the To-Do exercises), later starts show the cached copy. Its
