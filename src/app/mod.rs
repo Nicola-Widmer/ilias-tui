@@ -16,7 +16,7 @@ use ratatui::{DefaultTerminal, Frame};
 use crate::action::Action;
 use crate::cache::Cache;
 use crate::components::{
-    Browser, Component, Confirm, Filter, HandIn, Help, Report, Settings, StatusBar,
+    Browser, Component, Confirm, Filter, Help, PickFiles, Report, Settings, StatusBar,
 };
 use crate::config::Config;
 use crate::downloads::Downloads;
@@ -33,7 +33,7 @@ pub struct App {
     /// What's new since your last visit, until you open it.
     seen: Seen,
     confirm: Confirm,
-    hand_in: HandIn,
+    pick_files: PickFiles,
     report: Report,
     filter: Filter,
     browser: Browser,
@@ -73,7 +73,7 @@ impl App {
             cache,
             seen,
             confirm: Confirm::default(),
-            hand_in: HandIn::default(),
+            pick_files: PickFiles::default(),
             report: Report::default(),
             filter: Filter::default(),
             browser,
@@ -93,7 +93,7 @@ impl App {
     fn components(&mut self) -> [&mut dyn Component; 8] {
         [
             &mut self.confirm,
-            &mut self.hand_in,
+            &mut self.pick_files,
             &mut self.report,
             &mut self.help,
             &mut self.settings,
@@ -172,7 +172,7 @@ impl App {
         let order: [&mut dyn Component; 8] = if self.filter.is_editing() {
             [
                 &mut self.confirm,
-                &mut self.hand_in,
+                &mut self.pick_files,
                 &mut self.report,
                 &mut self.filter,
                 &mut self.help,
@@ -237,7 +237,7 @@ impl App {
         self.settings.draw(frame, area);
         self.help.draw(frame, area);
         self.report.draw(frame, area);
-        self.hand_in.draw(frame, area);
+        self.pick_files.draw(frame, area);
         // Last, so the question is on top of everything.
         self.confirm.draw(frame, area);
     }

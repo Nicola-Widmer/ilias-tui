@@ -83,6 +83,20 @@ pub enum Action {
         file: Item,
         deleted: bool,
     },
+    /// Ask which files to upload into `container` (a course or folder), which is at `place`.
+    AskUpload {
+        container: Item,
+        place: String,
+    },
+    Upload {
+        container: Item,
+        paths: Vec<PathBuf>,
+    },
+    /// `files` (as ILIAS lists them) is `None` after a dry run.
+    Uploaded {
+        container: Item,
+        files: Option<Vec<String>>,
+    },
     /// Ask the user first; `then` only runs on "yes". Everything that changes data on ILIAS
     /// goes through this.
     Ask {

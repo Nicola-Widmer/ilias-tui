@@ -4,6 +4,7 @@
 use scraper::Html;
 use url::Url;
 
+mod container;
 mod dashboard;
 mod exercise;
 mod forum;
@@ -13,10 +14,11 @@ mod rights;
 mod show_more;
 mod walker;
 
+pub use container::files_form;
 pub use dashboard::{Dashboard, course_title, parse_dashboard, parse_date};
 pub use exercise::{delete_form, lists_delivered, parse_upload_form};
 pub use model::{Block, Id, Item, Kind, Page, Post, Tab, Todo, Urgency};
-pub use rights::Rights;
+pub use rights::{Rights, param};
 pub use show_more::{ShowMore, has_show_more, show_more};
 
 use exercise::add_submission;

@@ -53,8 +53,8 @@ from that link; in code these are the variants of `Id`.
 **Write**
 A request that changes something on ILIAS: your account, your favourites, read marks,
 memberships, notifications or the session (logout). ilias-tui sends writes only from
-`ilias/write.rs`: favourites changes, handing in a file and deleting a handed-in one (after
-asking), and the logout
+the `ilias/write` module (`write.rs` and `write/`): favourites changes, handing in a file
+and deleting a handed-in one, uploads (each after asking), and the logout
 (which you ask for).
 _Avoid_: action, command (ILIAS's `cmd=` parameter is a command; only some commands are
 writes).
@@ -113,3 +113,8 @@ The files you handed in for an assignment, listed on its Submission tab; ilias-t
 tab as the assignment's "Handed-in files" entry. Until the deadline you can add files (`H`)
 and delete them (`X`).
 _Avoid_: upload, delivery (ILIAS' own word in its code: `delivered`).
+
+**Upload**:
+Putting files into a course, group or folder (`u`), as its "Upload Files" form does. Everyone
+who can open the place sees them. Only where the page's rights include it.
+_Avoid_: hand in (that is a Submission).

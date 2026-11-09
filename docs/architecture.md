@@ -25,12 +25,16 @@ src/
 │   │   ├── walker.rs    The content column → headings, text, items, text links
 │   │   ├── forum.rs     Thread posts
 │   │   ├── exercise.rs  Submission item, handed-in files, upload and delete forms
+│   │   ├── container.rs Forms of courses and folders (upload)
 │   │   ├── dashboard.rs Favourites, To-Do, course in a breadcrumb, dates
 │   │   ├── rights.rs    Rights: what the page lets you change (upload, Add New Item, Delete)
 │   │   ├── show_more.rs "Show more" buttons
 │   │   ├── html.rs      Selectors, visible text, link base
 │   │   └── tests.rs
-│   └── write.rs         Every write (favourites, handing in, logout) and the write guard
+│   ├── write.rs         The write guard, favourites, logout; every other write is in write/
+│   └── write/
+│       ├── exercise.rs  Handing in, deleting a handed-in file
+│       └── container.rs Courses and folders: uploading files
 ├── action.rs            Action enum (the app's messages)
 ├── keymap.rs            Keys of the main view → Command, with their help text
 ├── app/
@@ -49,6 +53,7 @@ src/
     ├── filter.rs        `/` search bar + matching
     ├── status_bar.rs    Footer messages
     ├── confirm.rs       Yes/no dialog in front of every write
+    ├── pick_files.rs    Asks for the files to hand in (`H`) or upload (`u`)
     └── help.rs          Key binding overlay
 ```
 
@@ -234,6 +239,17 @@ pub struct Todo { assignment: Item, course, deadline, due, urgency }   // My cou
   asks to confirm. The client reads the assignment's upload form, checks that both addresses
   are for that assignment on this ILIAS, posts the file (`Pages::post`; ILIAS stores it now),
   then posts the form's finishing step and checks that the file is listed.
+- **Uploading files** (`u`, `Client::upload_files`): `Browser` offers it only on a page whose
+  rights include `upload`, and sends `AskUpload` with the place (the breadcrumb). The
+  `pick_files` dialog takes one or more paths (quoted, escaped, or dropped on the terminal),
+  and `Ask` names the place and each file's size. The client reads the container's page
+  again and takes its own "Upload Files" form (`parse::files_form`): the form must post to
+  `ilObjFileGUI` (`fallbackCmd=uploadFiles`) and its script's upload address must be
+  `ilObjFileUploadHandlerGUI&cmd=upload`, both for that ref id on this ILIAS. Files over
+  the form's size limit (or more than it takes) are refused before anything is sent. Then,
+  as the browser does: each file is posted to the upload address (`file[0]`; ILIAS answers
+  with a `file_id`), then the form with title, description and id per file. Last, the page
+  is read again and each file must be listed (ILIAS may leave out the extension).
 - **Handed-in files**: `parse_page` turns an assignment's Submission tab into a `sub` item
   (in place of the overview's heading of the same name), so it opens as a level like any
   container. `H` and `X` there act for the nearest level above that isn't a `sub`.
@@ -604,5 +620,4 @@ your edu-ID. Test those by hand with `ilias-tui login`, `ilias-tui ls …` and
 **The write guard.** `Client::request` is the one place page requests leave the client,
 GETs and POSTs alike (the read-only "Show more" request and `write.rs`'s forms included).
 It refuses URLs that `write::is_write` flags (an `rtoken`, or a command in
-`WRITE_COMMANDS`) unless the caller is the write path (`write.rs`: `toggle_favorite`,
-`logout`). When ILIAS gains a write command ilias-tui might see in a link, add it there.
+`WRITE_COMMANDS`) unless the caller is the write path (the `write` module). When ILIAS gains a write command ilias-tui might see in a link, add it there.

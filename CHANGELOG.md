@@ -12,6 +12,9 @@ features and changes in behaviour, the last one for fixes only. See
 - **Rights**: ilias-tui reads from each course and folder page what ILIAS lets you change
   there (upload, "Add New Item", Delete), to offer the editing keys only where they work.
   `ilias-tui show` prints them. Nothing changes for students.
+- **Upload files** (`u`) into the course or folder on screen, where ILIAS lets you (also
+  shared folders): one or more at once, with each file's size in the question. ilias-tui
+  checks that ILIAS lists them afterwards.
 
 ## 0.2.0 - 2026-11-09
 

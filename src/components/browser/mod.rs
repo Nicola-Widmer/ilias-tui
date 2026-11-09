@@ -308,7 +308,8 @@ impl Component for Browser {
             // The submission shows on the page on screen and on the ones below it, and the
             // To-Do may change.
             Action::HandedIn { file: Some(_), .. }
-            | Action::SubmissionDeleted { deleted: true, .. } => {
+            | Action::SubmissionDeleted { deleted: true, .. }
+            | Action::Uploaded { files: Some(_), .. } => {
                 let (top, hidden) = self.stack.split_last_mut()?;
                 for level in hidden {
                     level.out_of_date = true;

@@ -68,7 +68,8 @@ Read-only; safe to build.
 - [x] Upload exercise submissions (`H`; asks first, tested only on the local test ILIAS)
 - [x] Delete a handed-in file before the deadline (`X`; asks first, tested only on the local
       test ILIAS)
-- [ ] Upload files to shared folders
+- [x] Upload files to courses, folders and shared folders (`u`; asks first, tested only on
+      the local test ILIAS)
 - [ ] Write forum posts and replies
 - [ ] Send ILIAS mail
 - [ ] Join or leave courses and groups
@@ -118,7 +119,8 @@ write](#rules-for-features-that-write). Tried only on the local test ILIAS.
 
 - [x] **What may I do here?** Rights read from each course and folder page (upload, Add New
   Item, Delete); `ilias-tui show` prints them.
-- [ ] **Upload files** into the course or folder on screen.
+- [x] **Upload files** into the course or folder on screen (`u`; several at once, sizes in
+  the question, checked against ILIAS' limit, listed afterwards).
 - [ ] **New folder** in the course or folder on screen.
 - [ ] **Delete** an item (into the ILIAS trash).
 - [ ] **Forum posts**: start a thread, reply to a post.

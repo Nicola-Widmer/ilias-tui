@@ -66,6 +66,7 @@ impl Browser {
             Command::Sync => return Some(self.sync_selected()),
             Command::HandIn => return Some(self.hand_in()),
             Command::DeleteSubmission => return Some(self.delete_submission()),
+            Command::Upload => return Some(self.upload()),
             Command::Login => return Some(Action::Login),
             // Other components' keys, and search inside search results.
             Command::Search
@@ -199,6 +200,34 @@ impl Browser {
             _ => Action::Error(
                 "Select a handed-in file (in an assignment's Submission) to delete it".into(),
             ),
+        }
+    }
+}
+
+impl Browser {
+    /// Where the page on screen is, from the course down: `DEMO.101 › Unterlagen`.
+    fn place(&self) -> String {
+        let titles: Vec<&str> = self
+            .stack
+            .iter()
+            .filter_map(|l| l.item.as_ref())
+            .map(|i| i.title.as_str())
+            .collect();
+        titles.join(&format!(" {} ", crate::theme::chevron()))
+    }
+
+    /// `u`: files into the course or folder on screen, if its page has ILIAS' upload form.
+    fn upload(&self) -> Action {
+        let container = self
+            .current()
+            .filter(|level| !level.deep && level.page.rights.upload)
+            .and_then(|level| level.item.clone());
+        match container {
+            Some(container) => Action::AskUpload {
+                container,
+                place: self.place(),
+            },
+            None => Action::Error("ILIAS doesn't let you upload files here".into()),
         }
     }
 }

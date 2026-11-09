@@ -88,6 +88,10 @@ impl Browser {
             ]);
             border = border.title_bottom(count.right_aligned());
         }
+        // Where ILIAS lets you change things, the keys for it (nothing for students).
+        if let Some(hints) = edit_hints(&level.page.rights).filter(|_| !level.deep) {
+            border = border.title_bottom(hints.left_aligned());
+        }
         let inner = border.inner(body);
         frame.render_widget(border, body);
 
@@ -347,6 +351,19 @@ impl Browser {
 /// Left edge of the tab pills: lines them up with the section headings and icons below
 /// (frame border + padding + selection marker).
 pub(super) const TABS_INDENT: u16 = 4;
+
+/// ` u upload ` for the editing keys this page's rights allow; `None` if it allows none.
+pub(super) fn edit_hints(rights: &crate::ilias::Rights) -> Option<Line<'static>> {
+    let mut spans = Vec::new();
+    let mut hint = |key: &'static str, what: &'static str| {
+        spans.push(Span::styled(format!(" {key}"), theme::accent_bold()));
+        spans.push(Span::styled(format!(" {what} "), theme::muted()));
+    };
+    if rights.upload {
+        hint("u", "upload");
+    }
+    (!spans.is_empty()).then(|| Line::from(spans))
+}
 
 pub(super) fn tab_bar(page: &Page) -> Line<'static> {
     let mut spans = vec![Span::raw(" ".repeat(TABS_INDENT as usize))];

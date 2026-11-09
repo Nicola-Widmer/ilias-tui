@@ -18,7 +18,7 @@ impl App {
         // sites can still be opened.)
         let sends = match action {
             Action::Ask { then, .. } => !matches!(**then, Action::OpenLink(_)),
-            Action::AskHandIn { .. } | Action::Sync(_) => true,
+            Action::AskHandIn { .. } | Action::AskUpload { .. } | Action::Sync(_) => true,
             _ => false,
         };
         if self.client.is_offline() && sends {
@@ -77,6 +77,7 @@ impl App {
             Action::DeleteSubmission { assignment, file } => {
                 self.delete_submission(assignment.clone(), file.clone())
             }
+            Action::Upload { container, paths } => self.upload(container.clone(), paths.clone()),
             Action::Sync(roots) => self.sync(roots.clone()),
             Action::Synced { .. } => self.synced()?,
             Action::SetConfig(config) => self.set_config(config.clone())?,
@@ -261,6 +262,13 @@ impl App {
                 file,
                 deleted,
             })
+        });
+    }
+
+    fn upload(&self, container: Item, paths: Vec<PathBuf>) {
+        self.spawn(move |client, _| {
+            let files = client.upload_files(&container, &paths)?;
+            Ok(Action::Uploaded { container, files })
         });
     }
 

@@ -27,6 +27,7 @@ pub enum Command {
     Reload,
     HandIn,
     DeleteSubmission,
+    Upload,
     MarkForSync,
     Sync,
     SyncAll,
@@ -125,6 +126,11 @@ pub const SECTIONS: &[(&str, &[Binding])] = &[
                 DeleteSubmission,
                 &[Char('X')],
                 "Handed-in files: delete the selected file (asks first)",
+            ),
+            bind(
+                Upload,
+                &[Char('u')],
+                "Upload files into this course or folder (where ILIAS lets you; asks first)",
             ),
             bind(MarkForSync, &[Char(' ')], "Mark a course / folder for sync"),
             bind(

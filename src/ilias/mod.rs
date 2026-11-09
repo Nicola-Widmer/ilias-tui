@@ -24,7 +24,9 @@ use url::Url;
 
 pub use pages::Fetched;
 use pages::{Form, Https, Pages};
-pub use parse::{Block, Id, Item, Kind, Page, Post, Todo, Urgency, parse_page, parse_target};
+pub use parse::{
+    Block, Id, Item, Kind, Page, Post, Rights, Todo, Urgency, parse_page, parse_target,
+};
 
 /// The "My courses and groups" page.
 const MEMBERSHIPS: &str = "ilias.php?baseClass=ilmembershipoverviewgui";

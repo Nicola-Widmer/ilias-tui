@@ -85,6 +85,11 @@ What it does:
   Item", an upload form or an item's Delete (as a lecturer, tutor or administrator, or in a
   shared folder), ilias-tui reads that from the page and offers the matching keys there.
   Nothing new appears where you may only read. `ilias-tui show URL` lists them as `rights:`.
+  The keys that work on a page are named at the bottom of its frame.
+- **Uploads files** into the course or folder on screen (`u`), where ILIAS lets you (also
+  shared folders): it asks for one or more files (drop them on the terminal), then names
+  the place and each file's size and asks you to confirm. Afterwards it checks that ILIAS
+  lists them.
 - Opens everything else (tests, surveys, …) in your normal web browser, and copies any
   item's permalink with `y`.
 - Logs in once through Switch edu-ID (2FA included) and keeps the session in a private
@@ -204,6 +209,7 @@ ilias-tui get goto.php/file/123456
 | `r`             | Reload current list                             |
 | `H`             | On an assignment: hand in a file (asks first)   |
 | `X`             | Handed-in files: delete the selected file (asks first) |
+| `u`             | Upload files into the course or folder on screen (where ILIAS lets you; asks first) |
 | `L`             | Log in again / go online (opens Chrome if needed) |
 | `c`             | Settings (download folder, sync, icons, theme, …) |
 | `?`             | Toggle help                                     |
@@ -416,18 +422,23 @@ download.
 - **Almost read-only.** ilias-tui reads with `GET` requests. The one exception that only
   reads is ILIAS's "Show more" button, which asks for the rest of a long list with a `POST`
   of the items already shown; ilias-tui sends it only to your ILIAS and only with that
-  button's command (`renderBlockAsynch`). Four things change something on ILIAS:
+  button's command (`renderBlockAsynch`). These change something on ILIAS:
   - `ilias-tui logout` ends your session.
   - `H` hands in a file for an assignment, and `X` deletes one you handed in. These are the
     only times it sends a `POST` that changes something. Both name the file and the assignment and ask first, check
     that ILIAS' form belongs to that assignment on your ILIAS, and do nothing with
     `ILIAS_DRY_RUN=1`. Your lecturer can see what you hand in. A deleted file can't be
     restored, and after the deadline ILIAS lets you delete nothing.
+  - `u` uploads files into a course or folder. It names the place and the files with their
+    sizes and asks first, and only uses that course's or folder's own upload form from a
+    fresh copy of its page (checked to be for that very course or folder, on your ILIAS).
+    Files bigger than ILIAS takes there are not sent. Everyone who can open the place sees
+    the files. Nothing is sent with `ILIAS_DRY_RUN=1`.
   - `f` adds or removes a favourite. It asks first, only sends the favourites link from
     that item's own ILIAS menu (checked to be for that item, on your ILIAS), and does
     nothing with `ILIAS_DRY_RUN=1`.
 
-  All of them live in `src/ilias/write.rs`. Every other request passes a **write guard** that
+  All of them live in `src/ilias/write.rs` and the files next to it (`src/ilias/write/`). Every other request passes a **write guard** that
   refuses anything that looks like a write (an ILIAS one-time `rtoken`, or a known write
   command such as `addToDesk`, `markPostRead` or `join`), so a bug elsewhere can't turn a
   link into a change. Tests check this against a fake ILIAS.

@@ -777,3 +777,55 @@ fn a_dry_run_marks_nothing_out_of_date() {
     };
     assert!(browser.update(&change).is_none());
 }
+
+#[test]
+fn u_uploads_only_where_ilias_offers_it() {
+    let press = |browser: &mut Browser| browser.handle_key_event(KeyCode::Char('u').into());
+    let mut browser = Browser::default();
+    load(
+        &mut browser,
+        None,
+        Page::from_items(vec![item("crs", 1, "DEMO")]),
+        false,
+    );
+    assert!(matches!(press(&mut browser), Some(Action::Error(_))));
+
+    // A student's folder: no upload form, and no hint for it.
+    let files = Page::from_items(vec![item("file", 3, "Skript")]);
+    load(
+        &mut browser,
+        Some(item("crs", 1, "DEMO")),
+        files.clone(),
+        false,
+    );
+    assert!(matches!(press(&mut browser), Some(Action::Error(_))));
+    assert!(!screen(&mut browser).contains("upload"));
+
+    let editable = Page {
+        rights: crate::ilias::Rights {
+            upload: true,
+            ..Default::default()
+        },
+        ..files
+    };
+    load(
+        &mut browser,
+        Some(item("fold", 2, "Unterlagen")),
+        editable,
+        false,
+    );
+    assert!(screen(&mut browser).contains("u upload"));
+    let action = press(&mut browser);
+    assert!(
+        matches!(action, Some(Action::AskUpload { ref container, ref place })
+            if container.title == "Unterlagen" && place.starts_with("DEMO ") && place.ends_with(" Unterlagen")),
+        "{action:?}"
+    );
+
+    // An upload reloads the folder on screen.
+    let uploaded = browser.update(&Action::Uploaded {
+        container: item("fold", 2, "Unterlagen"),
+        files: Some(vec!["a.pdf".into()]),
+    });
+    assert!(matches!(uploaded, Some(Action::Load { refresh: true, .. })));
+}

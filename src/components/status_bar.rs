@@ -134,6 +134,22 @@ impl Component for StatusBar {
                 )),
                 false => Status::Info(format!("Dry run: would have deleted {}", file.title)),
             },
+            Action::Upload { container, paths } => Status::Busy(format!(
+                "Uploading {} to {}…",
+                files(paths.len()),
+                container.title
+            )),
+            Action::Uploaded { container, files } => match files {
+                Some(files) => Status::Done(format!(
+                    "Uploaded {} to {}",
+                    files.join(", "),
+                    container.title
+                )),
+                None => Status::Info(format!(
+                    "Dry run: would have uploaded to {}",
+                    container.title
+                )),
+            },
             // Everything else says nothing here.
             _ => return None,
         };
@@ -141,6 +157,7 @@ impl Component for StatusBar {
             action,
             Action::HandedIn { file: Some(_), .. }
                 | Action::SubmissionDeleted { deleted: true, .. }
+                | Action::Uploaded { files: Some(_), .. }
         );
         None
     }
@@ -194,6 +211,14 @@ impl Component for StatusBar {
             .fg(theme::colors().fg);
         frame.render_widget(Paragraph::new(message).style(bar), left);
         frame.render_widget(Paragraph::new(hints).style(bar).right_aligned(), right);
+    }
+}
+
+/// `1 file`, `3 files`.
+fn files(n: usize) -> String {
+    match n {
+        1 => "1 file".into(),
+        n => format!("{n} files"),
     }
 }
 
