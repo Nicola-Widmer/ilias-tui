@@ -471,6 +471,8 @@ cargo clippy --all-targets
 cargo fmt
 ```
 
+CI (GitHub Actions) runs the tests and clippy on macOS and Linux, and `cargo audit`.
+
 The parser tests run against real, public HSLU pages stored in `tests/fixtures/`.
 [docs/architecture.md](docs/architecture.md) explains the code layout, the component
 architecture and how to add a feature.

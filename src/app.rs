@@ -676,9 +676,19 @@ mod tests {
         app.client.set_offline(false);
         app.searching.store(false, Ordering::SeqCst);
 
-        // A search that fails (no network here) ends too: the next one may start.
+        // A search that fails ends too: the next one may start. Its request waits for the
+        // gate, so it is still running when checked.
+        let (open_gate, gate) = mpsc::channel::<()>();
+        let gate = std::sync::Mutex::new(gate);
+        let waits = crate::ilias::pages::FakeIlias::new(move |url| {
+            let _ = gate.lock().unwrap().recv();
+            Err(color_eyre::eyre::eyre!("offline: {url}"))
+        });
+        let base = url::Url::parse("https://ilias.example/ilias/").unwrap();
+        app.client = Arc::new(Client::with_pages(base, Arc::new(waits)));
         app.dispatch(search()).unwrap();
         assert!(app.searching.load(Ordering::SeqCst));
+        open_gate.send(()).unwrap();
         loop {
             match app.rx.recv_timeout(Duration::from_secs(5)) {
                 Ok(Action::Error(e)) => {

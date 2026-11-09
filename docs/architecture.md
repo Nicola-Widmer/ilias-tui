@@ -508,6 +508,11 @@ If the feature needs ILIAS data, add a method to `ilias::Client`, then a matchin
   check the output. This covers navigation, stale responses, filtering and deep search.
   No terminal or network is needed.
 
+CI (`.github/workflows/ci.yml`, GitHub Actions) runs `cargo test` and
+`cargo clippy --all-targets -- -D warnings` on macOS and Linux for every push to `main` and
+every pull request, and `cargo audit` against the RustSec advisories (also weekly, since new
+advisories appear without code changes). No test reaches the network, so CI needs no ILIAS.
+
 The login itself and the real HTML of logged-in pages can't run in CI, because they need
 your edu-ID. Test those by hand with `ilias-tui login`, `ilias-tui ls …` and
 `ilias-tui dump …`.

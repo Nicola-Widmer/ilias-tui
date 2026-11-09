@@ -104,7 +104,8 @@ front of every page request (only `src/ilias/write.rs` gets past it).
 - [ ] **End the Keycloak session on logout.** Keycloak only logs out through a confirmation
   form (or with an ID token we don't have), so today `logout` only reports that it's still
   active.
-- [ ] **Dependency checks in CI** (`cargo audit`, `cargo deny`) on macOS and Linux.
+- [x] **`cargo audit` in CI** (`.github/workflows/ci.yml`), also weekly.
+- [ ] **`cargo deny`** for licences and duplicate or banned crates.
 - [ ] **Human security review** of `src/auth.rs`, `src/session.rs`, `src/open.rs`,
   `src/ilias/mod.rs`.
 
@@ -128,7 +129,8 @@ front of every page request (only `src/ilias/write.rs` gets past it).
   clears it.
 - [ ] **Several accounts or ILIAS installations** side by side. Today: one at a time via
   `ILIAS_URL`.
-- [ ] **Packaging.** Release binaries, a Homebrew formula, CI that runs tests and clippy.
+- [x] **CI** that runs tests and clippy on macOS and Linux (GitHub Actions).
+- [ ] **Packaging.** Release binaries, a Homebrew formula.
 - [x] **Tests for the client's logic.** `FakeIlias` (`src/ilias/pages.rs`) serves small,
   anonymised HTML snippets. Real logged-in pages contain personal data and must not be
   committed as fixtures.
