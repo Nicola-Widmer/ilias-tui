@@ -8,6 +8,7 @@ mod config;
 mod downloads;
 mod icons;
 mod ilias;
+mod keymap;
 mod open;
 mod seen;
 mod session;

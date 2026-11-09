@@ -5,14 +5,16 @@ use std::collections::{HashMap, HashSet};
 use std::time::{Duration, Instant};
 
 use ratatui::Frame;
-use ratatui::crossterm::event::{KeyCode, KeyEvent, MouseButton, MouseEvent, MouseEventKind};
+use ratatui::crossterm::event::{KeyEvent, MouseButton, MouseEvent, MouseEventKind};
 use ratatui::layout::{Position, Rect};
 use ratatui::widgets::ListState;
 
 use super::Component;
 use crate::action::Action;
 use crate::ilias::{Id, Item, Kind, Todo};
+use crate::keymap::{self, Command};
 
+mod commands;
 mod draw;
 mod level;
 mod rows;
@@ -197,212 +199,9 @@ impl Browser {
     }
 }
 
-impl Browser {
-    /// Keys while the To-Do panel has the focus; `None` hands the key back to the list.
-    fn todo_key(&mut self, key: KeyEvent) -> Option<Option<Action>> {
-        let last = self.todo_items().len().checked_sub(1)?;
-        let selected = self.todo.selected().unwrap_or(0).min(last);
-        let to = match key.code {
-            KeyCode::Down | KeyCode::Char('j') => (selected + 1).min(last),
-            KeyCode::Up | KeyCode::Char('k') => selected.saturating_sub(1),
-            KeyCode::Home | KeyCode::Char('g') => 0,
-            KeyCode::End | KeyCode::Char('G') => last,
-            KeyCode::Enter | KeyCode::Right | KeyCode::Char('l' | 'o') => {
-                return Some(
-                    self.todo_items()
-                        .get(selected)
-                        .map(|t| self.open(&t.assignment)),
-                );
-            }
-            KeyCode::Tab | KeyCode::BackTab | KeyCode::Esc | KeyCode::Left | KeyCode::Char('h') => {
-                self.todo_focus = false;
-                return Some(None);
-            }
-            // Anything else (filter, search, …) is about the list.
-            _ => {
-                self.todo_focus = false;
-                return None;
-            }
-        };
-        self.todo.select(Some(to));
-        Some(None)
-    }
-}
-
 impl Component for Browser {
     fn handle_key_event(&mut self, key: KeyEvent) -> Option<Action> {
-        if self.todo_focus
-            && let Some(action) = self.todo_key(key)
-        {
-            return action;
-        }
-        // On a page without tabs (My courses), Tab moves to the To-Do panel.
-        if matches!(key.code, KeyCode::Tab | KeyCode::BackTab)
-            && let Some(level) = self.current()
-            && level.page.tabs.is_empty()
-            && !level.page.todo.is_empty()
-        {
-            self.todo_focus = true;
-            if self.todo.selected().is_none() {
-                self.todo.select(Some(0));
-            }
-            return None;
-        }
-        if key.code == KeyCode::Char('A') {
-            return Some(self.sync_all());
-        }
-        // From inside an assignment's Submission, `H` and `X` are about the assignment.
-        let assignment = self
-            .stack
-            .iter()
-            .rev()
-            .filter_map(|l| l.item.as_ref())
-            .find(|i| i.kind != Kind::Submission)
-            .cloned();
-        let level = self.stack.last_mut()?;
-        match key.code {
-            KeyCode::Down | KeyCode::Char('j') => level.move_cursor(|c, last| (c + 1).min(last)),
-            KeyCode::Up | KeyCode::Char('k') => level.move_cursor(|c, _| c.saturating_sub(1)),
-            KeyCode::Home | KeyCode::Char('g') => level.move_cursor(|_, _| 0),
-            KeyCode::End | KeyCode::Char('G') => level.move_cursor(|_, last| last),
-            KeyCode::Enter | KeyCode::Right | KeyCode::Char('l') => {
-                return self.current()?.selected().map(|i| self.open(i));
-            }
-            KeyCode::Left | KeyCode::Backspace | KeyCode::Esc | KeyCode::Char('h') => {
-                if self.stack.len() > 1 {
-                    self.stack.pop();
-                }
-                self.pending = None;
-                // The list comes back with the filter you left it with; tell the search bar.
-                return Some(Action::Filter(self.query().to_string()));
-            }
-            KeyCode::Tab => return self.switch_tab(1),
-            KeyCode::BackTab => return self.switch_tab(-1),
-            KeyCode::Char('d') => {
-                let item = level.selected().filter(|i| i.kind == Kind::File)?;
-                return Some(Action::Download {
-                    item: item.clone(),
-                    open: false,
-                });
-            }
-            KeyCode::Char('o') => {
-                let item = level.selected().or(level.item.as_ref())?;
-                return Some(Action::OpenInBrowser(item.clone()));
-            }
-            KeyCode::Char('y') => {
-                let item = level.selected().or(level.item.as_ref())?;
-                return Some(Action::CopyLink(item.clone()));
-            }
-            KeyCode::Char('r') => {
-                let url = level
-                    .page
-                    .tabs
-                    .iter()
-                    .find(|t| t.active)
-                    .map(|t| t.url.clone());
-                return Some(Action::Load {
-                    item: level.item.clone(),
-                    url,
-                    refresh: true,
-                    deep: level.deep,
-                });
-            }
-            KeyCode::Char('s') if !level.deep => {
-                return Some(Action::Load {
-                    item: level.item.clone(),
-                    url: None,
-                    refresh: false,
-                    deep: true,
-                });
-            }
-            KeyCode::Char('f') => {
-                let item = level.selected()?.clone();
-                if item.favorite_toggle.is_none() {
-                    return Some(Action::Error(format!(
-                        "ILIAS offers no favourites option for {}",
-                        item.title
-                    )));
-                }
-                let question = if item.favorite {
-                    format!("Remove “{}” from your ILIAS favourites?", item.title)
-                } else {
-                    format!("Add “{}” to your ILIAS favourites?", item.title)
-                };
-                return Some(Action::Ask {
-                    question,
-                    then: Box::new(Action::ToggleFavorite(item)),
-                });
-            }
-            KeyCode::Char(' ') => {
-                let item = level.selected()?.clone();
-                if !syncable(&item) {
-                    return Some(Action::Error(
-                        "Only courses, groups and folders can be marked for sync".into(),
-                    ));
-                }
-                match self.marked.iter().position(|m| m.id == item.id) {
-                    Some(i) => {
-                        self.marked.remove(i);
-                    }
-                    None => self.marked.push(item),
-                }
-            }
-            KeyCode::Char('S') => {
-                // The marked ones, else the selected course/folder, else the one you're in.
-                let roots = if self.marked.is_empty() {
-                    level
-                        .selected()
-                        .filter(|i| syncable(i))
-                        .or(level.item.as_ref().filter(|i| syncable(i)))
-                        .cloned()
-                        .into_iter()
-                        .collect()
-                } else {
-                    std::mem::take(&mut self.marked)
-                };
-                if roots.is_empty() {
-                    return Some(Action::Error(
-                        "Select a course or folder to sync (Space marks several)".into(),
-                    ));
-                }
-                return Some(Action::Sync(roots));
-            }
-            KeyCode::Char('H') => {
-                // Assignments that take files have a tab for them; other types don't.
-                let submission = level.page.tabs.iter().find(|t| {
-                    t.url
-                        .to_ascii_lowercase()
-                        .contains("cmdclass=ilexsubmissionfilegui")
-                });
-                return Some(match (assignment, submission) {
-                    (Some(assignment), Some(tab)) => Action::AskHandIn {
-                        assignment,
-                        url: tab.url.clone(),
-                    },
-                    _ => Action::Error("Open an assignment that takes files to hand in".into()),
-                });
-            }
-            KeyCode::Char('X') => {
-                // Handed-in files link to their download with `delivered=<id>`.
-                let file = level.selected().filter(|i| i.url.contains("&delivered="));
-                return Some(match (assignment, file.cloned()) {
-                    (Some(assignment), Some(file)) => Action::Ask {
-                        question: format!(
-                            "Delete {} from your submission for {}? It can't be restored.",
-                            file.title, assignment.title
-                        ),
-                        then: Box::new(Action::DeleteSubmission { assignment, file }),
-                    },
-                    _ => Action::Error(
-                        "Select a handed-in file (in an assignment's Submission) to delete it"
-                            .into(),
-                    ),
-                });
-            }
-            KeyCode::Char('L') => return Some(Action::Login),
-            _ => return None,
-        }
-        None
+        self.run(keymap::command(key)?)
     }
 
     fn handle_mouse_event(&mut self, mouse: MouseEvent) -> Option<Action> {
@@ -412,11 +211,11 @@ impl Component for Browser {
                 MouseEventKind::ScrollDown | MouseEventKind::ScrollUp
             )
         {
-            let code = match mouse.kind {
-                MouseEventKind::ScrollDown => KeyCode::Down,
-                _ => KeyCode::Up,
+            let command = match mouse.kind {
+                MouseEventKind::ScrollDown => Command::Down,
+                _ => Command::Up,
             };
-            return self.todo_key(KeyEvent::from(code)).flatten();
+            return self.todo_command(command).flatten();
         }
         let level = self.stack.last_mut()?;
         match mouse.kind {

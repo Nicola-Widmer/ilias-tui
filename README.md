@@ -197,6 +197,7 @@ ilias-tui get goto.php/file/123456
 | `H`             | On an assignment: hand in a file (asks first)   |
 | `X`             | Handed-in files: delete the selected file (asks first) |
 | `L`             | Log in again / go online (opens Chrome if needed) |
+| `c`             | Settings (download folder, sync, icons, theme, …) |
 | `?`             | Toggle help                                     |
 | `q` / `Ctrl-c`  | Quit                                            |
 

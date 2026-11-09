@@ -9,6 +9,7 @@ use ratatui::widgets::Paragraph;
 
 use super::Component;
 use crate::action::Action;
+use crate::keymap::{self, Command};
 use crate::theme;
 
 #[derive(Default)]
@@ -33,7 +34,7 @@ impl Component for Filter {
     fn handle_key_event(&mut self, key: KeyEvent) -> Option<Action> {
         if !self.editing {
             return match key.code {
-                KeyCode::Char('/') => {
+                _ if keymap::command(key) == Some(Command::Filter) => {
                     self.editing = true;
                     self.changed()
                 }

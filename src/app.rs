@@ -167,7 +167,10 @@ impl App {
             .into_iter()
             .find_map(|c| c.handle_key_event(key));
         // `q` comes last so it can still be typed into the search bar.
-        handled.or((key.code == KeyCode::Char('q')).then_some(Action::Quit))
+        handled.or(
+            (crate::keymap::command(key) == Some(crate::keymap::Command::Quit))
+                .then_some(Action::Quit),
+        )
     }
 
     fn dispatch(&mut self, action: Action) -> Result<()> {

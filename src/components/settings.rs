@@ -13,6 +13,7 @@ use ratatui::widgets::{Block, BorderType, Clear, Padding, Paragraph, Wrap};
 use super::Component;
 use crate::action::Action;
 use crate::config::{self, Config};
+use crate::keymap::{self, Command};
 use crate::theme;
 
 /// One row of the page.
@@ -264,7 +265,8 @@ impl Settings {
 impl Component for Settings {
     fn handle_key_event(&mut self, key: KeyEvent) -> Option<Action> {
         if !self.visible {
-            return (key.code == KeyCode::Char('c')).then_some(Action::ToggleSettings);
+            return (keymap::command(key) == Some(Command::Settings))
+                .then_some(Action::ToggleSettings);
         }
         self.error = None;
         if self.input.is_some() {

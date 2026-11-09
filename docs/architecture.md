@@ -31,11 +31,13 @@ src/
 │   │   └── tests.rs
 │   └── write.rs         Every write (favourites, handing in, logout) and the write guard
 ├── action.rs            Action enum (the app's messages)
+├── keymap.rs            Keys of the main view → Command, with their help text
 ├── app.rs               Event loop, side effects, action routing
 └── components/
     ├── mod.rs           Component trait
     ├── browser/         Course/folder list with navigation stack
-    │   ├── mod.rs       State, keys, mouse, reactions to actions
+    │   ├── mod.rs       State, mouse, reactions to actions
+    │   ├── commands.rs  What each key command does
     │   ├── level.rs     One opened page: items, filter, selection, laid out as rows
     │   ├── rows.rs      How rows look (items, text, headings, posts, To-Do)
     │   ├── draw.rs      Header, tabs, page and To-Do panel; click areas
@@ -348,6 +350,10 @@ Components never touch the network and never call each other. They only:
 ```
 
 - **Key routing:**
+  - `keymap.rs` says which key means which `Command` in the main view (and holds the help
+    text). Components ask `keymap::command(key)` instead of matching keys themselves;
+    overlays that are open (settings, report, the filter while typing, questions) keep
+    their own keys.
   - `App::handle_key` handles `Ctrl-c` first.
   - Then it asks the components in z-order, top-most first: `Help`, `Filter`, `Browser`,
     `StatusBar`.
@@ -490,7 +496,7 @@ pages.
 | `Filter`    | `query`, `editing`                       | One line above the status bar, shown while editing or filtering. |
 | `Browser`   | stack of `Level { item, deep, page, items, query, visible, cursor, list }` | Tab bar, then the page laid out as rows: headings, wrapped text, items with icon and details. Only item rows can be selected. `Tab` loads another tab into the same level. Back = pop (no request, unless the level went out of date while hidden: then it reloads once). `r` refreshes the top level. Only responses for the page asked for last are applied. |
 | `StatusBar` | `Status` (idle/busy/done/info/error), start time | Spinner while busy, ✓ / ⚠ icons for results and errors; key hints on the right. |
-| `Help`      | `visible: bool`                          | Overlay drawn last, on top of everything. Keys come from `help::KEYS`, grouped into sections. |
+| `Help`      | `visible: bool`                          | Overlay drawn last, on top of everything. Keys come from `keymap::SECTIONS`, plus a few lines on the mouse. |
 | `Report`    | the last sync's report lines, `scroll`   | Overlay after a sync that skipped, kept or failed files. `j`/`k` scroll, any other key closes. Keys it uses up return `Action::Handled`. |
 | `Confirm`   | `pending: Option<(question, Action)>`    | Yes/no dialog, first in the z-order. `Action::Ask { question, then }` opens it; `y` sends `then`, anything that cancels sends `Cancelled`. Every write goes through it, and opening a link to another site. |
 
@@ -521,7 +527,9 @@ and how `Browser` reacts to `Action::Filter`. To add your own:
 3. If it's a new component, register it in `App`, in `App::components()` at the right
    z-order position, and draw it in `App::draw`.
 4. Let other components react to the new action in their `update`.
-5. Add the key to `help::KEYS` and the README.
+5. Add the key to `keymap::SECTIONS` (a `Command` and its help text) and handle the command
+   in `Browser::run` (`components/browser/commands.rs`). Add it to the README's keys table
+   too: a test fails while the table and the keymap name different keys.
 
 If the feature needs ILIAS data, add a method to `ilias::Client`, then a matching
 `Action::Xxx` / `Action::XxxLoaded` pair. Spawn it from `App::dispatch` like `Load`.

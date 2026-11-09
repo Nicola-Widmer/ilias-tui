@@ -1,7 +1,7 @@
 //! Key binding overlay, toggled with `?`.
 
 use ratatui::Frame;
-use ratatui::crossterm::event::{KeyCode, KeyEvent, MouseEvent, MouseEventKind};
+use ratatui::crossterm::event::{KeyEvent, MouseEvent, MouseEventKind};
 use ratatui::layout::{Constraint, Rect};
 use ratatui::style::{Modifier, Style};
 use ratatui::text::{Line, Span};
@@ -9,72 +9,14 @@ use ratatui::widgets::{Block, BorderType, Clear, Padding, Row, Table};
 
 use super::Component;
 use crate::action::Action;
+use crate::keymap::{self, Command};
 use crate::theme;
 
-/// Key bindings by section, shown in the overlay.
-pub const KEYS: &[(&str, &[(&str, &str)])] = &[
-    (
-        "Navigate",
-        &[
-            ("↑ ↓  k j", "Move selection"),
-            ("g  G", "First / last item"),
-            (
-                "Enter  →  l",
-                "Open folder, file (downloads it first) or link",
-            ),
-            ("Esc  ←  h", "Clear filter, then go back"),
-            ("Tab  S-Tab", "Next / previous tab (Inhalt, Info, …)"),
-            ("Tab", "My courses: into / out of the To-Do panel"),
-        ],
-    ),
-    (
-        "Search",
-        &[
-            (
-                "/",
-                "Filter this list, kept when you come back (Esc clears)",
-            ),
-            ("s", "Search everything below here"),
-        ],
-    ),
-    (
-        "Items",
-        &[
-            ("d", "Download a fresh copy (no open)"),
-            ("o", "Open item or link in your web browser"),
-            ("y", "Copy the permalink"),
-            ("f", "Add to / remove from ILIAS favourites (asks first)"),
-            ("r", "Reload"),
-            ("H", "Assignment: hand in a file (asks first)"),
-            (
-                "X",
-                "Handed-in files: delete the selected file (asks first)",
-            ),
-            ("Space", "Mark a course / folder for sync"),
-            (
-                "S",
-                "Sync files (≤ 50 MB) of the marked or selected courses",
-            ),
-            ("A", "Sync all courses in My courses (asks first)"),
-        ],
-    ),
-    (
-        "Mouse",
-        &[
-            ("click", "Select; double-click opens"),
-            ("wheel", "Move selection"),
-            ("tab / crumb", "Click to switch tab / go back"),
-        ],
-    ),
-    (
-        "App",
-        &[
-            ("L", "Log in again / go online (opens Chrome if needed)"),
-            ("c", "Settings (folder, sync, icons, …)"),
-            ("?", "Toggle this help"),
-            ("q  Ctrl-c", "Quit"),
-        ],
-    ),
+/// The mouse, which has no place in the keymap.
+const MOUSE: &[(&str, &str)] = &[
+    ("click", "Select; double-click opens"),
+    ("wheel", "Move selection"),
+    ("tab / crumb", "Click to switch tab / go back"),
 ];
 
 #[derive(Default)]
@@ -85,7 +27,7 @@ pub struct Help {
 impl Component for Help {
     fn handle_key_event(&mut self, key: KeyEvent) -> Option<Action> {
         // While open, the overlay swallows every key; any key closes it.
-        (self.visible || key.code == KeyCode::Char('?')).then_some(Action::ToggleHelp)
+        (self.visible || keymap::command(key) == Some(Command::Help)).then_some(Action::ToggleHelp)
     }
 
     fn handle_mouse_event(&mut self, mouse: MouseEvent) -> Option<Action> {
@@ -105,21 +47,32 @@ impl Component for Help {
         if !self.visible {
             return;
         }
+        let sections = keymap::SECTIONS.iter().map(|(section, bindings)| {
+            let keys: Vec<(String, &str)> = bindings
+                .iter()
+                .map(|b| (keymap::label(b), b.help))
+                .collect();
+            (*section, keys)
+        });
+        let mouse = MOUSE
+            .iter()
+            .map(|(k, what)| (k.to_string(), *what))
+            .collect();
         let mut rows = Vec::new();
-        for (i, (section, keys)) in KEYS.iter().enumerate() {
+        for (i, (section, keys)) in sections.chain([("Mouse", mouse)]).enumerate() {
             if i > 0 {
                 rows.push(Row::new([""]));
             }
             rows.push(Row::new([Span::styled(
-                *section,
+                section,
                 Style::new()
                     .fg(theme::colors().yellow)
                     .add_modifier(Modifier::BOLD),
             )]));
-            rows.extend(keys.iter().map(|(key, what)| {
+            rows.extend(keys.into_iter().map(|(key, what)| {
                 Row::new([
                     Span::styled(format!("  {key}"), theme::accent_bold()),
-                    Span::styled(*what, Style::new().fg(theme::colors().fg)),
+                    Span::styled(what, Style::new().fg(theme::colors().fg)),
                 ])
             }));
         }
