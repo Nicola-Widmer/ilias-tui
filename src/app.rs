@@ -105,7 +105,15 @@ impl App {
 
     pub fn run(mut self, terminal: &mut DefaultTerminal) -> Result<()> {
         self.start()?;
-        while !self.should_quit {
+        loop {
+            // Actions first, so that even the first frame shows what they bring (the cached
+            // My courses), not an empty screen.
+            while let Ok(action) = self.rx.try_recv() {
+                self.dispatch(action)?;
+            }
+            if self.should_quit {
+                break;
+            }
             terminal.draw(|frame| self.draw(frame))?;
             if event::poll(Duration::from_millis(50))? {
                 let action = match event::read()? {
@@ -119,9 +127,6 @@ impl App {
                 if let Some(action) = action {
                     self.tx.send(action)?;
                 }
-            }
-            while let Ok(action) = self.rx.try_recv() {
-                self.dispatch(action)?;
             }
         }
         session::save(&self.client.base, &self.client.cookies())
