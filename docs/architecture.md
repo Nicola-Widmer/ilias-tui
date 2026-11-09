@@ -25,7 +25,7 @@ src/
 │   │   ├── walker.rs    The content column → headings, text, items, text links
 │   │   ├── forum.rs     Thread posts
 │   │   ├── exercise.rs  Submission item, handed-in files, upload and delete forms
-│   │   ├── container.rs Forms of courses and folders (upload)
+│   │   ├── container.rs Forms of courses and folders (upload, Add New Item)
 │   │   ├── dashboard.rs Favourites, To-Do, course in a breadcrumb, dates
 │   │   ├── rights.rs    Rights: what the page lets you change (upload, Add New Item, Delete)
 │   │   ├── show_more.rs "Show more" buttons
@@ -34,7 +34,7 @@ src/
 │   ├── write.rs         The write guard, favourites, logout; every other write is in write/
 │   └── write/
 │       ├── exercise.rs  Handing in, deleting a handed-in file
-│       └── container.rs Courses and folders: uploading files
+│       └── container.rs Courses and folders: uploading files, new folders
 ├── action.rs            Action enum (the app's messages)
 ├── keymap.rs            Keys of the main view → Command, with their help text
 ├── app/
@@ -54,6 +54,7 @@ src/
     ├── status_bar.rs    Footer messages
     ├── confirm.rs       Yes/no dialog in front of every write
     ├── pick_files.rs    Asks for the files to hand in (`H`) or upload (`u`)
+    ├── prompt.rs        Asks for a line of text (a new folder's name)
     └── help.rs          Key binding overlay
 ```
 
@@ -250,6 +251,13 @@ pub struct Todo { assignment: Item, course, deadline, due, urgency }   // My cou
   as the browser does: each file is posted to the upload address (`file[0]`; ILIAS answers
   with a `file_id`), then the form with title, description and id per file. Last, the page
   is read again and each file must be listed (ILIAS may leave out the extension).
+- **New folder** (`n`, `Client::create_folder`): offered where the rights' `create` has
+  `fold`; the `prompt` dialog asks for the name, `Ask` for the go-ahead. The client reads
+  the container's page again, takes its own "Add New Item" link for a folder
+  (`parse::create_link`: `cmd=create`, that ref id, `new_type=fold`, this ILIAS), GETs the
+  form it leads to, and checks that the form posts to `ilObjFolderGUI` with
+  `fallbackCmd=save` for that ref id and `new_type=fold` (`parse::create_form`). It posts the
+  title (and an empty description), then checks that the page lists the folder.
 - **Handed-in files**: `parse_page` turns an assignment's Submission tab into a `sub` item
   (in place of the overview's heading of the same name), so it opens as a level like any
   container. `H` and `X` there act for the nearest level above that isn't a `sub`.

@@ -121,7 +121,7 @@ write](#rules-for-features-that-write). Tried only on the local test ILIAS.
   Item, Delete); `ilias-tui show` prints them.
 - [x] **Upload files** into the course or folder on screen (`u`; several at once, sizes in
   the question, checked against ILIAS' limit, listed afterwards).
-- [ ] **New folder** in the course or folder on screen.
+- [x] **New folder** in the course or folder on screen (`n`).
 - [ ] **Delete** an item (into the ILIAS trash).
 - [ ] **Forum posts**: start a thread, reply to a post.
 - [ ] **Submissions of an assignment**: list and download all participants' submissions.

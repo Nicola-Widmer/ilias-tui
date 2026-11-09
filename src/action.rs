@@ -97,6 +97,21 @@ pub enum Action {
         container: Item,
         files: Option<Vec<String>>,
     },
+    /// Ask for the name of a new folder in `container`, which is at `place`.
+    AskFolderName {
+        container: Item,
+        place: String,
+    },
+    NewFolder {
+        container: Item,
+        name: String,
+    },
+    /// `created` is `false` after a dry run.
+    FolderCreated {
+        container: Item,
+        name: String,
+        created: bool,
+    },
     /// Ask the user first; `then` only runs on "yes". Everything that changes data on ILIAS
     /// goes through this.
     Ask {

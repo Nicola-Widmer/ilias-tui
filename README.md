@@ -90,6 +90,8 @@ What it does:
   shared folders): it asks for one or more files (drop them on the terminal), then names
   the place and each file's size and asks you to confirm. Afterwards it checks that ILIAS
   lists them.
+- **Creates folders** in the course or folder on screen (`n`), where ILIAS offers "Add New
+  Item → Folder": it asks for the name, then to confirm, and shows the new folder.
 - Opens everything else (tests, surveys, …) in your normal web browser, and copies any
   item's permalink with `y`.
 - Logs in once through Switch edu-ID (2FA included) and keeps the session in a private
@@ -210,6 +212,7 @@ ilias-tui get goto.php/file/123456
 | `H`             | On an assignment: hand in a file (asks first)   |
 | `X`             | Handed-in files: delete the selected file (asks first) |
 | `u`             | Upload files into the course or folder on screen (where ILIAS lets you; asks first) |
+| `n`             | New folder in the course or folder on screen (where ILIAS lets you; asks first) |
 | `L`             | Log in again / go online (opens Chrome if needed) |
 | `c`             | Settings (download folder, sync, icons, theme, …) |
 | `?`             | Toggle help                                     |
@@ -434,6 +437,10 @@ download.
     fresh copy of its page (checked to be for that very course or folder, on your ILIAS).
     Files bigger than ILIAS takes there are not sent. Everyone who can open the place sees
     the files. Nothing is sent with `ILIAS_DRY_RUN=1`.
+  - `n` creates a folder. It names the folder and the place and asks first, and only follows
+    that place's own "Add New Item → Folder" link and posts the form ILIAS shows for it
+    (checked to create a folder in that very place, on your ILIAS). Nothing is sent with
+    `ILIAS_DRY_RUN=1`.
   - `f` adds or removes a favourite. It asks first, only sends the favourites link from
     that item's own ILIAS menu (checked to be for that item, on your ILIAS), and does
     nothing with `ILIAS_DRY_RUN=1`.

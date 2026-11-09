@@ -54,7 +54,7 @@ from that link; in code these are the variants of `Id`.
 A request that changes something on ILIAS: your account, your favourites, read marks,
 memberships, notifications or the session (logout). ilias-tui sends writes only from
 the `ilias/write` module (`write.rs` and `write/`): favourites changes, handing in a file
-and deleting a handed-in one, uploads (each after asking), and the logout
+and deleting a handed-in one, uploads, new folders (each after asking), and the logout
 (which you ask for).
 _Avoid_: action, command (ILIAS's `cmd=` parameter is a command; only some commands are
 writes).

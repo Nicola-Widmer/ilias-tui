@@ -150,6 +150,18 @@ impl Component for StatusBar {
                     container.title
                 )),
             },
+            Action::NewFolder { container, name } => Status::Busy(format!(
+                "Creating the folder {name} in {}…",
+                container.title
+            )),
+            Action::FolderCreated {
+                container,
+                name,
+                created,
+            } => match created {
+                true => Status::Done(format!("Created the folder {name} in {}", container.title)),
+                false => Status::Info(format!("Dry run: would have created the folder {name}")),
+            },
             // Everything else says nothing here.
             _ => return None,
         };
@@ -158,6 +170,7 @@ impl Component for StatusBar {
             Action::HandedIn { file: Some(_), .. }
                 | Action::SubmissionDeleted { deleted: true, .. }
                 | Action::Uploaded { files: Some(_), .. }
+                | Action::FolderCreated { created: true, .. }
         );
         None
     }

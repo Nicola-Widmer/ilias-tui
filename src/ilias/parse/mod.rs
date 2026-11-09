@@ -14,7 +14,7 @@ mod rights;
 mod show_more;
 mod walker;
 
-pub use container::files_form;
+pub use container::{create_form, create_link, files_form};
 pub use dashboard::{Dashboard, course_title, parse_dashboard, parse_date};
 pub use exercise::{delete_form, lists_delivered, parse_upload_form};
 pub use model::{Block, Id, Item, Kind, Page, Post, Tab, Todo, Urgency};

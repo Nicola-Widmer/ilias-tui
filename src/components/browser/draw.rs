@@ -362,6 +362,9 @@ pub(super) fn edit_hints(rights: &crate::ilias::Rights) -> Option<Line<'static>>
     if rights.upload {
         hint("u", "upload");
     }
+    if rights.may_create(&crate::ilias::Kind::Folder) {
+        hint("n", "new folder");
+    }
     (!spans.is_empty()).then(|| Line::from(spans))
 }
 

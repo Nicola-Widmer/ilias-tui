@@ -16,7 +16,7 @@ use ratatui::{DefaultTerminal, Frame};
 use crate::action::Action;
 use crate::cache::Cache;
 use crate::components::{
-    Browser, Component, Confirm, Filter, Help, PickFiles, Report, Settings, StatusBar,
+    Browser, Component, Confirm, Filter, Help, PickFiles, Prompt, Report, Settings, StatusBar,
 };
 use crate::config::Config;
 use crate::downloads::Downloads;
@@ -34,6 +34,7 @@ pub struct App {
     seen: Seen,
     confirm: Confirm,
     pick_files: PickFiles,
+    prompt: Prompt,
     report: Report,
     filter: Filter,
     browser: Browser,
@@ -74,6 +75,7 @@ impl App {
             seen,
             confirm: Confirm::default(),
             pick_files: PickFiles::default(),
+            prompt: Prompt::default(),
             report: Report::default(),
             filter: Filter::default(),
             browser,
@@ -90,10 +92,11 @@ impl App {
     }
 
     /// Components from top-most to bottom-most; earlier ones get keys first.
-    fn components(&mut self) -> [&mut dyn Component; 8] {
+    fn components(&mut self) -> [&mut dyn Component; 9] {
         [
             &mut self.confirm,
             &mut self.pick_files,
+            &mut self.prompt,
             &mut self.report,
             &mut self.help,
             &mut self.settings,
@@ -169,10 +172,11 @@ impl App {
         }
         // While you type into the filter, letters are text: `c` or `?` must not open the
         // settings or the help (above it in the z-order) and send them the rest of the word.
-        let order: [&mut dyn Component; 8] = if self.filter.is_editing() {
+        let order: [&mut dyn Component; 9] = if self.filter.is_editing() {
             [
                 &mut self.confirm,
                 &mut self.pick_files,
+                &mut self.prompt,
                 &mut self.report,
                 &mut self.filter,
                 &mut self.help,
@@ -238,6 +242,7 @@ impl App {
         self.help.draw(frame, area);
         self.report.draw(frame, area);
         self.pick_files.draw(frame, area);
+        self.prompt.draw(frame, area);
         // Last, so the question is on top of everything.
         self.confirm.draw(frame, area);
     }

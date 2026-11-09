@@ -18,7 +18,10 @@ impl App {
         // sites can still be opened.)
         let sends = match action {
             Action::Ask { then, .. } => !matches!(**then, Action::OpenLink(_)),
-            Action::AskHandIn { .. } | Action::AskUpload { .. } | Action::Sync(_) => true,
+            Action::AskHandIn { .. }
+            | Action::AskUpload { .. }
+            | Action::AskFolderName { .. }
+            | Action::Sync(_) => true,
             _ => false,
         };
         if self.client.is_offline() && sends {
@@ -78,6 +81,9 @@ impl App {
                 self.delete_submission(assignment.clone(), file.clone())
             }
             Action::Upload { container, paths } => self.upload(container.clone(), paths.clone()),
+            Action::NewFolder { container, name } => {
+                self.new_folder(container.clone(), name.clone())
+            }
             Action::Sync(roots) => self.sync(roots.clone()),
             Action::Synced { .. } => self.synced()?,
             Action::SetConfig(config) => self.set_config(config.clone())?,
@@ -269,6 +275,17 @@ impl App {
         self.spawn(move |client, _| {
             let files = client.upload_files(&container, &paths)?;
             Ok(Action::Uploaded { container, files })
+        });
+    }
+
+    fn new_folder(&self, container: Item, name: String) {
+        self.spawn(move |client, _| {
+            let created = client.create_folder(&container, &name)?;
+            Ok(Action::FolderCreated {
+                container,
+                name,
+                created,
+            })
         });
     }
 

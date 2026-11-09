@@ -28,6 +28,7 @@ pub enum Command {
     HandIn,
     DeleteSubmission,
     Upload,
+    NewFolder,
     MarkForSync,
     Sync,
     SyncAll,
@@ -131,6 +132,11 @@ pub const SECTIONS: &[(&str, &[Binding])] = &[
                 Upload,
                 &[Char('u')],
                 "Upload files into this course or folder (where ILIAS lets you; asks first)",
+            ),
+            bind(
+                NewFolder,
+                &[Char('n')],
+                "New folder in this course or folder (where ILIAS lets you; asks first)",
             ),
             bind(MarkForSync, &[Char(' ')], "Mark a course / folder for sync"),
             bind(

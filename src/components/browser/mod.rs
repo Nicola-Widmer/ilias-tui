@@ -309,7 +309,8 @@ impl Component for Browser {
             // To-Do may change.
             Action::HandedIn { file: Some(_), .. }
             | Action::SubmissionDeleted { deleted: true, .. }
-            | Action::Uploaded { files: Some(_), .. } => {
+            | Action::Uploaded { files: Some(_), .. }
+            | Action::FolderCreated { created: true, .. } => {
                 let (top, hidden) = self.stack.split_last_mut()?;
                 for level in hidden {
                     level.out_of_date = true;

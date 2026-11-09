@@ -67,6 +67,7 @@ impl Browser {
             Command::HandIn => return Some(self.hand_in()),
             Command::DeleteSubmission => return Some(self.delete_submission()),
             Command::Upload => return Some(self.upload()),
+            Command::NewFolder => return Some(self.new_folder()),
             Command::Login => return Some(Action::Login),
             // Other components' keys, and search inside search results.
             Command::Search
@@ -228,6 +229,24 @@ impl Browser {
                 place: self.place(),
             },
             None => Action::Error("ILIAS doesn't let you upload files here".into()),
+        }
+    }
+}
+
+impl Browser {
+    /// `n`: a folder in the course or folder on screen, if ILIAS offers one under "Add New
+    /// Item".
+    fn new_folder(&self) -> Action {
+        let container = self
+            .current()
+            .filter(|level| !level.deep && level.page.rights.may_create(&Kind::Folder))
+            .and_then(|level| level.item.clone());
+        match container {
+            Some(container) => Action::AskFolderName {
+                container,
+                place: self.place(),
+            },
+            None => Action::Error("ILIAS doesn't let you add a folder here".into()),
         }
     }
 }

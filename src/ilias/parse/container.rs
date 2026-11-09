@@ -71,3 +71,59 @@ pub fn files_form(html: &str, page_url: &Url, ref_id: u64) -> Option<FilesForm> 
         max_files: number(5).map(|n: u64| n as usize),
     })
 }
+
+/// The "Add New Item" link for a new `kind` in container `ref_id`, if the page offers it.
+pub fn create_link(html: &str, page_url: &Url, ref_id: u64, kind: &Kind) -> Option<Url> {
+    let base = link_base(page_url);
+    let own = ref_id.to_string();
+    Html::parse_document(html)
+        .select(&sel(r#"a[href*="cmd=create"]"#))
+        .filter_map(|a| base.join(a.attr("href")?).ok())
+        .find(|url| {
+            url.origin() == base.origin()
+                && param(url, "cmd").as_deref() == Some("create")
+                && param(url, "ref_id").as_deref() == Some(own.as_str())
+                && param(url, "new_type").as_deref() == Some(kind.code())
+        })
+}
+
+/// The form ILIAS shows for a new item: where it posts and its title and description fields.
+#[derive(Debug, PartialEq, Eq)]
+pub struct CreateForm {
+    pub action: Url,
+    pub title: String,
+    pub description: String,
+}
+
+/// The form for a new `kind` (made by `class`, e.g. `ilObjFolderGUI`) in container `ref_id`.
+pub fn create_form(
+    html: &str,
+    page_url: &Url,
+    ref_id: u64,
+    kind: &Kind,
+    class: &str,
+) -> Option<CreateForm> {
+    let base = link_base(page_url);
+    let own = ref_id.to_string();
+    let doc = Html::parse_document(html);
+    let (form, action) = doc.select(&sel("form[action]")).find_map(|form| {
+        let url = base.join(form.attr("action")?).ok()?;
+        let expected = url.origin() == base.origin()
+            && param(&url, "cmdClass").is_some_and(|c| c.eq_ignore_ascii_case(class))
+            && param(&url, "fallbackCmd").as_deref() == Some("save")
+            && param(&url, "ref_id").as_deref() == Some(own.as_str())
+            && param(&url, "new_type").as_deref() == Some(kind.code());
+        expected.then_some((form, url))
+    })?;
+    let name = |css: &str| {
+        form.select(&sel(css))
+            .next()
+            .and_then(|input| input.attr("name"))
+            .map(String::from)
+    };
+    Some(CreateForm {
+        action,
+        title: name(r#"input[type="text"]"#)?,
+        description: name("textarea")?,
+    })
+}

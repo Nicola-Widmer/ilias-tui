@@ -829,3 +829,49 @@ fn u_uploads_only_where_ilias_offers_it() {
     });
     assert!(matches!(uploaded, Some(Action::Load { refresh: true, .. })));
 }
+
+#[test]
+fn n_adds_a_folder_only_where_ilias_offers_it() {
+    let press = |browser: &mut Browser| browser.handle_key_event(KeyCode::Char('n').into());
+    let mut browser = Browser::default();
+    let files = Page::from_items(vec![item("file", 3, "Skript")]);
+    load(
+        &mut browser,
+        Some(item("crs", 1, "DEMO")),
+        files.clone(),
+        false,
+    );
+    assert!(matches!(press(&mut browser), Some(Action::Error(_))));
+    assert!(!screen(&mut browser).contains("new folder"));
+
+    // Offered for wikis only: still no folder.
+    let wikis = Page {
+        rights: crate::ilias::Rights {
+            create: vec![Kind::Other("wiki".into())],
+            ..Default::default()
+        },
+        ..files.clone()
+    };
+    load(&mut browser, Some(item("crs", 1, "DEMO")), wikis, false);
+    assert!(matches!(press(&mut browser), Some(Action::Error(_))));
+
+    let folders = Page {
+        rights: crate::ilias::Rights {
+            create: vec![Kind::Folder],
+            ..Default::default()
+        },
+        ..files
+    };
+    load(&mut browser, Some(item("crs", 1, "DEMO")), folders, false);
+    assert!(screen(&mut browser).contains("n new folder"));
+    assert!(matches!(
+        press(&mut browser),
+        Some(Action::AskFolderName { ref container, .. }) if container.title == "DEMO"
+    ));
+    let created = browser.update(&Action::FolderCreated {
+        container: item("crs", 1, "DEMO"),
+        name: "Woche 5".into(),
+        created: true,
+    });
+    assert!(matches!(created, Some(Action::Load { refresh: true, .. })));
+}

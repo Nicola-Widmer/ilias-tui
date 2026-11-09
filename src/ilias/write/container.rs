@@ -1,5 +1,5 @@
 //! Writes for courses and folders, by people ILIAS lets change them (see Rights in
-//! CONTEXT.md): uploading files into one.
+//! CONTEXT.md): uploading files into one, creating a folder in one.
 
 use std::path::{Path, PathBuf};
 use std::sync::atomic::Ordering;
@@ -126,6 +126,61 @@ impl Client {
         }
         Ok(Some(names))
     }
+
+    /// Creates a folder `name` in `container` through its own "Add New Item" form. Returns
+    /// `false` in dry-run mode, where nothing is sent.
+    pub fn create_folder(&self, container: &Item, name: &str) -> Result<bool> {
+        let Id::Ref(ref_id) = container.id else {
+            bail!("{} is not a course or folder", container.title);
+        };
+        let name = name.trim();
+        if name.is_empty() {
+            bail!("a folder needs a name");
+        }
+        let page = self.get_authed(&Url::parse(&container.url)?)?;
+        // Only ever send what this function is for: a folder in this very container.
+        let link = parse::create_link(&page.html, &page.url, ref_id, &Kind::Folder)
+            .ok_or_else(|| eyre!("ILIAS doesn't let you add a folder to {}", container.title))?;
+        let screen = self.get_authed(&link)?;
+        let form = parse::create_form(
+            &screen.html,
+            &screen.url,
+            ref_id,
+            &Kind::Folder,
+            "ilObjFolderGUI",
+        )
+        .ok_or_else(|| eyre!("unexpected form for a new folder in {}", container.title))?;
+        if self.dry_run.load(Ordering::Relaxed) {
+            return Ok(false);
+        }
+
+        self.ensure_online()?;
+        self.request(
+            &form.action,
+            Some(&[
+                Form::Field {
+                    name: &form.title,
+                    value: name,
+                },
+                Form::Field {
+                    name: &form.description,
+                    value: "",
+                },
+            ]),
+            true,
+        )?;
+        let listed = self
+            .page(container, None)?
+            .items()
+            .any(|i| i.kind == Kind::Folder && i.title == name);
+        if !listed {
+            bail!(
+                "sent, but ILIAS doesn't list the folder {name}: check {} in ILIAS",
+                container.title
+            );
+        }
+        Ok(true)
+    }
 }
 
 /// Whether ILIAS' title for a file is that file: ILIAS may leave out the extension.
@@ -202,8 +257,12 @@ mod tests {
         }))
     }
 
+    /// Files to upload, in a folder of their own per call (tests run in parallel).
     fn files(names: &[&str]) -> Vec<PathBuf> {
-        let dir = std::env::temp_dir().join(format!("ilias-tui-upload-{}", std::process::id()));
+        static CALLS: std::sync::atomic::AtomicUsize = std::sync::atomic::AtomicUsize::new(0);
+        let call = CALLS.fetch_add(1, Ordering::SeqCst);
+        let dir =
+            std::env::temp_dir().join(format!("ilias-tui-upload-{}-{call}", std::process::id()));
         std::fs::create_dir_all(&dir).unwrap();
         names
             .iter()
@@ -305,5 +364,92 @@ mod tests {
             .unwrap_err();
         assert!(error.to_string().contains("at most"), "{error}");
         assert!(ilias.posts(&base()).is_empty());
+    }
+
+    const CREATE: &str = "https://ilias.example/ilias/ilias.php?baseClass=ilrepositorygui&cmd=create&ref_id=89&new_type=fold";
+    const SAVE: &str = "ilias.php?baseClass=ilrepositorygui&cmdNode=wq:mp&cmdClass=ilObjFolderGUI&cmd=post&fallbackCmd=save&ref_id=89&new_type=fold&rtoken=t";
+
+    /// Folder 89 with "Add New Item → Folder" (if `create`), the form for it posting to
+    /// `save`, and `listed` in it.
+    fn folder_ilias(create: bool, save: &'static str, listed: &'static str) -> Arc<FakeIlias> {
+        Arc::new(FakeIlias::new(move |url| {
+            if url.as_str().contains("cmd=create") {
+                return reply(
+                    url,
+                    &format!(
+                        r#"<form class="c-form" action="{}" method="post">
+                        <input type="text" name="form/input_0/input_1" maxlength="255" />
+                        <textarea name="form/input_0/input_2"></textarea></form>"#,
+                        save.replace('&', "&amp;")
+                    ),
+                );
+            }
+            let menu = match create {
+                true => format!(
+                    r#"<a class="il-link link-bulky" href="{}">Folder</a>"#,
+                    CREATE.replace('&', "&amp;")
+                ),
+                false => String::new(),
+            };
+            reply(
+                url,
+                &format!(
+                    r#"{menu}<div id="il_center_col"><div class="ilContainerListItemOuter">
+                    <a class="il_ContainerItemTitle" href="goto.php/fold/96">{listed}</a></div></div>"#
+                ),
+            )
+        }))
+    }
+
+    #[test]
+    fn creates_a_folder_through_ilias_form_and_checks_it_is_listed() {
+        let ilias = folder_ilias(true, SAVE, "Woche 5");
+        let client = Client::with_pages(base(), ilias.clone());
+        assert!(client.create_folder(&folder(), " Woche 5 ").unwrap());
+        assert_eq!(
+            ilias.posts(&base()),
+            [format!(
+                "{SAVE} <- form/input_0/input_1=Woche 5&form/input_0/input_2="
+            )]
+        );
+
+        let client = Client::with_pages(base(), folder_ilias(true, SAVE, "Woche 4"));
+        let error = client.create_folder(&folder(), "Woche 5").unwrap_err();
+        assert!(error.to_string().contains("doesn't list"), "{error}");
+    }
+
+    #[test]
+    fn a_dry_run_creates_no_folder() {
+        let ilias = folder_ilias(true, SAVE, "Woche 5");
+        let client = Client::with_pages(base(), ilias.clone());
+        client.set_dry_run(true);
+        assert!(!client.create_folder(&folder(), "Woche 5").unwrap());
+        assert!(ilias.posts(&base()).is_empty());
+    }
+
+    #[test]
+    fn creates_no_folder_without_ilias_offering_one_here() {
+        // A student: no "Add New Item".
+        let ilias = folder_ilias(false, SAVE, "x");
+        let client = Client::with_pages(base(), ilias.clone());
+        assert!(client.create_folder(&folder(), "Woche 5").is_err());
+        assert!(ilias.posts(&base()).is_empty());
+        // The form posts to another folder, another site, or makes something else.
+        for save in [
+            "ilias.php?cmdClass=ilObjFolderGUI&cmd=post&fallbackCmd=save&ref_id=90&new_type=fold",
+            "https://evil.example/ilias/ilias.php?cmdClass=ilObjFolderGUI&cmd=post&fallbackCmd=save&ref_id=89&new_type=fold",
+            "ilias.php?cmdClass=ilObjFolderGUI&cmd=post&fallbackCmd=delete&ref_id=89&new_type=fold",
+            "ilias.php?cmdClass=ilObjCourseGUI&cmd=post&fallbackCmd=save&ref_id=89&new_type=crs",
+        ] {
+            let ilias = folder_ilias(true, save, "x");
+            let client = Client::with_pages(base(), ilias.clone());
+            assert!(
+                client.create_folder(&folder(), "Woche 5").is_err(),
+                "{save}"
+            );
+            assert!(ilias.posts(&base()).is_empty(), "{save}");
+        }
+        let client = Client::with_pages(base(), folder_ilias(true, SAVE, "x"));
+        assert!(client.create_folder(&folder(), "  ").is_err());
     }
 }

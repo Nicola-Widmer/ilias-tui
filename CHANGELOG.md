@@ -15,6 +15,7 @@ features and changes in behaviour, the last one for fixes only. See
 - **Upload files** (`u`) into the course or folder on screen, where ILIAS lets you (also
   shared folders): one or more at once, with each file's size in the question. ilias-tui
   checks that ILIAS lists them afterwards.
+- **New folder** (`n`) in the course or folder on screen, where ILIAS offers it.
 
 ## 0.2.0 - 2026-11-09
 
