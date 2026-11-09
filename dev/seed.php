@@ -145,6 +145,12 @@ exercise($biology, 'Laborbericht', 'Hand in the lab report.', 10, $student);
 
 file_in($biology, 'Skript Zellbiologie.pdf', PDF);
 create($biology, 'fold', 'Praktikum');
+// More files than the folder shows at once: ILIAS lists 5, then a "Show more" button.
+$exams = create($biology, 'fold', 'Alte Prüfungen', 'More files than ILIAS shows at once');
+for ($i = 1; $i <= 14; $i++) {
+    file_in($exams, sprintf('Pruefung %02d.pdf', $i), PDF);
+}
+ilContainer::_writeContainerSetting(ilObject::_lookupObjId($exams), 'block_limit', '5');
 file_in($old, 'Archiv.pdf', PDF);
 
 echo "Seeded.\n";

@@ -23,7 +23,7 @@ use reqwest_cookie_store::CookieStoreMutex;
 use url::Url;
 
 pub use pages::Fetched;
-use pages::{Https, Pages};
+use pages::{Form, Https, Pages};
 pub use parse::{Block, Item, Page, Post, parse_page, parse_target};
 
 /// The "My courses and groups" page.
@@ -31,6 +31,12 @@ const MEMBERSHIPS: &str = "ilias.php?baseClass=ilmembershipoverviewgui";
 
 /// Upper bound of pages fetched by one deep search, to stay polite to the server.
 const MAX_CRAWL: usize = 500;
+
+/// Upper bound of "Show more" requests for one page (each brings the next batch of items).
+const MAX_SHOW_MORE: usize = 100;
+
+/// Shown on a page whose "Show more" list couldn't be loaded in full.
+const CUT_SHORT: &str = "⚠ ILIAS cut a list on this page short (\"Show more\") and not all of it could be loaded: open it in the browser (o) to see everything.";
 
 /// Concurrent requests during a deep search; low enough to stay polite to the server.
 const PARALLEL: usize = 6;
@@ -193,12 +199,77 @@ impl Client {
         bail!("session expired: press L to log in again")
     }
 
-    /// The page of a container; `url` selects another tab of it.
+    /// The page of a container; `url` selects another tab of it. Lists that ILIAS cut short
+    /// behind "Show more" come complete.
     pub fn page(&self, item: &Item, url: Option<&str>) -> Result<Page> {
         let fetched = self.get_authed(&Url::parse(url.unwrap_or(&item.url))?)?;
         let mut page = parse_page(&fetched.html, &fetched.url);
+        self.show_all(&mut page, &fetched)?;
         page.remove(item.ref_id);
         Ok(page)
+    }
+
+    /// Loads what the page's "Show more" buttons hide, one batch per request, as the button
+    /// would. If a list can't be completed, the page says so.
+    fn show_all(&self, page: &mut Page, fetched: &Fetched) -> Result<()> {
+        let mut pending = parse::show_more(&fetched.html, &fetched.url);
+        let mut complete = !parse::has_show_more(&fetched.html) || !pending.is_empty();
+        let mut requests = 0;
+        while let Some(more) = pending.pop() {
+            requests += 1;
+            if requests > MAX_SHOW_MORE {
+                complete = false;
+                break;
+            }
+            let Some(after) = more.last_ref_id() else {
+                complete = false;
+                continue;
+            };
+            let answer = self.more_items(&more)?;
+            let items = parse_page(&answer.html, &more.url)
+                .items()
+                .cloned()
+                .collect();
+            if page.insert_after(after, items) == 0 {
+                continue;
+            }
+            for mut next in parse::show_more(&answer.html, &more.url) {
+                next.shown.splice(0..0, more.shown.iter().cloned());
+                pending.push(next);
+            }
+        }
+        if !complete {
+            page.blocks.push(Block::Text(CUT_SHORT.into()));
+        }
+        Ok(())
+    }
+
+    /// The next items of a list cut short behind "Show more". ILIAS wants a POST of the
+    /// items already shown, but it only reads. This is the one POST outside `write.rs`, so it
+    /// only goes to this ILIAS, with the one command the button uses.
+    fn more_items(&self, more: &parse::ShowMore) -> Result<Fetched> {
+        self.ensure_online()?;
+        let url = &more.url;
+        let command = url.query_pairs().find(|(k, _)| k == "cmd").map(|(_, v)| v);
+        if url.origin() != self.base.origin()
+            || command.as_deref() != Some("renderBlockAsynch")
+            || write::is_write(url)
+        {
+            bail!("refused to request {url}: it is not a \"Show more\" list");
+        }
+        let ids: Vec<Form> = more
+            .shown
+            .iter()
+            .map(|id| Form::Field {
+                name: "ids[]",
+                value: id,
+            })
+            .collect();
+        let answer = self.pages.post(url, &ids)?;
+        if !self.is_logged_in(&answer) {
+            bail!("session expired: press L to log in again");
+        }
+        Ok(answer)
     }
 
     pub fn children(&self, item: &Item) -> Result<Vec<Item>> {
@@ -638,6 +709,114 @@ mod tests {
             ]
         );
         assert_eq!(ilias.requests(&base()).len(), 3, "the forum is not crawled");
+    }
+
+    /// A list block as ILIAS 10 renders it: the items, then a "Show more" button if `more`.
+    fn list_block(ids: &[u64], more: bool) -> String {
+        let items: String = ids
+            .iter()
+            .map(|id| {
+                format!(
+                    r#"<li class="ilCLI ilObjListRow"><div class="ilContainerListItemOuter" data-list-item-id="lg_div_{id}_pref_9"><a class="il_ContainerItemTitle" href="https://ilias.example/ilias/ilias.php?baseClass=ilrepositorygui&amp;cmdClass=ilObjFileGUI&amp;cmd=sendfile&amp;ref_id={id}">Exam {id}</a></div></li>"#
+                )
+            })
+            .collect();
+        let button = match more {
+            true => format!(
+                r#"<li class="ilContainerShowMore"><button class="btn btn-default" id="b{}">Show More</button></li>
+                <script>il.Container.initShowMore('b{}', '_other', 'ilias.php?baseClass=ilrepositorygui&cmdClass=ilObjFolderGUI&cmd=renderBlockAsynch&ref_id=9&type=_other&cmdMode=asynch');</script>"#,
+                ids[0], ids[0]
+            ),
+            false => String::new(),
+        };
+        format!(
+            r#"<div class="ilContainerBlock"><div class="ilContainerBlockHeader"><h2>Content</h2></div><ul class="ilContainerItemsContainer">{items}{button}</ul></div>"#
+        )
+    }
+
+    #[test]
+    fn loads_lists_cut_short_behind_show_more() {
+        let answers = Arc::new(AtomicUsize::new(0));
+        let counter = answers.clone();
+        let (client, ilias) = fake(move |url| match url.path() {
+            "/ilias/goto.php/fold/9" => reply(
+                url,
+                &format!(
+                    r#"<ol class="breadcrumb"><li><a href="goto.php/crs/1">DEMO</a></li></ol><div id="il_center_col">{}</div>"#,
+                    list_block(&[1, 2], true)
+                ),
+            ),
+            "/ilias/ilias.php" => match counter.fetch_add(1, Ordering::SeqCst) {
+                0 => reply(url, &list_block(&[3, 4], true)),
+                _ => reply(url, &list_block(&[5], false)),
+            },
+            other => Err(eyre!("unexpected request {other}")),
+        });
+        let folder = Item {
+            kind: "fold".into(),
+            ref_id: 9,
+            url: "https://ilias.example/ilias/goto.php/fold/9".into(),
+            ..Item::default()
+        };
+        let page = client.page(&folder, None).unwrap();
+        let titles: Vec<&str> = page.items().map(|i| i.title.as_str()).collect();
+        assert_eq!(titles, ["Exam 1", "Exam 2", "Exam 3", "Exam 4", "Exam 5"]);
+        assert!(
+            page.items().all(|i| i.path == ["DEMO"]),
+            "saved in the folder"
+        );
+        assert!(!page.blocks.iter().any(|b| matches!(b, Block::Text(_))));
+        // Each request names every item shown so far, as the button does.
+        let more = "ilias.php?baseClass=ilrepositorygui&cmdClass=ilObjFolderGUI&cmd=renderBlockAsynch&ref_id=9&type=_other&cmdMode=asynch";
+        assert_eq!(
+            ilias.posts(&base()),
+            [
+                format!("{more} <- ids[]=lg_div_1_pref_9&ids[]=lg_div_2_pref_9"),
+                format!(
+                    "{more} <- ids[]=lg_div_1_pref_9&ids[]=lg_div_2_pref_9&ids[]=lg_div_3_pref_9&ids[]=lg_div_4_pref_9"
+                ),
+            ]
+        );
+    }
+
+    #[test]
+    fn says_so_when_a_list_stays_cut_short() {
+        // A button whose address can't be read.
+        let (client, ilias) = fake(|url| {
+            reply(
+                url,
+                r#"<div id="il_center_col"><div class="ilContainerBlock"><ul class="ilContainerItemsContainer">
+                <li><div class="ilContainerListItemOuter"><a class="il_ContainerItemTitle" href="goto.php/file/1">Exam</a></div></li>
+                <li class="ilContainerShowMore"><button>Show More</button></li></ul></div></div>"#,
+            )
+        });
+        let page = client
+            .page(
+                &Item::default(),
+                Some("https://ilias.example/ilias/goto.php/fold/9"),
+            )
+            .unwrap();
+        assert_eq!(page.items().count(), 1);
+        assert_eq!(page.blocks.last(), Some(&Block::Text(CUT_SHORT.into())));
+        assert!(ilias.posts(&base()).is_empty());
+    }
+
+    #[test]
+    fn show_more_only_asks_this_ilias() {
+        let (client, ilias) = fake(|url| reply(url, ""));
+        for link in [
+            "https://evil.example/ilias/ilias.php?cmd=renderBlockAsynch",
+            "https://ilias.example/ilias/ilias.php?cmd=addToDesk&item_ref_id=1",
+            "https://ilias.example/ilias/ilias.php?cmd=renderBlockAsynch&rtoken=abc",
+        ] {
+            let more = parse::ShowMore {
+                url: Url::parse(link).unwrap(),
+                shown: vec!["lg_div_1_pref_9".into()],
+            };
+            let error = client.more_items(&more).unwrap_err();
+            assert!(error.to_string().contains("refused"), "{link}: {error}");
+        }
+        assert!(ilias.posts(&base()).is_empty());
     }
 
     #[test]

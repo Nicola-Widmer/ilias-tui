@@ -1,6 +1,7 @@
 //! The seam between the client's logic and the network: getting one ILIAS page, or posting a
 //! form. The client sends every page request through [`Pages`], after the write guard
-//! ([`super::write::is_write`]); only `write.rs` posts. File downloads and the Keycloak probe
+//! ([`super::write::is_write`]); only `write.rs` posts, apart from the read-only "Show more"
+//! request ([`super::Client::page`]). File downloads and the Keycloak probe
 //! go to the network directly.
 
 use std::path::Path;

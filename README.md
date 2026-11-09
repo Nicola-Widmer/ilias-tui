@@ -52,7 +52,8 @@ What it does:
   - the page text (welcome note, room, Zoom link, …),
   - the named sections (item groups),
   - the tabs (Inhalt, Info, Mitglieder, …; switch with `Tab`),
-  - each item's description and properties (file type, size, date, unread posts, …).
+  - each item's description and properties (file type, size, date, unread posts, …),
+  - every item of long lists, also the ones ILIAS hides behind its "Show more" button.
 - **Nerd Font icons** per object type and file type: PDF, Word, Excel, PowerPoint,
   images, archives, code, …
 - **Filters** any list as you type (`/`).
@@ -391,11 +392,13 @@ download.
 - Only to your ILIAS server (`ILIAS_URL`), over HTTPS with certificate checks. During the
   login, Chrome also talks to Keycloak and edu-ID. There is no telemetry and no third-party
   service.
-- **Almost read-only.** ilias-tui reads with `GET` requests. Four things change something on
-  ILIAS:
+- **Almost read-only.** ilias-tui reads with `GET` requests. The one exception that only
+  reads is ILIAS's "Show more" button, which asks for the rest of a long list with a `POST`
+  of the items already shown; ilias-tui sends it only to your ILIAS and only with that
+  button's command (`renderBlockAsynch`). Four things change something on ILIAS:
   - `ilias-tui logout` ends your session.
   - `H` hands in a file for an assignment, and `X` deletes one you handed in. These are the
-    only times it sends a `POST`. Both name the file and the assignment and ask first, check
+    only times it sends a `POST` that changes something. Both name the file and the assignment and ask first, check
     that ILIAS' form belongs to that assignment on your ILIAS, and do nothing with
     `ILIAS_DRY_RUN=1`. Your lecturer can see what you hand in. A deleted file can't be
     restored, and after the deadline ILIAS lets you delete nothing.

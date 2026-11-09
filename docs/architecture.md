@@ -153,6 +153,19 @@ pub struct Item {
   `Page::todo` is apart from the blocks, so filters and deep search never see it.
   `Browser::draw_todo` shows it as a panel to the right (below on terminals narrower than
   100 columns); `Tab` on a page without tabs moves the keys into it (`todo_focus`).
+- **Show more lists** (`Client::page`, `parse::show_more`): a container with a block
+  limit lists only the first items of each block, then a "Show more" button
+  (`li.ilContainerShowMore`). Its address is only in its script,
+  `il.Container.initShowMore('<button id>', '<block>', 'ilias.php?…cmd=renderBlockAsynch&type=<block>…')`.
+  The button POSTs the list ids of the items already shown (`ids[]=lg_div_<ref_id>_pref_<parent>`)
+  and gets the next batch as a block fragment, with another button if there are more.
+  `Client::show_all` does the same until no button is left (at most `MAX_SHOW_MORE`
+  requests) and puts each batch after the last item shown (`Page::insert_after`, files get
+  that item's folder path). Every caller of `Client::page` (browsing, sync, deep search)
+  gets the complete list. A button it can't read, or a list it can't finish, adds a
+  `CUT_SHORT` line to the page instead of leaving items missing silently. This POST only
+  reads; `Client::more_items` sends it only to this ILIAS and only with
+  `cmd=renderBlockAsynch`, and it is the one POST outside `write.rs`.
 - **Favourite links**: `Walker::item` keeps the item's own `cmd=addToDesk` /
   `cmd=removeFromDesk` link from its action menu (`favorite_toggle`, only if its
   `item_ref_id` is the item's) and sets `favorite` when it is a remove link.

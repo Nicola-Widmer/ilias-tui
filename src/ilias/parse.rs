@@ -163,6 +163,36 @@ impl Page {
         })
     }
 
+    /// Puts `more` right after the item `after` (in its block), leaving out items the page
+    /// already has. Files get `after`'s folder path. Returns how many were added.
+    pub fn insert_after(&mut self, after: u64, more: Vec<Item>) -> usize {
+        let known: HashSet<u64> = self.items().map(|i| i.ref_id).collect();
+        for block in &mut self.blocks {
+            let Block::Items { items, .. } = block else {
+                continue;
+            };
+            let Some(at) = items.iter().position(|i| i.ref_id == after) else {
+                continue;
+            };
+            let path = items[at].path.clone();
+            let mut seen = known;
+            let more: Vec<Item> = more
+                .into_iter()
+                .filter(|i| seen.insert(i.ref_id))
+                .map(|mut i| {
+                    if i.kind == "file" {
+                        i.path.clone_from(&path);
+                    }
+                    i
+                })
+                .collect();
+            let added = more.len();
+            items.splice(at + 1..at + 1, more);
+            return added;
+        }
+        0
+    }
+
     /// Drops an item everywhere (e.g. the container itself, linked from its own page).
     pub fn remove(&mut self, ref_id: u64) {
         for block in &mut self.blocks {
@@ -294,13 +324,19 @@ fn kind_from_icon(container: ElementRef) -> Option<String> {
     (!kind.is_empty() && kind != "custom").then(|| kind.to_string())
 }
 
+/// What relative links on a page are relative to: the ILIAS root, also on `goto.php/crs/123`
+/// permalinks.
+fn link_base(page_url: &Url) -> Url {
+    let mut base = page_url.clone();
+    if let Some(i) = page_url.path().find("goto.php/") {
+        base.set_path(&page_url.path()[..i]);
+    }
+    base
+}
+
 /// Parses a whole ILIAS page.
 pub fn parse_page(html: &str, page_url: &Url) -> Page {
-    // Relative links are relative to the ILIAS root, also on `goto.php/crs/123` permalinks.
-    let mut link_base = page_url.clone();
-    if let Some(i) = page_url.path().find("goto.php/") {
-        link_base.set_path(&page_url.path()[..i]);
-    }
+    let link_base = link_base(page_url);
     let page_url = &link_base;
     let doc = Html::parse_document(html);
     let mut tabs: Vec<Tab> = doc
@@ -538,6 +574,73 @@ pub fn shows(html: &str, text: &str) -> bool {
         .root_element()
         .text()
         .any(|t| t.contains(text))
+}
+
+/// A list that ILIAS cut short behind a "Show more" button (`ilContainerShowMore`, shown
+/// when a container has a block limit).
+#[derive(Debug, PartialEq, Eq)]
+pub struct ShowMore {
+    /// Where the button asks for the rest (`cmd=renderBlockAsynch&type=<block>`). ILIAS
+    /// expects a POST of the items already shown, as `ids[]`, and answers with the next ones
+    /// (and another button if there are still more).
+    pub url: Url,
+    /// The shown items' list ids (`lg_div_<ref_id>_pref_<parent>`), in order.
+    pub shown: Vec<String>,
+}
+
+impl ShowMore {
+    /// The reference id of the last item shown before the button.
+    pub fn last_ref_id(&self) -> Option<u64> {
+        // ILIAS reads the ref id the same way: the third part of the list id.
+        self.shown.last()?.split('_').nth(2)?.parse().ok()
+    }
+}
+
+/// The page's "Show more" buttons. The button's address is only in its script:
+/// `il.Container.initShowMore('<button id>', '<block>', '<url>')`.
+pub fn show_more(html: &str, page_url: &Url) -> Vec<ShowMore> {
+    let doc = Html::parse_document(html);
+    let mut found = Vec::new();
+    for script in html.split("initShowMore(").skip(1) {
+        // Inside JSON the quotes are escaped (`\'`).
+        let args: Vec<&str> = script
+            .split('\'')
+            .map(|a| a.trim_end_matches('\\'))
+            .collect();
+        let (Some(id), Some(link)) = (args.get(1), args.get(5)) else {
+            continue;
+        };
+        let Ok(url) = link_base(page_url).join(&link.replace("&amp;", "&")) else {
+            continue;
+        };
+        if found.iter().any(|m: &ShowMore| m.url == url) {
+            continue;
+        }
+        let Ok(button) = Selector::parse(&format!(r#"[id="{id}"]"#)) else {
+            continue;
+        };
+        let Some(list) = doc.select(&button).next().and_then(|b| {
+            b.ancestors().filter_map(ElementRef::wrap).find(|a| {
+                a.value()
+                    .classes()
+                    .any(|c| c == "ilContainerItemsContainer")
+            })
+        }) else {
+            continue;
+        };
+        let shown = list
+            .select(&sel("[data-list-item-id]"))
+            .filter_map(|e| e.attr("data-list-item-id"))
+            .map(String::from)
+            .collect();
+        found.push(ShowMore { url, shown });
+    }
+    found
+}
+
+/// Whether the page has a "Show more" button at all (also one [`show_more`] can't read).
+pub fn has_show_more(html: &str) -> bool {
+    html.contains("ilContainerShowMore")
 }
 
 /// What ilias-tui uses from the dashboard.
@@ -1004,6 +1107,31 @@ mod tests {
 
     fn url(s: &str) -> Url {
         Url::parse(s).unwrap()
+    }
+
+    #[test]
+    fn finds_show_more_buttons() {
+        // As on the local ILIAS 10: the script twice, once escaped inside JSON.
+        let html = r#"<div class="ilContainerBlock"><ul class="ilContainerItemsContainer">
+            <li><div class="ilContainerListItemOuter" data-list-item-id="lg_div_110_pref_109"></div></li>
+            <li><div class="ilContainerListItemOuter" data-list-item-id="lg_div_111_pref_109"></div></li>
+            <li class="ilContainerShowMore"><button class="btn btn-default" data-action="" id="il_ui_fw_1">Show More</button></li>
+            </ul></div>
+            <script>il.Container.initShowMore('il_ui_fw_1', '_other', 'ilias.php?baseClass=ilrepositorygui&cmdClass=ilObjFolderGUI&cmd=renderBlockAsynch&ref_id=109&type=_other&cmdMode=asynch');</script>
+            <script>var x = {"code": "il.Container.initShowMore(\'il_ui_fw_1\', \'_other\', \'ilias.php?baseClass=ilrepositorygui&cmdClass=ilObjFolderGUI&cmd=renderBlockAsynch&ref_id=109&type=_other&cmdMode=asynch\')"};</script>"#;
+        let found = show_more(html, &url("https://ilias.example/ilias/goto.php/fold/109"));
+        assert_eq!(
+            found,
+            [ShowMore {
+                url: url(
+                    "https://ilias.example/ilias/ilias.php?baseClass=ilrepositorygui&cmdClass=ilObjFolderGUI&cmd=renderBlockAsynch&ref_id=109&type=_other&cmdMode=asynch"
+                ),
+                shown: vec!["lg_div_110_pref_109".into(), "lg_div_111_pref_109".into()],
+            }]
+        );
+        assert_eq!(found[0].last_ref_id(), Some(111));
+        assert!(has_show_more(html));
+        assert!(show_more("<p>no button</p>", &url("https://ilias.example/ilias/")).is_empty());
     }
 
     #[test]

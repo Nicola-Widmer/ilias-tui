@@ -31,7 +31,8 @@ The same logins work in a browser at <http://localhost:8080/>.
 
 `seed.php` creates three courses (`DEMO.101`, `DEMO.102`, `DEMO.100`), nested folders, files of
 several types, a forum without posts, and exercises: two due in 3 and 10 days, counted from when
-you seeded, and one past its deadline with a file handed in. For anything else, such as forum posts or an edited file, log in as `root` and add
+you seeded, and one past its deadline with a file handed in. `DEMO.102` also has a folder "Alte Prüfungen" with 14 files and a block limit of 5, so
+ILIAS shows its "Show more" button there. For anything else, such as forum posts or an edited file, log in as `root` and add
 it in the browser.
 
 Handing in (`H`) and deleting a handed-in file (`X`) are safe to try here, unlike on a real

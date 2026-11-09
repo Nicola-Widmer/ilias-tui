@@ -8,16 +8,14 @@ When a feature is built, tick it off here in the same commit.
 
 ## Suggested next steps
 
-1. **Check the "show more" gap**: ILIAS can truncate long lists behind a "show more"
-   button, and items behind it may currently be missing. See [Reading content](#reading-content).
-2. **What's new since my last visit**
+1. **What's new since my last visit**
 ## Reading content
 
 Read-only; safe to build and to try against ILIAS.
 
-- [ ] **"Show more" lists.** ILIAS can truncate long item lists behind a "show more"
-  button. The parser skips that button (`ilContainerShowMore` in `src/ilias/parse.rs`), so
-  items behind it may be **silently missing**. Check first whether HSLU uses it.
+- [x] **"Show more" lists.** Lists ILIAS cuts short behind "Show more" (a container's
+  block limit) are loaded in full for browsing, sync and deep search. Tested on the local
+  ILIAS; whether HSLU uses it is unchecked (`ilias-tui dump <url> | grep ilContainerShowMore`).
 - [ ] **What's new since my last visit.** Show new or changed files per course. The page
   cache (`src/cache.rs`) already holds the previous version to compare against.
 - [x] **Upcoming deadlines.** The To-Do list on "My courses" (from the ILIAS dashboard).
