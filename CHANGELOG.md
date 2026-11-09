@@ -7,6 +7,12 @@ features and changes in behaviour, the last one for fixes only. See
 
 ## Unreleased
 
+### Added
+
+- **`Tab` completes paths** in the file dialog of `u` (upload) and `H` (hand in), as a shell
+  does: the only file or folder that fits, else as far as all of them agree, with the
+  matches listed below the input.
+
 ## 0.3.0 - 2026-11-09
 
 ### Added

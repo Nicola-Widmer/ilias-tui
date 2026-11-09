@@ -57,6 +57,7 @@ src/
     ├── status_bar.rs    Footer messages
     ├── confirm.rs       Yes/no dialog in front of every write
     ├── pick_files.rs    Asks for the files to hand in (`H`) or upload (`u`)
+    ├── complete.rs      `Tab` in that dialog: completes the path being typed, as a shell does
     ├── prompt.rs        Asks for a line of text (a new folder's name; posts without $EDITOR)
     └── help.rs          Key binding overlay
 ```
@@ -246,7 +247,11 @@ pub struct Todo { assignment: Item, course, deadline, due, urgency }   // My cou
 - **Uploading files** (`u`, `Client::upload_files`): `Browser` offers it only on a page whose
   rights include `upload`, and sends `AskUpload` with the place (the breadcrumb). The
   `pick_files` dialog takes one or more paths (quoted, escaped, or dropped on the terminal),
-  and `Ask` names the place and each file's size. The client reads the container's page
+  and `Ask` names the place and each file's size. `Tab` completes the last path
+  (`complete::complete`): the only file or folder it fits (folders get a `/`, a file in the
+  upload dialog a space for the next one), else as far as all matches agree, with the
+  matches listed below the input. It keeps the path's quote or escapes, needs a full path
+  (or `~`), and shows hidden files only for a name starting with a dot. The client reads the container's page
   again and takes its own "Upload Files" form (`parse::files_form`): the form must post to
   `ilObjFileGUI` (`fallbackCmd=uploadFiles`) and its script's upload address must be
   `ilObjFileUploadHandlerGUI&cmd=upload`, both for that ref id on this ILIAS. Files over

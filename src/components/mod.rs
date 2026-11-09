@@ -2,6 +2,7 @@
 //! <https://ratatui.rs/concepts/application-patterns/component-architecture/>
 
 mod browser;
+mod complete;
 mod confirm;
 mod filter;
 mod help;

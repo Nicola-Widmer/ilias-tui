@@ -82,7 +82,8 @@ What it does:
 - **Reads exercises**: the assignments, ongoing or past, with deadline and whether you handed
   something in; instructions and attached files on the assignment's page. `Enter` on a To-Do
   entry goes straight there.
-- **Hands in files** for an assignment (`H`): it asks for the file, then asks you to confirm.
+- **Hands in files** for an assignment (`H`): it asks for the file (`Tab` completes the
+  path), then asks you to confirm.
   Its **Handed-in files** entry (in the Submission section, open it like any other entry)
   lists what you handed in; `X` deletes the selected file again (asks first), as long as
   ILIAS allows it, which is until the deadline.
@@ -92,7 +93,8 @@ What it does:
   Nothing new appears where you may only read. `ilias-tui show URL` lists them as `rights:`.
   The keys that work on a page are named at the bottom of its frame.
 - **Uploads files** into the course or folder on screen (`u`), where ILIAS lets you (also
-  shared folders): it asks for one or more files (drop them on the terminal), then names
+  shared folders): it asks for one or more files (drop them on the terminal, or type them
+  with `Tab` completing the path as in a shell), then names
   the place and each file's size and asks you to confirm. Afterwards it checks that ILIAS
   lists them.
 - **Creates folders** in the course or folder on screen (`n`), where ILIAS offers "Add New

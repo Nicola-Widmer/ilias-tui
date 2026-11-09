@@ -30,7 +30,12 @@ struct Open {
     purpose: Purpose,
     input: String,
     error: Option<String>,
+    /// What the path could be after the last `Tab`, when it fits several files.
+    choices: Vec<String>,
 }
+
+/// At most this many of the choices are listed.
+const CHOICES: usize = 8;
 
 #[derive(Default)]
 pub struct PickFiles {
@@ -147,7 +152,14 @@ impl Component for PickFiles {
     fn handle_key_event(&mut self, key: KeyEvent) -> Option<Action> {
         let open = self.open.as_mut()?;
         open.error = None;
+        open.choices.clear();
         match key.code {
+            KeyCode::Tab => {
+                let several = matches!(open.purpose, Purpose::Upload { .. });
+                let done = super::complete::complete(&open.input, several);
+                open.input = done.input;
+                open.choices = done.choices;
+            }
             KeyCode::Esc => {
                 self.open = None;
                 return Some(Action::Cancelled);
@@ -207,6 +219,7 @@ impl Component for PickFiles {
             purpose,
             input: String::new(),
             error: None,
+            choices: Vec::new(),
         });
         None
     }
@@ -233,6 +246,13 @@ impl Component for PickFiles {
                 Span::styled("▏", Style::new().fg(theme::colors().accent)),
             ]),
         ];
+        if !open.choices.is_empty() {
+            let mut shown = open.choices[..open.choices.len().min(CHOICES)].join("   ");
+            if open.choices.len() > CHOICES {
+                shown.push_str(&format!("   … {} more", open.choices.len() - CHOICES));
+            }
+            text.push(Line::styled(shown, theme::muted()));
+        }
         if let Some(error) = &open.error {
             text.push(Line::default());
             text.push(Line::styled(
@@ -244,7 +264,9 @@ impl Component for PickFiles {
             .border_type(BorderType::Rounded)
             .border_style(Style::new().fg(theme::colors().accent))
             .title(Line::styled(title, theme::accent_bold()))
-            .title_bottom(Line::styled(" ↵ continue  esc cancel ", theme::muted()).centered())
+            .title_bottom(
+                Line::styled(" ⇥ complete  ↵ continue  esc cancel ", theme::muted()).centered(),
+            )
             .padding(Padding::uniform(1))
             .style(
                 Style::new()
@@ -373,6 +395,32 @@ mod tests {
 
         // Big files get a warning.
         assert!(upload_question("x", &vec![a.clone(); 40]).contains("big"));
+        let _ = std::fs::remove_dir_all(dir);
+    }
+
+    #[test]
+    fn tab_completes_the_path_and_lists_what_it_could_be() {
+        let dir = std::env::temp_dir().join(format!("ilias-tui-tab-{}", std::process::id()));
+        std::fs::create_dir_all(&dir).unwrap();
+        for file in ["sheet-1.pdf", "sheet-2.pdf"] {
+            std::fs::write(dir.join(file), "x").unwrap();
+        }
+        let mut dialog = dialog();
+        for c in format!("{}/sh", dir.display()).chars() {
+            dialog.handle_key_event(KeyCode::Char(c).into());
+        }
+        assert!(matches!(
+            dialog.handle_key_event(KeyCode::Tab.into()),
+            Some(Action::Handled)
+        ));
+        let open = dialog.open.as_ref().unwrap();
+        assert_eq!(open.input, format!("{}/sheet-", dir.display()));
+        assert_eq!(open.choices, ["sheet-1.pdf", "sheet-2.pdf"]);
+        dialog.handle_key_event(KeyCode::Char('2').into());
+        dialog.handle_key_event(KeyCode::Tab.into());
+        let open = dialog.open.as_ref().unwrap();
+        assert_eq!(open.input, format!("{}/sheet-2.pdf", dir.display()));
+        assert!(open.choices.is_empty());
         let _ = std::fs::remove_dir_all(dir);
     }
 }
