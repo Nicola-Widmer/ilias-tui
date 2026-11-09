@@ -23,6 +23,7 @@ enum Field {
     DownloadDir,
     SyncMaxMb,
     MissingOnly,
+    TwoWay,
     NerdFont,
     Theme,
     Mouse,
@@ -34,10 +35,11 @@ enum Field {
     ShowNew(Group),
 }
 
-const FIELDS: [Field; 14] = [
+const FIELDS: [Field; 15] = [
     Field::DownloadDir,
     Field::SyncMaxMb,
     Field::MissingOnly,
+    Field::TwoWay,
     Field::NerdFont,
     Field::Theme,
     Field::Mouse,
@@ -57,6 +59,7 @@ impl Field {
             Field::DownloadDir => "Download folder",
             Field::SyncMaxMb => "Sync size limit",
             Field::MissingOnly => "Sync missing files only",
+            Field::TwoWay => "Two-way sync",
             Field::NerdFont => "Nerd Font icons",
             Field::Theme => "Theme",
             Field::Mouse => "Mouse support",
@@ -78,6 +81,10 @@ impl Field {
             Field::MissingOnly => {
                 "Sync downloads every file that isn't on disk, also the ones you deleted. \
                  Files you have are never replaced, and no new versions are saved beside them."
+            }
+            Field::TwoWay => {
+                "Sync also shows what it would send to ILIAS: your new and edited files, and \
+                 the ones you deleted. Nothing is sent yet."
             }
             Field::NerdFont => "Off: plain Unicode symbols, for fonts without Nerd Font glyphs.",
             Field::Theme => {
@@ -109,6 +116,7 @@ impl Field {
             Field::DownloadDir => "ILIAS_DOWNLOAD_DIR",
             Field::SyncMaxMb => "ILIAS_SYNC_MAX_MB",
             Field::MissingOnly | Field::Theme | Field::ShowNew(_) => "",
+            Field::TwoWay => "ILIAS_TWO_WAY",
             Field::NerdFont => "ILIAS_NERD_FONT",
             Field::Mouse => "ILIAS_MOUSE",
             Field::Cache => "ILIAS_CACHE",
@@ -130,6 +138,7 @@ impl Field {
     fn toggle(self, config: &Config) -> Option<bool> {
         Some(match self {
             Field::MissingOnly => config.missing_only,
+            Field::TwoWay => config.two_way(),
             Field::NerdFont => config.nerd_font(),
             Field::Mouse => config.mouse(),
             Field::Cache => config.cache(),
@@ -143,6 +152,7 @@ impl Field {
     fn set_toggle(self, config: &mut Config, on: bool) {
         match self {
             Field::MissingOnly => config.missing_only = on,
+            Field::TwoWay => config.two_way = on,
             Field::NerdFont => config.nerd_font = Some(on),
             Field::Mouse => config.mouse = Some(on),
             Field::Cache => config.cache = Some(on),
@@ -164,6 +174,7 @@ impl Field {
             Field::DownloadDir => config.download_dir.is_some(),
             Field::SyncMaxMb => config.sync_max_mb.is_some(),
             Field::MissingOnly => config.missing_only,
+            Field::TwoWay => config.two_way,
             Field::NerdFont => config.nerd_font.is_some(),
             Field::Theme => config.theme.is_some() || !config.colors.is_empty(),
             Field::Mouse => config.mouse.is_some(),
@@ -181,6 +192,7 @@ impl Field {
             Field::DownloadDir => config.download_dir = default.download_dir,
             Field::SyncMaxMb => config.sync_max_mb = default.sync_max_mb,
             Field::MissingOnly => config.missing_only = default.missing_only,
+            Field::TwoWay => config.two_way = default.two_way,
             Field::NerdFont => config.nerd_font = default.nerd_font,
             // The colours were written by hand; they stay until removed by hand.
             Field::Theme => config.theme = default.theme,

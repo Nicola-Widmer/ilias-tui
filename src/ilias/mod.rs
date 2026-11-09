@@ -480,15 +480,28 @@ fn filename_from_disposition(header: &str) -> Option<String> {
 
 /// Same folders as on ILIAS: `<download dir>/<course>/<folder>/…`.
 fn folder_for(dir: &Path, item: &Item) -> PathBuf {
-    item.path
-        .iter()
+    local_folder(dir, &item.path)
+}
+
+/// The local folder of an ILIAS place (a page's or file's path from the course down).
+pub fn local_folder(dir: &Path, path: &[String]) -> PathBuf {
+    path.iter()
         .fold(dir.to_path_buf(), |dir, folder| dir.join(sanitize(folder)))
+}
+
+/// Whether ILIAS' title for a file is the file named `name`: ILIAS may leave out the
+/// extension, and a saved copy's name is sanitised.
+pub fn lists_as(title: &str, name: &str) -> bool {
+    let stem = Path::new(name).file_stem().and_then(|s| s.to_str());
+    [title.to_string(), sanitize(title)]
+        .iter()
+        .any(|title| title == name || stem == Some(title.as_str()))
 }
 
 /// A file or folder name that is safe on every system: no path separators or characters
 /// Windows refuses, no leading dots, no trailing dots or spaces (Windows drops them), and
 /// none of Windows' device names (`CON`, `NUL`, `COM1`, …).
-fn sanitize(name: &str) -> String {
+pub(crate) fn sanitize(name: &str) -> String {
     let name: String = name
         .chars()
         .map(|c| {

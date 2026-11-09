@@ -333,6 +333,7 @@ fn mouse_selects_opens_switches_tabs_and_goes_back() {
     let page = Page {
         todo: Vec::new(),
         rights: Default::default(),
+        path: Vec::new(),
         tabs: vec![
             crate::ilias::parse::Tab {
                 title: "Inhalt".into(),
@@ -457,6 +458,7 @@ fn renders_course_page_like_ilias() {
     let page = Page {
         todo: Vec::new(),
         rights: Default::default(),
+        path: Vec::new(),
         tabs: vec![
             crate::ilias::parse::Tab {
                 title: "Inhalt".into(),

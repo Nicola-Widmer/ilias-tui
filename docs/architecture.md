@@ -11,8 +11,12 @@ src/
 ├── auth.rs              Interactive login in Chrome → CookieStore
 ├── session.rs           Cookie jar ⇄ private JSON file
 ├── clipboard.rs         `y`: copy a permalink (pbcopy on macOS, clip on Windows, else the terminal's OSC 52)
-├── downloads.rs         Saved files: path, ILIAS version, size + mtime when saved
-├── sync.rs              Sync whole courses: plan per file, parallel downloads
+├── downloads.rs         Saved files (the base): path, ILIAS version, size, mtime, hash
+├── sync/                Sync whole courses
+│   ├── mod.rs           Plan per file, parallel downloads, the report
+│   ├── local.rs         Two-way: what is in a local folder, without the ignore list
+│   ├── review.rs        Two-way: what to send to ILIAS, decided three-way from the base
+│   └── tests.rs
 ├── cache.rs             Parsed pages on disk, for instant display (stale-while-revalidate)
 ├── seen.rs              What's new: page diff, and the unseen items per course on disk
 ├── ilias/
@@ -69,8 +73,11 @@ src/
 - **No usable API token.** ILIAS uses OpenID Connect only to log you in. Once you're in,
   it gives you a normal PHP session cookie, and none of its pages accept Bearer tokens.
   So even if we had a Keycloak token, ILIAS wouldn't take it.
-- **SOAP and WebDAV are out.** Both need a local ILIAS password, which SSO accounts don't
-  have.
+- **SOAP and WebDAV are out.** Both need a local ILIAS password to log in, which SSO
+  accounts don't have. SOAP would also take a browser session as its `sid`
+  (`<PHPSESSID>::<client>`; tried on the local test ILIAS), but on HSLU every SOAP call
+  fails with HTTP 500 and an empty answer, with a real session and a made-up one alike
+  (`soap/server.php`, checked 2026-11-09). Its WSDL is served all the same.
 
 The only reliable credential is therefore the **browser session**.
 
@@ -488,11 +495,28 @@ reached it goes back to offline.
 (their folder path and the listing's size and date come with them). `plan` decides per file
 from what `downloads.rs` recorded: `New`, `Update` (changed on ILIAS, copy untouched),
 `Beside` (changed on ILIAS, copy edited), `Adopt` (old entry without version), `Unchanged`,
-`Deleted`, `TooBig`. "Edited" means size or mtime differ from right after the download;
-old entries count as edited, so nothing saved before is ever overwritten. Downloads run 3
+`Deleted`, `TooBig`. "Edited" means the content differs from right after the download: size and mtime
+are compared first, then the SHA-256 recorded at download (`Saved::hash`), so a file only
+touched is still untouched. Old entries without a hash count as edited if size or mtime
+differ, so nothing saved before is ever overwritten; sync adds the hash while they are as
+saved (`Downloads::add_hash`). Downloads run 3
 at a time into fresh files, then replace or sit beside. The sync job writes the index
 itself (`Downloads::update` re-reads the file first, so it and the TUI don't drop each
 other's entries); `Synced` makes `App` read it again.
+
+**Two-way sync** (`Rules::two_way`, see [CONTEXT.md](../CONTEXT.md): base, conflict,
+proposal). `plan` adds three per-file outcomes: `NewVersion` (edited, unchanged on ILIAS),
+`Trash` (deleted, unchanged on ILIAS) and `Unsure` (changed, but no hash to tell). The
+crawl also keeps every page with a place below a course (`Page::path`, its breadcrumb) as a
+`review::Place`: the item, its local folder (`ilias::local_folder`, as downloads name
+them), its rights and its items. After the downloads, `review::decide` scans each place's
+folder (`local::scan`: one level, no links, without `local::ignored`) and builds the
+`Review`: `Change::Upload` for files the base doesn't know (where `rights.upload`),
+`NewVersion`, `Trash` (where `rights.delete` has the file), `NewFolder` for folders no item
+of the place is called; renames (a new file with the hash of a missing saved one) drop that
+file's proposal; same names on ILIAS, copies of saved files and folders shared by two ILIAS
+places become conflicts; saved files in a place that ILIAS no longer lists are `gone`. The
+report lists all of it. Nothing is sent yet.
 
 The crawl uses `Client::descendants_with_pages`, which hands every course and folder page it
 reads to a callback; sync puts them in the page cache under the key the TUI uses when it

@@ -25,7 +25,8 @@ with any ILIAS 10 that logs in through OpenID Connect. Runs on macOS, Linux and 
 - `Enter` downloads a file into the same folders as on ILIAS and opens it; the next time
   the saved copy opens at once.
 - **Sync** whole courses (`S`, `A`): every file up to 50 MB, later only what changed, and
-  never over files you edited. See [Sync](#sync).
+  never over files you edited. **Two-way sync** (settings, off by default) also shows what
+  of yours it would send to ILIAS. See [Sync](#sync).
 - Works **offline** with what it has seen before. See [Offline](#offline).
 
 **Exercises and forums**
@@ -128,7 +129,7 @@ Forum posts are written in `$VISUAL` / `$EDITOR` (give it by a name on your `PAT
 
 ### Configuration
 
-Press `c` for the settings: download folder, sync limit, icons, theme, which kinds of news
+Press `c` for the settings: download folder, sync limit, two-way sync, icons, theme, which kinds of news
 show, mouse, page cache, offline start, dry run. They are saved in `config.json`. Each also
 has an environment variable, which wins:
 
@@ -140,6 +141,7 @@ has an environment variable, which wins:
 | `ILIAS_MOUSE`         | `1`; `0` turns off mouse support     |
 | `ILIAS_CACHE`         | `1`; `0` turns off the page cache    |
 | `ILIAS_SYNC_MAX_MB`   | `50`; sync skips bigger files        |
+| `ILIAS_TWO_WAY`       | `0`; `1` turns on two-way sync       |
 | `ILIAS_OFFLINE`       | `0`; `1` always starts offline       |
 | `ILIAS_DRY_RUN`       | `0`; `1` never sends changes to ILIAS, it only says what it would have done |
 
@@ -171,6 +173,36 @@ files skipped for their size, saved beside your copy, or failed.
   nothing else.
 - **Browsable offline:** every page sync reads is cached, so a synced course can be walked
   through offline.
+
+### Two-way sync
+
+With "Two-way sync" on (settings, or `ILIAS_TWO_WAY=1`), sync also compares your copy of each
+synced course and folder with what it recorded when it last saved them (the **base**: the
+file's version on ILIAS, its size, date and a hash of its content) and with ILIAS now. For
+now it only lists in the report what it would send; nothing is sent yet.
+
+| Your copy vs base | ILIAS vs base | Sync                                                       |
+| --- | --- | --- |
+| new               | –             | would upload it, where ILIAS lets you                      |
+| unchanged         | changed       | downloads it, as always                                    |
+| edited            | unchanged     | would upload it as a new version                           |
+| edited            | changed       | a **conflict**: saves ILIAS' copy beside yours, sends nothing |
+| deleted           | unchanged     | would propose moving it to the ILIAS trash                 |
+| deleted           | changed       | downloads it again                                         |
+| any               | gone on ILIAS | keeps yours and lists it                                   |
+
+- **Edited means edited:** a file whose date changed but whose content didn't counts as
+  untouched. Files saved by an older version have no hash yet; sync adds it while they are
+  as saved, and lists changed ones as "can't tell" instead of sending them.
+- **Renames:** a new file with the content of a file you no longer have is uploaded, and
+  the old one isn't proposed for deletion.
+- **Anything unclear is a conflict**, and nothing is sent for it: a new file named like an
+  ILIAS file sync didn't save, a copy of another saved file, two ILIAS folders saved into
+  one folder.
+- **Never sent:** `.DS_Store`, `Thumbs.db`, `~$…` (Office lock files), `*.tmp`, hidden
+  files and folders (`.git/` too), files over the sync limit, and the copies saved beside
+  your edits (`… (ILIAS 2026-11-02).pdf`).
+- **Nothing is ever deleted**, on your disk or on ILIAS.
 
 ## Offline
 

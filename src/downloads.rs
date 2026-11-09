@@ -1,16 +1,20 @@
 //! Remembers which ILIAS files were saved where, and what they looked like then, so opening
 //! a file again uses the local copy and sync can tell whether you edited it.
 //! Stored next to the session as `<ilias host>.downloads.json`:
-//! `{ "<item key>": { "path": …, "version": …, "len": …, "modified_ms": … } }`
-//! (older versions stored only the path; such entries count as possibly edited).
+//! `{ "<item key>": { "path": …, "version": …, "len": …, "modified_ms": …, "hash": … } }`
+//! (older versions stored only the path; such entries count as possibly edited). Each entry
+//! is the **base** of two-way sync: what ILIAS and your disk had when the two were last in
+//! sync.
 
 use std::collections::HashMap;
 use std::fs;
+use std::io::Read;
 use std::path::{Path, PathBuf};
 use std::time::UNIX_EPOCH;
 
 use color_eyre::Result;
 use serde::{Deserialize, Serialize};
+use sha2::{Digest, Sha256};
 use url::Url;
 
 use crate::session;
@@ -27,6 +31,11 @@ pub struct Saved {
     pub len: u64,
     #[serde(default)]
     pub modified_ms: u64,
+    /// SHA-256 of the content right after saving (hex), so a file whose modification time
+    /// changed but whose content didn't is still untouched. Empty for entries saved before
+    /// hashes were recorded.
+    #[serde(default, skip_serializing_if = "String::is_empty")]
+    pub hash: String,
 }
 
 /// What became of a saved file on disk.
@@ -43,11 +52,13 @@ pub enum Local {
 impl Saved {
     fn stamp(path: PathBuf, version: String) -> Self {
         let (len, modified_ms) = stat(&path).unwrap_or((0, 0));
+        let hash = hash_file(&path).unwrap_or_default();
         Self {
             path,
             version,
             len,
             modified_ms,
+            hash,
         }
     }
 
@@ -55,9 +66,42 @@ impl Saved {
         match stat(&self.path) {
             None => Local::Missing,
             Some(now) if self.len > 0 && now == (self.len, self.modified_ms) => Local::Untouched,
+            // Touched (copied, synced by another tool, …) but the same content.
+            Some((len, _))
+                if len == self.len
+                    && !self.hash.is_empty()
+                    && hash_file(&self.path).is_some_and(|h| h == self.hash) =>
+            {
+                Local::Untouched
+            }
             Some(_) => Local::Edited,
         }
     }
+
+    /// Whether an edit can be told for sure: the content hash was recorded.
+    pub fn has_hash(&self) -> bool {
+        !self.hash.is_empty()
+    }
+}
+
+/// SHA-256 of a file's content, in hex; `None` if it can't be read.
+pub fn hash_file(path: &Path) -> Option<String> {
+    let mut file = fs::File::open(path).ok()?;
+    let mut hasher = Sha256::new();
+    let mut buffer = vec![0; 64 * 1024];
+    loop {
+        match file.read(&mut buffer).ok()? {
+            0 => break,
+            n => hasher.update(&buffer[..n]),
+        }
+    }
+    Some(
+        hasher
+            .finalize()
+            .iter()
+            .map(|b| format!("{b:02x}"))
+            .collect(),
+    )
 }
 
 fn stat(path: &Path) -> Option<(u64, u64)> {
@@ -97,6 +141,7 @@ impl Downloads {
                         version: String::new(),
                         len: 0,
                         modified_ms: 0,
+                        hash: String::new(),
                     },
                 };
                 Some((id.parse().ok()?, saved))
@@ -122,6 +167,11 @@ impl Downloads {
         self.entries.get(&key)
     }
 
+    /// Every entry, saved copy on disk or not.
+    pub fn entries(&self) -> impl Iterator<Item = (u64, &Saved)> + '_ {
+        self.entries.iter().map(|(key, saved)| (*key, saved))
+    }
+
     /// Ref ids of all files that are still on disk.
     pub fn saved(&self) -> impl Iterator<Item = u64> + '_ {
         self.entries
@@ -142,6 +192,22 @@ impl Downloads {
         self.update(key, |entry| {
             if let Some(saved) = entry {
                 saved.version = version;
+            }
+        })
+    }
+
+    /// Records the content hash of an entry saved before hashes were, if its file is still
+    /// exactly as saved (size and modification time); otherwise nothing changes.
+    pub fn add_hash(&mut self, key: u64) -> Result<()> {
+        let untouched = self.entries.get(&key).is_some_and(|s| {
+            !s.has_hash() && s.len > 0 && stat(&s.path) == Some((s.len, s.modified_ms))
+        });
+        if !untouched {
+            return Ok(());
+        }
+        self.update(key, |entry| {
+            if let Some(saved) = entry {
+                saved.hash = hash_file(&saved.path).unwrap_or_default();
             }
         })
     }

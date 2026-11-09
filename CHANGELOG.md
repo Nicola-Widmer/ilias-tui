@@ -9,6 +9,13 @@ features and changes in behaviour, the last one for fixes only. See
 
 ### Added
 
+- **Two-way sync** (settings, `ILIAS_TWO_WAY=1`; off by default), first part: sync compares
+  your copy of each synced course with what it last saved and with ILIAS, and lists in the
+  report what it would send: new files, edited files (as new versions), files you deleted
+  (for the trash), new folders, conflicts and files gone on ILIAS. Nothing is sent yet.
+- **Content hashes** in the saved-files list: a file whose date changed but whose content
+  didn't is no longer "edited", so sync can update it.
+
 - **`Tab` completes paths** in the file dialog of `u` (upload) and `H` (hand in), as a shell
   does: the only file or folder that fits, else as far as all of them agree, with the
   matches listed below the input.

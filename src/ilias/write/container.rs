@@ -10,7 +10,7 @@ use serde::Deserialize;
 use url::Url;
 
 use super::super::pages::Form;
-use super::super::{Client, Id, Item, Kind, parse};
+use super::super::{Client, Id, Item, Kind, lists_as, parse};
 
 /// The name a file goes by on ILIAS: its file name.
 fn file_name(path: &Path) -> Result<String> {
@@ -231,14 +231,6 @@ impl Client {
         }
         Ok(true)
     }
-}
-
-/// Whether ILIAS' title for a file is that file: ILIAS may leave out the extension.
-fn lists_as(title: &str, name: &str) -> bool {
-    title == name
-        || Path::new(name)
-            .file_stem()
-            .is_some_and(|stem| title == stem)
 }
 
 /// `1.2 MB`.

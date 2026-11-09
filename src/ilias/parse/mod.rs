@@ -199,6 +199,7 @@ pub fn parse_page(html: &str, page_url: &Url) -> Page {
         tabs,
         blocks,
         rights,
+        path,
         ..Page::default()
     }
 }

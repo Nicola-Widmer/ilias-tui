@@ -363,6 +363,10 @@ pub struct Page {
     /// What ILIAS lets you change here (see [`Rights`]).
     #[serde(default)]
     pub rights: Rights,
+    /// Its place from the course (or group) down, as its files' [`Item::path`]; empty
+    /// outside courses and groups.
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    pub path: Vec<String>,
 }
 
 /// An assignment still to hand in (My courses' To-Do).

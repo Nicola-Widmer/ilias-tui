@@ -132,6 +132,27 @@ time (ilias-tui shows the assignments as tabs). Each participant is an entry of 
 `Participant`; `a` saves all of their submissions.
 _Avoid_: members page (ILIAS' command name), deliveries.
 
+**Two-way sync**:
+A sync that also sends your side to ILIAS: new and edited files, and deletions you choose.
+Off by default (settings). It decides each file three-way, from the base, your disk now and
+ILIAS now.
+
+**Base**:
+What the saved-files list recorded for a file when sync last saved it (or sent it): its
+version on ILIAS (size and date in the listing), and the size, date and content hash of
+the saved copy. "Edited" means the content differs from the base; "changed on ILIAS" means
+the version does.
+
+**Conflict**:
+A file sync can't decide about safely: edited by you and changed on ILIAS, or something
+unclear (a new file named like an ILIAS file sync didn't save, a copy of a saved file).
+Nothing is sent for it and both copies stay.
+_Avoid_: clash, collision.
+
+**Proposal**:
+A deletion two-way sync suggests because you deleted a file it saved and ILIAS still has
+it as saved: moving that file to the ILIAS trash, unticked until you tick it.
+
 **Upload**:
 Putting files into a course, group or folder (`u`), as its "Upload Files" form does. Everyone
 who can open the place sees them. Only where the page's rights include it.

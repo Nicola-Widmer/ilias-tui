@@ -50,7 +50,9 @@ password.
   on Linux with mode `0700`, `%LOCALAPPDATA%\ilias-tui\ilias-tui\cache\` on Windows), which
   backup tools usually skip. Entries older than 30 days are deleted automatically;
   `ILIAS_CACHE=0` turns it off.
-- **The saved-files list**: which ILIAS file was saved to which path (in the data folder).
+- **The saved-files list**: which ILIAS file was saved to which path, with its version
+  on ILIAS and the size, date and SHA-256 hash of the saved copy (in the data folder).
+  Two-way sync reads your synced course folders to compare them with it.
 - **The what's-new list** (`<host>.seen.json`, in the data folder): items a sync found new
   and the folders they are in, until you open those pages.
 

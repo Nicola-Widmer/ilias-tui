@@ -135,6 +135,7 @@ mod tests {
         let rules = crate::sync::Rules {
             max_mb: 50.0,
             missing_only: true,
+            two_way: false,
         };
         confirm.update(&Action::Ask {
             question: format!("Sync all 17 courses in My courses? {}", rules.describe()),
