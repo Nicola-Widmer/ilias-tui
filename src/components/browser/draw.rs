@@ -132,10 +132,10 @@ impl Browser {
                 Row::Item(i) => {
                     let item = &level.items[i];
                     let marks = Marks {
-                        saved: self.saved.contains(&item.ref_id),
-                        marked: self.marked.iter().any(|m| m.ref_id == item.ref_id),
-                        new: self.new.contains(&item.ref_id),
-                        new_inside: self.new_counts.get(&item.ref_id).copied().unwrap_or(0),
+                        saved: self.saved.contains(&item.key()),
+                        marked: self.marked.iter().any(|m| m.id == item.id),
+                        new: self.new.contains(&item.key()),
+                        new_inside: self.new_counts.get(&item.key()).copied().unwrap_or(0),
                     };
                     item_row(item, &query, marks)
                 }

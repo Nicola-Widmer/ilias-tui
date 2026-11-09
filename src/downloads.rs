@@ -1,7 +1,7 @@
 //! Remembers which ILIAS files were saved where, and what they looked like then, so opening
 //! a file again uses the local copy and sync can tell whether you edited it.
 //! Stored next to the session as `<ilias host>.downloads.json`:
-//! `{ "<ref_id>": { "path": …, "version": …, "len": …, "modified_ms": … } }`
+//! `{ "<item key>": { "path": …, "version": …, "len": …, "modified_ms": … } }`
 //! (older versions stored only the path; such entries count as possibly edited).
 
 use std::collections::HashMap;
@@ -116,16 +116,16 @@ impl Downloads {
         Self::from_file(Some(file))
     }
 
-    /// The saved copy of `ref_id`, if it still exists on disk.
-    pub fn get(&self, ref_id: u64) -> Option<&PathBuf> {
+    /// The saved copy of `key`, if it still exists on disk.
+    pub fn get(&self, key: u64) -> Option<&PathBuf> {
         self.entries
-            .get(&ref_id)
+            .get(&key)
             .map(|s| &s.path)
             .filter(|p| p.exists())
     }
 
-    pub fn entry(&self, ref_id: u64) -> Option<&Saved> {
-        self.entries.get(&ref_id)
+    pub fn entry(&self, key: u64) -> Option<&Saved> {
+        self.entries.get(&key)
     }
 
     /// Ref ids of all files that are still on disk.
@@ -137,15 +137,15 @@ impl Downloads {
     }
 
     /// Records a file that was just written to `path` (its current state becomes "untouched").
-    pub fn record(&mut self, ref_id: u64, path: PathBuf, version: String) -> Result<()> {
+    pub fn record(&mut self, key: u64, path: PathBuf, version: String) -> Result<()> {
         let saved = Saved::stamp(path, version);
-        self.update(ref_id, |entry| *entry = Some(saved))
+        self.update(key, |entry| *entry = Some(saved))
     }
 
     /// Notes that ILIAS's `version` is known, without touching the local file's state (it
     /// stays "edited" if it was).
-    pub fn set_version(&mut self, ref_id: u64, version: String) -> Result<()> {
-        self.update(ref_id, |entry| {
+    pub fn set_version(&mut self, key: u64, version: String) -> Result<()> {
+        self.update(key, |entry| {
             if let Some(saved) = entry {
                 saved.version = version;
             }
@@ -155,16 +155,16 @@ impl Downloads {
     /// Applies a change to one entry and writes the index. The file is read again first
     /// and wins for every other entry, so a sync running in the background and the TUI
     /// neither drop nor undo each other's entries.
-    fn update(&mut self, ref_id: u64, change: impl FnOnce(&mut Option<Saved>)) -> Result<()> {
+    fn update(&mut self, key: u64, change: impl FnOnce(&mut Option<Saved>)) -> Result<()> {
         if let Some(file) = &self.file {
             // Overlaid, not replaced: an unreadable file must not wipe what is known here.
             let on_disk = Self::from_file(Some(file.clone())).entries;
             self.entries.extend(on_disk);
         }
-        let mut entry = self.entries.remove(&ref_id);
+        let mut entry = self.entries.remove(&key);
         change(&mut entry);
         if let Some(saved) = entry {
-            self.entries.insert(ref_id, saved);
+            self.entries.insert(key, saved);
         }
         let Some(file) = &self.file else {
             return Ok(());

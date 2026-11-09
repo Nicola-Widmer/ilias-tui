@@ -17,8 +17,8 @@ pub(super) fn add_submission(tabs: &[Tab], blocks: &mut Vec<Block>) {
         return;
     };
     let item = Item {
-        kind: "sub".into(),
-        ref_id: attachment_id(&tab.url),
+        kind: Kind::Submission,
+        id: Id::local(&tab.url),
         title: "Handed-in files".into(),
         url: tab.url.clone(),
         description: "H hands one in, X deletes one".into(),
@@ -86,13 +86,4 @@ pub fn lists_delivered(html: &str, delivered: &str) -> bool {
     Html::parse_document(html)
         .select(&sel(r#"input[name="delivered[]"]"#))
         .any(|input| input.attr("value") == Some(delivered))
-}
-
-/// A stable id for a file attached to an assignment, which has no reference id of its own.
-/// The top bit keeps it apart from real reference ids (FNV-1a, like the cache's file names).
-pub(super) fn attachment_id(url: &str) -> u64 {
-    let hash = url.bytes().fold(0xcbf29ce484222325_u64, |h, b| {
-        (h ^ b as u64).wrapping_mul(0x100000001b3)
-    });
-    hash | 1 << 63
 }

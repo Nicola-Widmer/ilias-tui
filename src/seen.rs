@@ -25,11 +25,11 @@ use crate::session;
 pub fn diff(old: &Page, old_day: Date, new: &Page, new_day: Date) -> Vec<u64> {
     let before: HashMap<u64, Vec<String>> = old
         .items()
-        .map(|i| (i.ref_id, version(i, old_day)))
+        .map(|i| (i.key(), version(i, old_day)))
         .collect();
     new.items()
-        .filter(|i| before.get(&i.ref_id) != Some(&version(i, new_day)))
-        .map(|i| i.ref_id)
+        .filter(|i| before.get(&i.key()) != Some(&version(i, new_day)))
+        .map(|i| i.key())
         .collect()
 }
 
@@ -156,13 +156,14 @@ impl Seen {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use crate::ilias::Id;
     use jiff::civil::date;
     use pretty_assertions::assert_eq;
 
     fn item(ref_id: u64, properties: &[&str]) -> Item {
         Item {
             kind: "file".into(),
-            ref_id,
+            id: Id::Ref(ref_id),
             title: format!("File {ref_id}"),
             properties: properties.iter().map(|p| p.to_string()).collect(),
             ..Item::default()

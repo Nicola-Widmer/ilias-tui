@@ -169,7 +169,7 @@ fn main() -> Result<()> {
                 (None, false) => client.course_list()?,
             };
             for i in items {
-                println!("{}\t{}\t{}", i.kind, i.ref_id, i.title);
+                println!("{}\t{}\t{}", i.kind, i.id, i.title);
             }
             Ok(())
         }
@@ -180,19 +180,20 @@ fn main() -> Result<()> {
             for url in urls {
                 let item = item_from_url(&base, url)?;
                 let path = client.download(&item, &dir)?;
-                downloads.record(item.ref_id, path.clone(), sync::version(&item))?;
+                downloads.record(item.key(), path.clone(), sync::version(&item))?;
                 println!("{}", path.display());
             }
             Ok(())
         }
         ["todo"] => {
             let client = connect(&base, false)?;
-            for item in client.my_courses()?.todo {
+            for todo in client.my_courses()?.todo {
                 println!(
-                    "{}\t{}\t{}",
-                    item.description,
-                    item.title,
-                    item.properties.join(" · ")
+                    "{} · {}\t{}\t{}",
+                    todo.due,
+                    todo.deadline,
+                    todo.assignment.title,
+                    todo.course.unwrap_or_default()
                 );
             }
             Ok(())
@@ -208,13 +209,13 @@ fn main() -> Result<()> {
 /// Builds an [`ilias::Item`] from a link or a path relative to the ILIAS root.
 fn item_from_url(base: &Url, url: &str) -> Result<ilias::Item> {
     let url = base.join(url)?;
-    let Some((kind, ref_id)) = ilias::parse_target(&url) else {
+    let Some((kind, id)) = ilias::parse_target(&url) else {
         bail!("not an ILIAS object link: {url}");
     };
     Ok(ilias::Item {
-        title: format!("{kind}_{ref_id}"),
+        title: format!("{kind}_{id}"),
         kind,
-        ref_id,
+        id,
         url: url.into(),
         ..Default::default()
     })

@@ -27,7 +27,7 @@ use color_eyre::Result;
 
 use crate::cache::Cache;
 use crate::downloads::{Downloads, Local, Saved};
-use crate::ilias::{Client, Item, Page};
+use crate::ilias::{Client, Id, Item, Kind, Page};
 
 /// Downloads running at the same time; polite to the server, still much faster than one.
 const PARALLEL: usize = 3;
@@ -217,18 +217,18 @@ pub fn sync(
     let mut work: Vec<(Item, Plan)> = Vec::new();
     let unseen = Mutex::new(Vec::new());
     // Ref ids of the containers read and the files planned so far.
-    let mut read: HashSet<u64> = HashSet::new();
-    let mut planned: HashSet<u64> = HashSet::new();
+    let mut read: HashSet<Id> = HashSet::new();
+    let mut planned: HashSet<Id> = HashSet::new();
     for root in roots {
         // Listed twice, or already read as part of an earlier root (a group in its course).
-        if !read.insert(root.ref_id) {
+        if !read.insert(root.id) {
             continue;
         }
         let keep = |item: &Item, page: &Page| {
             let new = cache.update(&Cache::key(Some(&item.url), false), page);
             if !new.is_empty() {
                 let mut unseen = unseen.lock().unwrap_or_else(PoisonError::into_inner);
-                unseen.push((root.ref_id, item.ref_id, new));
+                unseen.push((root.key(), item.key(), new));
             }
         };
         let items = client.descendants_with_pages(
@@ -236,14 +236,14 @@ pub fn sync(
             |n| progress(format!("Sync: reading {} … {n} folders", root.title)),
             &keep,
         )?;
-        read.extend(items.iter().filter(|i| i.kind != "file").map(|i| i.ref_id));
+        read.extend(items.iter().filter(|i| i.kind != Kind::File).map(|i| i.id));
         let files = items
             .into_iter()
-            .filter(|i| i.kind == "file" && planned.insert(i.ref_id));
+            .filter(|i| i.kind == Kind::File && planned.insert(i.id));
         for mut item in files {
             // Titles are paths below the root; name the course too.
             item.title = format!("{} › {}", root.title, item.title);
-            let saved = downloads.entry(item.ref_id).map(|s| (s, s.local()));
+            let saved = downloads.entry(item.key()).map(|s| (s, s.local()));
             match plan(&item, saved, rules) {
                 Plan::Unchanged => summary.unchanged += 1,
                 Plan::Deleted => summary.deleted += 1,
@@ -255,7 +255,7 @@ pub fn sync(
                     });
                 }
                 Plan::Adopt => {
-                    downloads.set_version(item.ref_id, version(&item))?;
+                    downloads.set_version(item.key(), version(&item))?;
                     summary.unchanged += 1;
                 }
                 plan => work.push((item, plan)),
@@ -309,7 +309,7 @@ fn fetch(
         downloads
             .lock()
             .unwrap_or_else(PoisonError::into_inner)
-            .record(item.ref_id, path, version(item))
+            .record(item.key(), path, version(item))
     };
     match plan {
         Plan::Update(path) => {
@@ -325,7 +325,7 @@ fn fetch(
             downloads
                 .lock()
                 .unwrap_or_else(PoisonError::into_inner)
-                .set_version(item.ref_id, version(item))?;
+                .set_version(item.key(), version(item))?;
             Ok(beside)
         }
         _ => {
@@ -354,7 +354,7 @@ mod tests {
     fn file(size: &str, date: &str) -> Item {
         Item {
             kind: "file".into(),
-            ref_id: 1,
+            id: Id::Ref(1),
             title: "Blatt 3".into(),
             properties: vec!["pdf".into(), size.into(), date.into()],
             ..Item::default()
@@ -535,7 +535,7 @@ mod tests {
         let mut downloads = Downloads::in_file(dir.join("index.json"));
         let course = Item {
             kind: "crs".into(),
-            ref_id: 1,
+            id: Id::Ref(1),
             title: "DEMO.101".into(),
             url: "https://ilias.example/ilias/goto.php/crs/1".into(),
             ..Item::default()
@@ -586,7 +586,7 @@ mod tests {
         downloads.record(9, path.clone(), "1.2 MB".into()).unwrap();
         let course = Item {
             kind: "crs".into(),
-            ref_id: 1,
+            id: Id::Ref(1),
             title: "DEMO.101".into(),
             url: "https://ilias.example/ilias/goto.php/crs/1".into(),
             ..Item::default()
@@ -648,7 +648,7 @@ mod tests {
         downloads.record(9, path, "1.2 MB".into()).unwrap();
         let container = |kind: &str, id: u64, title: &str| Item {
             kind: kind.into(),
-            ref_id: id,
+            id: Id::Ref(id),
             title: title.into(),
             url: format!("https://ilias.example/ilias/goto.php/{kind}/{id}"),
             ..Item::default()

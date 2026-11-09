@@ -11,7 +11,7 @@ use ratatui::widgets::ListState;
 
 use super::Component;
 use crate::action::Action;
-use crate::ilias::Item;
+use crate::ilias::{Id, Item, Kind, Todo};
 
 mod draw;
 mod level;
@@ -25,7 +25,7 @@ pub struct Browser {
     stack: Vec<Level>,
     /// What is being loaded: ref id (`None` = "My courses") and whether it is a deep search.
     /// Responses for anything else are stale (the user navigated away) and get dropped.
-    pending: Option<(Option<u64>, bool)>,
+    pending: Option<(Option<Id>, bool)>,
     /// Ref ids of files saved locally; Enter opens these without downloading.
     saved: HashSet<u64>,
     /// Ref ids of items that are new since your last visit (marked for this run).
@@ -48,7 +48,10 @@ pub struct Browser {
 
 /// What `S` can sync: places that hold files.
 fn syncable(item: &Item) -> bool {
-    matches!(item.kind.as_str(), "crs" | "grp" | "fold" | "sess")
+    matches!(
+        item.kind,
+        Kind::Course | Kind::Group | Kind::Folder | Kind::Session
+    )
 }
 
 /// What a mouse click at some screen area means.
@@ -94,7 +97,7 @@ impl Browser {
             .map(|l| {
                 l.items
                     .iter()
-                    .filter(|i| syncable(i) && seen.insert(i.ref_id))
+                    .filter(|i| syncable(i) && seen.insert(i.id))
                     .cloned()
                     .collect()
             })
@@ -121,7 +124,7 @@ impl Browser {
                 refresh: false,
                 deep: false,
             }
-        } else if item.kind == "file" {
+        } else if item.kind == Kind::File {
             Action::Download {
                 item: item.clone(),
                 open: true,
@@ -132,7 +135,7 @@ impl Browser {
     }
 
     /// The To-Do entries of the page on screen.
-    fn todo_items(&self) -> &[Item] {
+    fn todo_items(&self) -> &[Todo] {
         self.current().map_or(&[], |l| l.page.todo.as_slice())
     }
 
@@ -153,7 +156,11 @@ impl Browser {
                 self.todo_focus = true;
                 self.todo.select(Some(index));
                 double
-                    .then(|| self.todo_items().get(index).map(|i| self.open(i)))
+                    .then(|| {
+                        self.todo_items()
+                            .get(index)
+                            .map(|t| self.open(&t.assignment))
+                    })
                     .flatten()
             }
             Hit::Tab(index) => {
@@ -201,7 +208,11 @@ impl Browser {
             KeyCode::Home | KeyCode::Char('g') => 0,
             KeyCode::End | KeyCode::Char('G') => last,
             KeyCode::Enter | KeyCode::Right | KeyCode::Char('l' | 'o') => {
-                return Some(self.todo_items().get(selected).map(|i| self.open(i)));
+                return Some(
+                    self.todo_items()
+                        .get(selected)
+                        .map(|t| self.open(&t.assignment)),
+                );
             }
             KeyCode::Tab | KeyCode::BackTab | KeyCode::Esc | KeyCode::Left | KeyCode::Char('h') => {
                 self.todo_focus = false;
@@ -246,7 +257,7 @@ impl Component for Browser {
             .iter()
             .rev()
             .filter_map(|l| l.item.as_ref())
-            .find(|i| i.kind != "sub")
+            .find(|i| i.kind != Kind::Submission)
             .cloned();
         let level = self.stack.last_mut()?;
         match key.code {
@@ -268,7 +279,7 @@ impl Component for Browser {
             KeyCode::Tab => return self.switch_tab(1),
             KeyCode::BackTab => return self.switch_tab(-1),
             KeyCode::Char('d') => {
-                let item = level.selected().filter(|i| i.kind == "file")?;
+                let item = level.selected().filter(|i| i.kind == Kind::File)?;
                 return Some(Action::Download {
                     item: item.clone(),
                     open: false,
@@ -329,7 +340,7 @@ impl Component for Browser {
                         "Only courses, groups and folders can be marked for sync".into(),
                     ));
                 }
-                match self.marked.iter().position(|m| m.ref_id == item.ref_id) {
+                match self.marked.iter().position(|m| m.id == item.id) {
                     Some(i) => {
                         self.marked.remove(i);
                     }
@@ -425,7 +436,7 @@ impl Component for Browser {
         match action {
             Action::SetConfig(config) => self.sync_rules = crate::sync::Rules::new(config),
             Action::Load { item, deep, .. } => {
-                self.pending = Some((item.as_ref().map(|i| i.ref_id), *deep));
+                self.pending = Some((item.as_ref().map(|i| i.id), *deep));
             }
             Action::Loaded {
                 item,
@@ -434,7 +445,7 @@ impl Component for Browser {
                 deep,
             } => {
                 // Only the page asked for last counts; the rest is stale.
-                if self.pending != Some((item.as_ref().map(|i| i.ref_id), *deep)) {
+                if self.pending != Some((item.as_ref().map(|i| i.id), *deep)) {
                     return None;
                 }
                 self.pending = None;
@@ -443,8 +454,7 @@ impl Component for Browser {
                     // Another tab of the page on screen (cached or fetched) takes its place.
                     Some(level)
                         if level.deep == *deep
-                            && level.item.as_ref().map(|i| i.ref_id)
-                                == item.as_ref().map(|i| i.ref_id) =>
+                            && level.item.as_ref().map(|i| i.id) == item.as_ref().map(|i| i.id) =>
                     {
                         *level = Level::new(item.clone(), *deep, page.clone());
                         return Some(Action::Filter(String::new()));
@@ -471,7 +481,7 @@ impl Component for Browser {
                 }
             }
             Action::Downloaded { item, .. } => {
-                self.saved.insert(item.ref_id);
+                self.saved.insert(item.key());
             }
             Action::Synced { saved, .. } => self.saved.extend(saved),
             Action::NewItems(items) => self.new.extend(items),
@@ -486,7 +496,7 @@ impl Component for Browser {
                 let (top, hidden) = self.stack.split_last_mut()?;
                 for level in hidden {
                     level.out_of_date |=
-                        level.item.is_none() || level.items.iter().any(|i| i.ref_id == item.ref_id);
+                        level.item.is_none() || level.items.iter().any(|i| i.id == item.id);
                 }
                 return Some(top.reload());
             }

@@ -20,7 +20,7 @@ src/
 │   ├── my_courses.rs    My courses: course list + favourites + To-Do, assembled
 │   ├── pages.rs         The seam for page requests: Https, and FakeIlias for tests
 │   ├── parse/           HTML → Page { tabs, blocks } (ILIAS 10 markup)
-│   │   ├── mod.rs       parse_page, links → (kind, ref_id), breadcrumb
+│   │   ├── mod.rs       parse_page, links → (Kind, Id), breadcrumb
 │   │   ├── model.rs     Item, Tab, Post, Block, Page
 │   │   ├── walker.rs    The content column → headings, text, items, text links
 │   │   ├── forum.rs     Thread posts
@@ -133,7 +133,7 @@ reads the course list to find out, and keeps that page (`checked_courses`); the 
 ILIAS 10 renders HTML on the server. `parse_page` turns a page into a `Page`:
 
 ```rust
-pub struct Page { pub tabs: Vec<Tab>, pub blocks: Vec<Block>, pub todo: Vec<Item> }
+pub struct Page { pub tabs: Vec<Tab>, pub blocks: Vec<Block>, pub todo: Vec<Todo> }
 pub enum Block {
     Heading(String),                              // h1–h4, page-editor headings
     Text(String),                                 // one paragraph / line of page text
@@ -141,11 +141,23 @@ pub enum Block {
     Post(Post),                                   // a forum post (author, date, title, body, depth, unread)
 }
 pub struct Item {
-    kind, ref_id, title, url,
+    kind: Kind,       // Course, Folder, File, Assignment, Thread, Link, … or Other("wiki")
+    id: Id,           // Ref(ref_id) | Assignment(n) | Thread(n) | Local(hash of a link)
+    title, url,
     description,      // e.g. "Introduction to Examples"
     properties,       // e.g. ["pdf", "1.2 MB", "1. Mar 2026, 10:00"]
 }
+pub struct Todo { assignment: Item, course, deadline, due, urgency }   // My courses' To-Do
 ```
+
+- **Kinds and ids** (`parse/model.rs`): `Kind` is ILIAS' type, `Id` says what kind of
+  number identifies the item. Only `Id::Ref` is a reference id: permalinks, favourites and
+  the crawl use it. Assignments and threads have numbers of their own, and what ilias-tui
+  identifies by a link (attachments, handed-in files, text links, the Submission entry) gets
+  `Id::Local`, a hash with the top bit set. `parse_target` is the one place that decides an
+  id's type. On disk nothing changed: the cache stores `kind` as ILIAS' code and the id as
+  `ref_id` (`Stored`), and the saved-files list and the seen file use `Id::key()`, the same
+  number. To-Do entries cached in the old shape are skipped until the refresh.
 
 - **Tabs**: `#ilTab > li[id^=tab_]`. The active one has class `active`. Screen-reader text
   like "(Ausgewählte)" is removed.
@@ -235,13 +247,14 @@ Item title links are found with two CSS selectors:
 | `a.il_ContainerItemTitle` | Contents of categories, courses, groups, folders   |
 | `.il-item-title a`        | UI-framework lists (dashboard, memberships)        |
 
-Each link's `href` is turned into `(kind, ref_id)` by `parse_target`, which understands
+Each link's `href` is turned into `(Kind, Id)` by `parse_target`, which understands
 three link formats (plus a fallback, see below):
 
 - ILIAS 10 permalinks: `goto.php/crs/123`. Used for most objects.
 - Legacy links: `goto.php?target=crs_123`.
 - Forum threads: `ilias.php?cmdClass=ilObjForumGUI&cmd=viewThread&ref_id=…&thr_pk=42`
-  becomes `("thr", 42)`. All threads share the forum's `ref_id`, so they need their own id.
+  becomes `(Thread, Id::Thread(42))`. All threads share the forum's `ref_id`, so they need
+  their own id.
 - Direct GUI links: `ilias.php?cmdClass=ilObjFileGUI&cmd=sendfile&ref_id=123`.
   **Files inside folders use this format.** The kind comes from the GUI class
   (`ilObjFileGUI` → `file`, `ilObjFolderGUI` → `fold`, …; see `kind_from_gui_class`).

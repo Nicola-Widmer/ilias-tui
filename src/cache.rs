@@ -136,6 +136,7 @@ fn day(time: SystemTime) -> Option<jiff::civil::Date> {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use crate::ilias::Id;
 
     #[test]
     fn removes_old_entries_only() {
@@ -161,7 +162,7 @@ mod tests {
         let dir = std::env::temp_dir().join(format!("ilias-tui-cache-new-{}", std::process::id()));
         let cache = Cache::in_dir(dir);
         let file = |ref_id, date: &str| Item {
-            ref_id,
+            id: Id::Ref(ref_id),
             properties: vec![date.into()],
             ..Item::default()
         };

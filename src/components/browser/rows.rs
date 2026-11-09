@@ -5,7 +5,7 @@ use ratatui::text::{Line, Span, Text};
 use ratatui::widgets::ListItem;
 
 use crate::icons::icon;
-use crate::ilias::{Item, Post};
+use crate::ilias::{Item, Post, Todo, Urgency};
 use crate::theme;
 
 use super::*;
@@ -56,20 +56,13 @@ pub(super) fn post_rows(rows: &mut Vec<Row>, post: &Post, show_title: bool, widt
 }
 
 /// A To-Do entry: assignment, how long is left (red when it's close), course.
-pub(super) fn todo_row(item: &Item, last: bool) -> ListItem<'static> {
+pub(super) fn todo_row(todo: &Todo, last: bool) -> ListItem<'static> {
+    let item = &todo.assignment;
     let (glyph, color) = icon(item);
-    let (due, date) = item
-        .description
-        .split_once(" · ")
-        .unwrap_or((item.description.as_str(), ""));
-    let days = due
-        .strip_prefix("due in ")
-        .and_then(|rest| rest.strip_suffix(" days").or(rest.strip_suffix(" day")))
-        .and_then(|n| n.parse::<u32>().ok());
-    let due_color = match days {
-        _ if due == "overdue" || due.contains("hour") => theme::colors().red,
-        Some(days) if days <= 3 => theme::colors().yellow,
-        _ => theme::colors().green,
+    let due_color = match todo.urgency {
+        Urgency::Now => theme::colors().red,
+        Urgency::Soon => theme::colors().yellow,
+        Urgency::Later => theme::colors().green,
     };
     let mut lines = vec![
         Line::from(vec![
@@ -83,13 +76,13 @@ pub(super) fn todo_row(item: &Item, last: bool) -> ListItem<'static> {
         ]),
         Line::from(vec![
             Span::styled(
-                format!("   {due}"),
+                format!("   {}", todo.due),
                 Style::new().fg(due_color).add_modifier(Modifier::BOLD),
             ),
-            Span::styled(format!("  {date}"), theme::muted()),
+            Span::styled(format!("  {}", todo.deadline), theme::muted()),
         ]),
         Line::styled(
-            format!("   {}", item.properties.first().map_or("", String::as_str)),
+            format!("   {}", todo.course.as_deref().unwrap_or("")),
             theme::muted().add_modifier(Modifier::ITALIC),
         ),
     ];
@@ -172,7 +165,7 @@ pub(super) fn item_row(item: &Item, query: &str, marks: Marks) -> ListItem<'stat
     let mut lines = vec![Line::from(title)];
     // The icon already says "course" or "folder", and files show their type as a property;
     // only less obvious objects (exercise, forum, …) get their kind spelled out.
-    let kind = if item.is_container() || item.kind == "file" {
+    let kind = if item.is_container() || item.kind == Kind::File {
         ""
     } else {
         item.kind_label()

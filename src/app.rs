@@ -220,7 +220,7 @@ impl App {
                 let (item, url, refresh, deep) = (item.clone(), url.clone(), *refresh, *deep);
                 // Opening a course (or folder) marks what a sync found new in it as seen.
                 if let Some(opened) = item.as_ref().filter(|_| !deep) {
-                    let new = self.seen.open(opened.ref_id);
+                    let new = self.seen.open(opened.key());
                     if !new.is_empty() {
                         self.tx.send(Action::NewItems(new))?;
                         self.tx.send(Action::NewCounts(self.seen.counts()))?;
@@ -274,8 +274,8 @@ impl App {
                 }
             }
             // Opening a file that was saved before: use the local copy.
-            Action::Download { item, open: true } if self.downloads.get(item.ref_id).is_some() => {
-                let path = self.downloads.get(item.ref_id).cloned().unwrap_or_default();
+            Action::Download { item, open: true } if self.downloads.get(item.key()).is_some() => {
+                let path = self.downloads.get(item.key()).cloned().unwrap_or_default();
                 self.tx.send(Action::OpenFile(path))?;
                 return Ok(());
             }
@@ -288,7 +288,7 @@ impl App {
             }
             Action::Downloaded { item, path, open } => {
                 self.downloads
-                    .record(item.ref_id, path.clone(), crate::sync::version(item))?;
+                    .record(item.key(), path.clone(), crate::sync::version(item))?;
                 if *open {
                     self.tx.send(Action::OpenFile(path.clone()))?;
                 }
@@ -520,6 +520,7 @@ impl Drop for Running {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use crate::ilias::Id;
     use crate::ilias::Item;
     use url::Url;
 
@@ -554,7 +555,7 @@ mod tests {
     fn show_my_courses(app: &mut App) {
         let courses = Page::from_items(vec![Item {
             kind: "crs".into(),
-            ref_id: 1,
+            id: Id::Ref(1),
             title: "DEMO".into(),
             favorite_toggle: Some(
                 "https://ilias.example/ilias/ilias.php?cmd=addToDesk&item_ref_id=1".into(),
@@ -640,7 +641,7 @@ mod tests {
         let mut app = app(&dir);
         let course = Item {
             kind: "crs".into(),
-            ref_id: 1,
+            id: Id::Ref(1),
             title: "DEMO".into(),
             url: "https://ilias.example/ilias/goto.php/crs/1".into(),
             ..Default::default()
@@ -683,7 +684,7 @@ mod tests {
         let mut app = app(&dir);
         let course = Item {
             kind: "crs".into(),
-            ref_id: 1,
+            id: Id::Ref(1),
             title: "DEMO".into(),
             url: "https://ilias.example/ilias/goto.php/crs/1".into(),
             ..Default::default()
@@ -804,7 +805,7 @@ mod tests {
     fn cached_my_courses(app: &App) {
         let courses = Page::from_items(vec![Item {
             kind: "crs".into(),
-            ref_id: 1,
+            id: Id::Ref(1),
             title: "DEMO".into(),
             url: "https://ilias.example/ilias/goto.php/crs/1".into(),
             ..Default::default()
@@ -875,7 +876,7 @@ mod tests {
         // A cached page is shown right away, then refreshed in the background.
         let folder = Item {
             kind: "fold".into(),
-            ref_id: 2,
+            id: Id::Ref(2),
             url: "https://ilias.example/ilias/goto.php/fold/2".into(),
             ..Default::default()
         };
@@ -902,7 +903,7 @@ mod tests {
         app.client.set_offline(true);
         let item = |kind: &str, id: u64, title: &str| Item {
             kind: kind.into(),
-            ref_id: id,
+            id: Id::Ref(id),
             title: title.into(),
             url: format!("https://ilias.example/ilias/goto.php/{kind}/{id}"),
             ..Default::default()
@@ -961,7 +962,7 @@ mod tests {
         app.client.set_offline(true);
         let folder = |id: u64| Item {
             kind: "fold".into(),
-            ref_id: id,
+            id: Id::Ref(id),
             title: format!("Ordner {id}"),
             url: format!("https://ilias.example/ilias/goto.php/fold/{id}"),
             ..Default::default()

@@ -16,9 +16,9 @@ pub(super) struct Walker<'a> {
     pub(super) line: String,
     /// Links in that paragraph; they follow it as `link` items.
     pub(super) links: Vec<Item>,
-    pub(super) seen: HashSet<u64>,
+    pub(super) seen: HashSet<Id>,
     /// Ids of the text links so far, to list each one once.
-    pub(super) seen_links: HashSet<u64>,
+    pub(super) seen_links: HashSet<Id>,
 }
 
 pub(super) const SKIPPED_TAGS: &[&str] = &[
@@ -164,8 +164,8 @@ impl<'a> Walker<'a> {
                 .and_then(|href| self.page_url.join(href).ok())
             {
                 self.push_item(Item {
-                    kind: "file".into(),
-                    ref_id: attachment_id(url.as_str()),
+                    kind: Kind::File,
+                    id: Id::local(url.as_str()),
                     title: label_text,
                     url: url.into(),
                     ..Item::default()
@@ -250,8 +250,8 @@ impl<'a> Walker<'a> {
             .collect();
         let (title, properties) = cells.split_first()?;
         Some(Item {
-            kind: "file".into(),
-            ref_id: attachment_id(url.as_str()),
+            kind: Kind::File,
+            id: Id::local(url.as_str()),
             title: title.clone(),
             url: url.into(),
             properties: properties.to_vec(),
@@ -278,21 +278,21 @@ impl<'a> Walker<'a> {
         let url = self.page_url.join(a.attr("href")?).ok()?;
         // Some links (e.g. weblinks: `baseClass=ilLinkResourceHandlerGUI&ref_id=…`) carry no
         // type; the item's icon still tells it.
-        let (kind, ref_id) = parse_target(&url).or_else(|| {
+        let (kind, id) = parse_target(&url).or_else(|| {
             let ref_id = url
                 .query_pairs()
                 .find(|(k, _)| k == "ref_id")?
                 .1
                 .parse()
                 .ok()?;
-            Some((kind_from_icon(container)?, ref_id))
+            Some((kind_from_icon(container)?, Id::Ref(ref_id)))
         })?;
-        if !self.seen.insert(ref_id) {
+        if !self.seen.insert(id) {
             return None;
         }
         // Assignments show the time left in front of the title instead of a description.
         let description = container
-            .select(&sel(if kind == "ass" {
+            .select(&sel(if kind == Kind::Assignment {
                 ".col-sm-3"
             } else {
                 ".il_Description, .il-item-description"
@@ -336,7 +336,7 @@ impl<'a> Walker<'a> {
             .filter_map(|link| self.page_url.join(link).ok())
             .find(|link| {
                 link.query_pairs()
-                    .any(|(k, v)| k == "item_ref_id" && v == ref_id.to_string())
+                    .any(|(k, v)| k == "item_ref_id" && v == id.key().to_string())
             });
         let favorite = favorite_toggle.as_ref().is_some_and(|link| {
             link.query()
@@ -344,7 +344,7 @@ impl<'a> Walker<'a> {
         });
         Some(Item {
             kind,
-            ref_id,
+            id,
             title: text_of(a),
             url: url.into(),
             description,
@@ -363,14 +363,14 @@ impl<'a> Walker<'a> {
         if !matches!(url.scheme(), "http" | "https") || crate::ilias::write::is_write(&url) {
             return None;
         }
-        let ref_id = attachment_id(url.as_str());
-        if !self.seen_links.insert(ref_id) {
+        let id = Id::local(url.as_str());
+        if !self.seen_links.insert(id) {
             return None;
         }
         let text = visible_text(a);
         Some(Item {
-            kind: "link".into(),
-            ref_id,
+            kind: Kind::Link,
+            id,
             title: if text.is_empty() {
                 url.to_string()
             } else {

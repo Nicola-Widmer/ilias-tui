@@ -24,7 +24,7 @@ use url::Url;
 
 pub use pages::Fetched;
 use pages::{Form, Https, Pages};
-pub use parse::{Block, Item, Page, Post, parse_page, parse_target};
+pub use parse::{Block, Id, Item, Kind, Page, Post, Todo, Urgency, parse_page, parse_target};
 
 /// The "My courses and groups" page.
 const MEMBERSHIPS: &str = "ilias.php?baseClass=ilmembershipoverviewgui";
@@ -230,7 +230,7 @@ impl Client {
         let fetched = self.get_authed(&Url::parse(url.unwrap_or(&item.url))?)?;
         let mut page = parse_page(&fetched.html, &fetched.url);
         self.show_all(&mut page, &fetched)?;
-        page.remove(item.ref_id);
+        page.remove(item.id);
         Ok(page)
     }
 
@@ -246,7 +246,7 @@ impl Client {
                 complete = false;
                 break;
             }
-            let Some(after) = more.last_ref_id() else {
+            let Some(after) = more.last_shown() else {
                 complete = false;
                 continue;
             };
@@ -329,11 +329,11 @@ impl Client {
             None => self.course_list()?,
         };
         // 1. Fetch every container below `root`, one tree level at a time, in parallel.
-        let mut queued: HashSet<u64> = root.map(|r| r.ref_id).into_iter().collect();
-        let mut children: HashMap<u64, Vec<Item>> = HashMap::new();
+        let mut queued: HashSet<Id> = root.map(|r| r.id).into_iter().collect();
+        let mut children: HashMap<Id, Vec<Item>> = HashMap::new();
         let mut frontier: Vec<Item> = top
             .iter()
-            .filter(|i| crawlable(i) && queued.insert(i.ref_id))
+            .filter(|i| crawlable(i) && queued.insert(i.id))
             .cloned()
             .collect();
         let fetched = AtomicUsize::new(0);
@@ -344,14 +344,14 @@ impl Client {
             frontier = results
                 .iter()
                 .flat_map(|(_, items)| items)
-                .filter(|i| crawlable(i) && queued.insert(i.ref_id))
+                .filter(|i| crawlable(i) && queued.insert(i.id))
                 .cloned()
                 .collect();
             children.extend(results);
         }
 
         // 2. Walk the tree in display order, turning titles into paths.
-        Ok(walk(root, top, |item| children.get(&item.ref_id).cloned()))
+        Ok(walk(root, top, |item| children.get(&item.id).cloned()))
     }
 
     /// Fetches the children of all `items`, `PARALLEL` requests at a time. ILIAS handles
@@ -361,7 +361,7 @@ impl Client {
         items: &[Item],
         done: &(dyn Fn() + Sync),
         pages: &(dyn Fn(&Item, &Page) + Sync),
-    ) -> Result<Vec<(u64, Vec<Item>)>> {
+    ) -> Result<Vec<(Id, Vec<Item>)>> {
         let next = AtomicUsize::new(0);
         let results = Mutex::new(Vec::new());
         thread::scope(|scope| {
@@ -370,7 +370,7 @@ impl Client {
                     while let Some(item) = items.get(next.fetch_add(1, Ordering::Relaxed)) {
                         let result = self.page(item, None).map(|page| {
                             pages(item, &page);
-                            (item.ref_id, page.items().cloned().collect())
+                            (item.id, page.items().cloned().collect())
                         });
                         done();
                         results
@@ -398,7 +398,7 @@ impl Client {
         let url = if direct.iter().any(|d| item.url.contains(d)) {
             Url::parse(&item.url)?
         } else {
-            self.url(&format!("goto.php?target=file_{}_download", item.ref_id))?
+            self.url(&format!("goto.php?target=file_{}_download", item.key()))?
         };
         let mut response = self.send_file_request(&url)?;
         if is_html(&response) && self.silent_login()? {
@@ -511,8 +511,13 @@ pub(crate) fn unique_path(dir: &Path, name: &str) -> PathBuf {
 pub fn crawlable(item: &Item) -> bool {
     item.is_container()
         && !matches!(
-            item.kind.as_str(),
-            "cat" | "frm" | "thr" | "exc" | "ass" | "sub"
+            item.kind,
+            Kind::Category
+                | Kind::Forum
+                | Kind::Thread
+                | Kind::Exercise
+                | Kind::Assignment
+                | Kind::Submission
         )
 }
 
@@ -524,12 +529,12 @@ pub fn walk(
     top: Vec<Item>,
     children: impl Fn(&Item) -> Option<Vec<Item>>,
 ) -> Vec<Item> {
-    let mut seen: HashSet<u64> = root.map(|r| r.ref_id).into_iter().collect();
+    let mut seen: HashSet<Id> = root.map(|r| r.id).into_iter().collect();
     let mut stack: Vec<(String, Item)> =
         top.into_iter().rev().map(|i| (String::new(), i)).collect();
     let mut found = Vec::new();
     while let Some((parent, item)) = stack.pop() {
-        if !seen.insert(item.ref_id) {
+        if !seen.insert(item.id) {
             continue;
         }
         let path = if parent.is_empty() {
@@ -589,7 +594,7 @@ mod tests {
         let base = Url::parse("https://ilias.example/ilias/").unwrap();
         let client = Client::new(base, CookieStore::default()).unwrap();
         let item = |link: &str| Item {
-            ref_id: 7,
+            id: Id::Ref(7),
             title: "DEMO".into(),
             favorite_toggle: Some(link.into()),
             ..Item::default()
@@ -713,7 +718,7 @@ mod tests {
         });
         let course = Item {
             kind: "crs".into(),
-            ref_id: 1,
+            id: Id::Ref(1),
             url: "https://ilias.example/ilias/goto.php/crs/1".into(),
             ..Item::default()
         };
@@ -779,7 +784,7 @@ mod tests {
         });
         let folder = Item {
             kind: "fold".into(),
-            ref_id: 9,
+            id: Id::Ref(9),
             url: "https://ilias.example/ilias/goto.php/fold/9".into(),
             ..Item::default()
         };

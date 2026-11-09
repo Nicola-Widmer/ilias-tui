@@ -44,6 +44,12 @@ possible. In the TUI it runs in the background while My courses shows from the c
 reads the course list to check, and the next My courses uses that page instead of asking
 again.
 
+**Reference id**
+ILIAS' number for an object in the repository (`ref_id`, as in `goto.php/crs/123`). Only
+these have permalinks and favourites. Assignments and forum threads have numbers of their
+own, and ilias-tui gives things it only knows by a link (attachments, text links) an id made
+from that link; in code these are the variants of `Id`.
+
 **Write**
 A request that changes something on ILIAS: your account, your favourites, read marks,
 memberships, notifications or the session (logout). ilias-tui sends writes only from

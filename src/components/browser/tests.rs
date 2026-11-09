@@ -3,7 +3,7 @@ use std::collections::{HashMap, HashSet};
 use ratatui::crossterm::event::{KeyCode, KeyEvent, MouseButton, MouseEvent, MouseEventKind};
 
 use super::*;
-use crate::ilias::{Block, Item, Page};
+use crate::ilias::{Block, Item, Page, Todo, Urgency};
 use ratatui::Terminal;
 use ratatui::backend::TestBackend;
 
@@ -11,7 +11,7 @@ fn item(kind: &str, ref_id: u64, title: &str) -> Item {
     let url = format!("https://ilias.example/goto.php/{kind}/{ref_id}");
     Item {
         kind: kind.into(),
-        ref_id,
+        id: Id::Ref(ref_id),
         title: title.into(),
         url,
         ..Default::default()
@@ -84,7 +84,7 @@ fn a_asks_before_syncing_all_courses_from_anywhere() {
     let Action::Sync(roots) = *then else {
         panic!("expected a sync");
     };
-    let ids: Vec<u64> = roots.iter().map(|r| r.ref_id).collect();
+    let ids: Vec<u64> = roots.iter().map(|r| r.key()).collect();
     assert_eq!(ids, [1, 2]);
 
     // The question follows the settings.
@@ -146,7 +146,7 @@ fn links_in_page_text_can_be_selected_and_opened() {
     browser.handle_key_event(KeyCode::Char('k').into());
     assert!(matches!(
         browser.handle_key_event(KeyCode::Char('y').into()),
-        Some(Action::CopyLink(item)) if item.ref_id == 99
+        Some(Action::CopyLink(item)) if item.key() == 99
     ));
     assert_eq!(
         opens(&mut browser, KeyCode::Char('o')),
@@ -313,7 +313,7 @@ fn mouse_selects_opens_switches_tabs_and_goes_back() {
 
     // Single click selects, a second click on the same item opens it.
     assert!(click(&mut browser, Hit::Item(1)).is_none());
-    assert_eq!(browser.current().unwrap().selected().unwrap().ref_id, 3);
+    assert_eq!(browser.current().unwrap().selected().unwrap().key(), 3);
     let open = click(&mut browser, Hit::Item(1));
     assert!(matches!(open, Some(Action::Download { open: true, .. })));
 
@@ -324,7 +324,7 @@ fn mouse_selects_opens_switches_tabs_and_goes_back() {
         row: 0,
         modifiers: ratatui::crossterm::event::KeyModifiers::NONE,
     });
-    assert_eq!(browser.current().unwrap().selected().unwrap().ref_id, 2);
+    assert_eq!(browser.current().unwrap().selected().unwrap().key(), 2);
 
     let tab = click(&mut browser, Hit::Tab(1));
     assert!(matches!(tab, Some(Action::Load { url: Some(ref u), .. }) if u == "u2"));
@@ -381,7 +381,7 @@ fn filters_and_selects_within_matches() {
     assert!(screen.contains("1 of 3"), "{screen}");
     assert!(!screen.contains("Woche 1"), "{screen}");
     assert!(
-        matches!(browser.handle_key_event(KeyCode::Enter.into()), Some(Action::Download { item: ref i, .. }) if i.ref_id == 3)
+        matches!(browser.handle_key_event(KeyCode::Enter.into()), Some(Action::Download { item: ref i, .. }) if i.key() == 3)
     );
 }
 
@@ -445,9 +445,9 @@ fn renders_course_page_like_ilias() {
         );
     }
     // Text rows are skipped: the first selectable row is the folder.
-    assert_eq!(browser.current().unwrap().selected().unwrap().ref_id, 8);
+    assert_eq!(browser.current().unwrap().selected().unwrap().key(), 8);
     browser.handle_key_event(KeyCode::Down.into());
-    assert_eq!(browser.current().unwrap().selected().unwrap().ref_id, 9);
+    assert_eq!(browser.current().unwrap().selected().unwrap().key(), 9);
 
     let tab = browser.handle_key_event(KeyCode::Tab.into());
     assert!(
@@ -542,7 +542,7 @@ fn x_asks_before_deleting_a_handed_in_file() {
         panic!("asks first");
     };
     assert!(question.contains("Bericht.pdf") && question.contains("Laborbericht"));
-    assert!(matches!(*then, Action::DeleteSubmission { ref file, .. } if file.ref_id == 9));
+    assert!(matches!(*then, Action::DeleteSubmission { ref file, .. } if file.key() == 9));
 
     // Inside the assignment's Submission, it is still about the assignment.
     let mut submission = item("sub", 3, "Submission");
@@ -580,11 +580,18 @@ fn x_asks_before_deleting_a_handed_in_file() {
 #[test]
 fn todo_panel_gets_focus_with_tab_and_opens_assignments() {
     let mut browser = Browser::default();
-    let mut assignment = item("exc", 5, "Blatt 1");
-    assignment.description = "due in 2 days · 3. Nov 2026, 23:55".into();
-    assignment.properties = vec!["DEMO.101".into()];
+    let todo = |assignment| Todo {
+        assignment,
+        course: Some("DEMO.101".into()),
+        deadline: "3. Nov 2026, 23:55".into(),
+        due: "due in 2 days".into(),
+        urgency: Urgency::Soon,
+    };
     let page = Page {
-        todo: vec![assignment, item("exc", 6, "Blatt 2")],
+        todo: vec![
+            todo(item("exc", 5, "Blatt 1")),
+            todo(item("exc", 6, "Blatt 2")),
+        ],
         ..Page::from_items(vec![item("crs", 1, "DEMO.101")])
     };
     browser.update(&Action::Load {
@@ -646,7 +653,7 @@ fn f_asks_before_changing_favourites() {
         panic!("expected a question, got {action:?}");
     };
     assert!(question.starts_with("Remove “DEMO.101”"), "{question}");
-    assert!(matches!(*then, Action::ToggleFavorite(ref i) if i.ref_id == 1));
+    assert!(matches!(*then, Action::ToggleFavorite(ref i) if i.key() == 1));
 
     // Without a menu link there is nothing to send.
     browser.handle_key_event(KeyEvent::from(KeyCode::Char('j')));
@@ -678,7 +685,7 @@ fn hidden_pages_reload_when_shown_again_after_a_favourites_change() {
         dry_run: false,
     });
     assert!(
-        matches!(now, Some(Action::Load { item: Some(ref i), refresh: true, .. }) if i.ref_id == 1)
+        matches!(now, Some(Action::Load { item: Some(ref i), refresh: true, .. }) if i.key() == 1)
     );
     // … while a refresh of hidden My courses is not applied behind the course.
     browser.update(&Action::Loaded {
@@ -687,7 +694,7 @@ fn hidden_pages_reload_when_shown_again_after_a_favourites_change() {
         refresh: true,
         deep: false,
     });
-    assert_eq!(browser.current().unwrap().items[0].ref_id, 5);
+    assert_eq!(browser.current().unwrap().items[0].key(), 5);
 
     // Going back shows My courses and reloads it, once.
     let back = browser

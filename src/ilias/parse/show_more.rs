@@ -18,10 +18,10 @@ pub struct ShowMore {
 }
 
 impl ShowMore {
-    /// The reference id of the last item shown before the button.
-    pub fn last_ref_id(&self) -> Option<u64> {
+    /// The last item shown before the button.
+    pub fn last_shown(&self) -> Option<Id> {
         // ILIAS reads the ref id the same way: the third part of the list id.
-        self.shown.last()?.split('_').nth(2)?.parse().ok()
+        Some(Id::Ref(self.shown.last()?.split('_').nth(2)?.parse().ok()?))
     }
 }
 

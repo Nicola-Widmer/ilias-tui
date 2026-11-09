@@ -14,26 +14,37 @@ mod walker;
 
 pub use dashboard::{Dashboard, course_title, parse_dashboard, parse_date};
 pub use exercise::{delete_form, lists_delivered, parse_upload_form};
-pub use model::{Block, Item, Page, Post, Tab};
+pub use model::{Block, Id, Item, Kind, Page, Post, Tab, Todo, Urgency};
 pub use show_more::{ShowMore, has_show_more, show_more};
 
-use exercise::{add_submission, attachment_id};
+use exercise::add_submission;
 use forum::post;
 use html::*;
 use walker::*;
 
-/// Extracts `(kind, ref_id)` from an ILIAS link.
+/// Extracts what an ILIAS link points to: its kind and id.
 ///
 /// Understands ILIAS 10 permalinks (`goto.php/crs/123`), the legacy form
 /// (`goto.php?target=crs_123`) and direct GUI links
 /// (`ilias.php?cmdClass=ilObjFileGUI&cmd=sendfile&ref_id=123`, used for files in folders).
-/// Forum threads (`cmd=viewThread&thr_pk=42`) become `("thr", 42)`.
-pub fn parse_target(url: &Url) -> Option<(String, u64)> {
+/// Forum threads (`cmd=viewThread&thr_pk=42`) become `(Thread, Id::Thread(42))`, assignments
+/// `(Assignment, Id::Assignment(…))`; everything else has a reference id.
+pub fn parse_target(url: &Url) -> Option<(Kind, Id)> {
+    let (kind, number) = target(url)?;
+    let id = match kind {
+        Kind::Thread => Id::Thread(number),
+        Kind::Assignment => Id::Assignment(number),
+        _ => Id::Ref(number),
+    };
+    Some((kind, id))
+}
+
+fn target(url: &Url) -> Option<(Kind, u64)> {
     let segments: Vec<&str> = url.path_segments()?.collect();
     if let Some(pos) = segments.iter().position(|s| *s == "goto.php")
         && let (Some(kind), Some(id)) = (segments.get(pos + 1), segments.get(pos + 2))
     {
-        return Some((kind.to_string(), id.parse().ok()?));
+        return Some(((*kind).into(), id.parse().ok()?));
     }
     let query: Vec<_> = url.query_pairs().collect();
     let param = |key: &str| {
@@ -45,16 +56,16 @@ pub fn parse_target(url: &Url) -> Option<(String, u64)> {
     if param("cmd") == Some("viewThread")
         && let Some(thread) = param("thr_pk")
     {
-        return Some(("thr".into(), thread.parse().ok()?));
+        return Some((Kind::Thread, thread.parse().ok()?));
     }
     if param("cmdClass").is_some_and(|c| c.eq_ignore_ascii_case("ilAssignmentPresentationGUI"))
         && let Some(assignment) = param("ass_id")
     {
-        return Some(("ass".into(), assignment.parse().ok()?));
+        return Some((Kind::Assignment, assignment.parse().ok()?));
     }
     if let Some(target) = param("target") {
         let mut parts = target.split('_');
-        let kind = parts.next()?.to_string();
+        let kind = parts.next()?.into();
         let id = parts.next()?.parse().ok()?;
         return Some((kind, id));
     }
@@ -63,7 +74,7 @@ pub fn parse_target(url: &Url) -> Option<(String, u64)> {
 }
 
 /// Maps `ilObjFileGUI` → `file` etc.; unknown classes keep their middle part.
-fn kind_from_gui_class(class: &str) -> Option<String> {
+fn kind_from_gui_class(class: &str) -> Option<Kind> {
     let name = class
         .to_ascii_lowercase()
         .strip_prefix("ilobj")?
@@ -84,7 +95,7 @@ fn kind_from_gui_class(class: &str) -> Option<String> {
         "wiki" => "wiki",
         "blog" => "blog",
         "mediacast" => "mcst",
-        _ => return Some(name),
+        _ => return Some(name.into()),
     };
     Some(kind.into())
 }
@@ -162,7 +173,7 @@ pub fn parse_page(html: &str, page_url: &Url) -> Page {
     walker.flush();
     for block in &mut walker.blocks {
         if let Block::Items { items, .. } = block {
-            for item in items.iter_mut().filter(|i| i.kind == "file") {
+            for item in items.iter_mut().filter(|i| i.kind == Kind::File) {
                 item.path.clone_from(&path);
             }
         }
@@ -179,7 +190,7 @@ pub fn parse_page(html: &str, page_url: &Url) -> Page {
 /// The page's place from the course (or group) down, e.g. `["DEMO.101", "Unterlagen",
 /// "Woche 3"]`; empty outside courses and groups.
 fn breadcrumb_path(doc: &Html, page_url: &Url) -> Vec<String> {
-    let mut crumbs: Vec<(String, String)> = doc
+    let mut crumbs: Vec<(Kind, String)> = doc
         .select(&sel(".breadcrumb a"))
         .filter_map(|a| {
             let url = page_url.join(a.attr("href")?).ok()?;
@@ -188,10 +199,11 @@ fn breadcrumb_path(doc: &Html, page_url: &Url) -> Vec<String> {
         .collect();
     // ILIAS 10 writes the breadcrumb from the current object up to the root (and shows it
     // reversed); turn it around unless it already starts at the root.
-    if crumbs.first().is_some_and(|(kind, _)| kind != "root") {
+    if crumbs.first().is_some_and(|(kind, _)| *kind != Kind::Root) {
         crumbs.reverse();
     }
-    let start = ["crs", "grp"]
+    // The course, else the group.
+    let start = [Kind::Course, Kind::Group]
         .iter()
         .find_map(|kind| crumbs.iter().position(|(k, _)| k == kind));
     match start {

@@ -73,7 +73,7 @@ impl Client {
                 param("cmd").as_deref(),
                 Some("addToDesk" | "removeFromDesk")
             )
-            && param("item_ref_id") == Some(item.ref_id.to_string());
+            && param("item_ref_id") == Some(item.key().to_string());
         if !expected {
             bail!("unexpected favourites link for {}: {url}", item.title);
         }
@@ -309,6 +309,7 @@ mod tests {
     use std::sync::Arc;
 
     use super::*;
+    use crate::ilias::Id;
     use crate::ilias::pages::{FakeIlias, LOGGED_OUT, reply};
 
     fn base() -> Url {
@@ -317,7 +318,7 @@ mod tests {
 
     fn course(link: &str) -> Item {
         Item {
-            ref_id: 7,
+            id: Id::Ref(7),
             title: "DEMO".into(),
             favorite_toggle: Some(link.into()),
             ..Item::default()

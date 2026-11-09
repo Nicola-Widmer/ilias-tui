@@ -9,7 +9,7 @@ use color_eyre::Result;
 use jiff::civil::DateTime;
 
 use super::parse::{self, Dashboard};
-use super::{Block, Client, Item, MEMBERSHIPS, Page, parse_page};
+use super::{Block, Client, Id, Item, MEMBERSHIPS, Page, Todo, Urgency, parse_page};
 
 /// The dashboard; only its favourites and "To-Do" blocks are used.
 const DASHBOARD: &str = "ilias.php?baseClass=ilDashboardGUI";
@@ -25,10 +25,10 @@ impl Client {
     /// Like [`Client::my_courses`], taking the To-Do's courses from `previous` (an earlier
     /// My courses, e.g. the cached one) where it has them, so only new exercises are read.
     pub fn my_courses_after(&self, previous: Option<&Page>) -> Result<Page> {
-        let known: HashMap<u64, String> = previous
+        let known: HashMap<Id, String> = previous
             .into_iter()
             .flat_map(|page| &page.todo)
-            .filter_map(|item| Some((item.ref_id, item.path.first()?.clone())))
+            .filter_map(|todo| Some((todo.assignment.id, todo.course.clone()?)))
             .collect();
         thread::scope(|scope| {
             let dashboard = scope.spawn(|| self.dashboard(&known));
@@ -55,22 +55,21 @@ impl Client {
         Ok(parse_page(&fetched.html, &fetched.url))
     }
 
-    /// Favourites and To-Do from the dashboard. The To-Do block only names the exercise, so
-    /// each exercise's page is fetched (in parallel) for its course, unless `known` has it
-    /// (an exercise stays in its course). The course becomes the entry's first property and
-    /// its `path`.
-    fn dashboard(&self, known: &HashMap<u64, String>) -> Result<Dashboard> {
+    /// Favourites and To-Do from the dashboard, and the course of each To-Do exercise. The
+    /// To-Do block only names the exercise, so each exercise's page is fetched (in parallel)
+    /// for its course, unless `known` has it (an exercise stays in its course).
+    fn dashboard(&self, known: &HashMap<Id, String>) -> Result<(Dashboard, HashMap<Id, String>)> {
         let fetched = self.get_authed(&self.url(DASHBOARD)?)?;
-        let mut dashboard = parse::parse_dashboard(&fetched.html, &fetched.url);
-        let mut exercises: Vec<u64> = dashboard
+        let dashboard = parse::parse_dashboard(&fetched.html, &fetched.url);
+        let mut exercises: Vec<Id> = dashboard
             .todo
             .iter()
-            .map(|i| i.ref_id)
+            .map(|i| i.id)
             .filter(|id| !known.contains_key(id))
             .collect();
         exercises.sort_unstable();
         exercises.dedup();
-        let mut courses: HashMap<u64, String> = thread::scope(|scope| {
+        let mut courses: HashMap<Id, String> = thread::scope(|scope| {
             let jobs: Vec<_> = exercises
                 .iter()
                 .map(|&id| {
@@ -88,51 +87,54 @@ impl Client {
                 .collect()
         });
         courses.extend(known.iter().map(|(id, course)| (*id, course.clone())));
-        for item in &mut dashboard.todo {
-            if let Some(course) = courses.get(&item.ref_id) {
-                item.properties.insert(0, course.clone());
-                item.path = vec![course.clone()];
-            }
-        }
-        Ok(dashboard)
+        Ok((dashboard, courses))
     }
 }
 
 /// Builds My courses from the parsed course list and dashboard, as of `now`:
 /// - the course list's year groups newest first,
 /// - the favourites on top, with the full course names from the course list,
-/// - the To-Do soonest first, each description saying how long is left
-///   (`due in 3 days · 5. Nov 2026, 00:00`).
-fn assemble(courses: Page, dashboard: Option<Dashboard>, now: DateTime) -> Page {
+/// - the To-Do soonest first, with its course and how long is left.
+fn assemble(
+    courses: Page,
+    dashboard: Option<(Dashboard, HashMap<Id, String>)>,
+    now: DateTime,
+) -> Page {
     let mut page = newest_first(courses);
-    let Some(dashboard) = dashboard else {
+    let Some((dashboard, todo_courses)) = dashboard else {
         return page;
     };
     if let Some(mut favorites) = dashboard.favorites {
         // Favourite tiles only carry the short title.
         if let Block::Items { items, .. } = &mut favorites {
             for favorite in items.iter_mut().filter(|f| f.description.is_empty()) {
-                if let Some(known) = page.items().find(|i| i.ref_id == favorite.ref_id) {
+                if let Some(known) = page.items().find(|i| i.id == favorite.id) {
                     favorite.description.clone_from(&known.description);
                 }
             }
         }
         page.blocks.insert(0, favorites);
     }
-    let mut todo: Vec<(Option<DateTime>, Item)> = dashboard
+    let mut todo: Vec<(Option<DateTime>, Todo)> = dashboard
         .todo
         .into_iter()
-        .map(|mut item| {
-            let deadline = parse::parse_date(&item.description, now.date());
-            if let Some(deadline) = deadline {
-                item.description = format!("{} · {}", due_in(now, deadline), item.description);
-            }
-            (deadline, item)
+        .map(|assignment| {
+            let deadline = parse::parse_date(&assignment.description, now.date());
+            let (due, urgency) =
+                deadline.map_or((String::new(), Urgency::Later), |d| due_in(now, d));
+            let todo = Todo {
+                course: todo_courses.get(&assignment.id).cloned(),
+                deadline: assignment.description.clone(),
+                due,
+                urgency,
+                assignment,
+            };
+            (deadline, todo)
         })
         .collect();
     // Unknown dates last.
     todo.sort_by_key(|(deadline, _)| (deadline.is_none(), *deadline));
-    page.todo = todo.into_iter().map(|(_, item)| item).collect();
+    page.todo = todo.into_iter().map(|(_, todo)| todo).collect();
     page
 }
 
@@ -150,19 +152,25 @@ fn newest_first(mut page: Page) -> Page {
     page
 }
 
-/// `due in 3 days`, `due in 5 hours`, `overdue`.
-fn due_in(now: DateTime, deadline: DateTime) -> String {
+/// `due in 3 days`, `due in 5 hours`, `overdue`, and how urgent that is.
+fn due_in(now: DateTime, deadline: DateTime) -> (String, Urgency) {
     let hours = now
         .until((jiff::Unit::Hour, deadline))
         .map_or(0, |span| span.get_hours());
-    match hours {
+    let text = match hours {
         ..0 => "overdue".into(),
         0 => "due in less than an hour".into(),
         1 => "due in 1 hour".into(),
         2..24 => format!("due in {hours} hours"),
         24..48 => "due in 1 day".into(),
         _ => format!("due in {} days", hours / 24),
-    }
+    };
+    let urgency = match hours {
+        ..24 => Urgency::Now,
+        24..96 => Urgency::Soon,
+        _ => Urgency::Later,
+    };
+    (text, urgency)
 }
 
 #[cfg(test)]
@@ -210,10 +218,19 @@ mod tests {
             .collect()
     }
 
+    /// The course of every To-Do exercise in `DASHBOARD_PAGE`.
+    fn courses_of_todo() -> HashMap<Id, String> {
+        HashMap::from([(Id::Ref(7), "DEMO.102".to_string())])
+    }
+
     #[test]
     fn puts_favourites_first_and_the_newest_year_next() {
         let (courses, dashboard) = parsed();
-        let page = assemble(courses, Some(dashboard), datetime(2026, 11, 1, 14, 0, 0, 0));
+        let page = assemble(
+            courses,
+            Some((dashboard, courses_of_todo())),
+            datetime(2026, 11, 1, 14, 0, 0, 0),
+        );
         assert_eq!(
             titles(&page),
             ["Favoriten", "Meine Kurse und Gruppen", "2026", "2025"]
@@ -231,21 +248,45 @@ mod tests {
     #[test]
     fn lists_the_todo_soonest_first_with_the_time_left() {
         let (courses, dashboard) = parsed();
-        let page = assemble(courses, Some(dashboard), datetime(2026, 11, 1, 14, 0, 0, 0));
+        let page = assemble(
+            courses,
+            Some((dashboard, courses_of_todo())),
+            datetime(2026, 11, 1, 14, 0, 0, 0),
+        );
         let todo: Vec<_> = page
             .todo
             .iter()
-            .map(|i| (i.title.as_str(), i.description.as_str()))
+            .map(|t| {
+                (
+                    t.assignment.title.as_str(),
+                    t.due.as_str(),
+                    t.deadline.as_str(),
+                    t.urgency,
+                    t.course.as_deref(),
+                )
+            })
             .collect();
         assert_eq!(
             todo,
             [
-                ("Blatt 1", "due in 3 days · 5. Nov 2026, 00:00"),
-                ("Blatt 2", "due in 77 days · 17. Jan 2027, 23:55"),
+                (
+                    "Blatt 1",
+                    "due in 3 days",
+                    "5. Nov 2026, 00:00",
+                    Urgency::Soon,
+                    Some("DEMO.102")
+                ),
+                (
+                    "Blatt 2",
+                    "due in 77 days",
+                    "17. Jan 2027, 23:55",
+                    Urgency::Later,
+                    Some("DEMO.102")
+                ),
             ]
         );
         assert!(
-            page.items().all(|i| i.kind != "exc"),
+            page.items().all(|i| i.kind.code() != "exc"),
             "To-Do is beside the page"
         );
     }
@@ -283,11 +324,21 @@ mod tests {
     fn says_when_something_is_due() {
         let now = datetime(2026, 11, 1, 14, 0, 0, 0);
         let due = |y, m, d, h| due_in(now, datetime(y, m, d, h, 0, 0, 0));
-        assert_eq!(due(2026, 11, 5, 0), "due in 3 days");
-        assert_eq!(due(2026, 11, 2, 13), "due in 23 hours");
-        assert_eq!(due(2026, 11, 2, 14), "due in 1 day");
-        assert_eq!(due(2026, 11, 1, 14), "due in less than an hour");
-        assert_eq!(due(2026, 10, 31, 0), "overdue");
+        assert_eq!(due(2026, 11, 5, 0), ("due in 3 days".into(), Urgency::Soon));
+        assert_eq!(
+            due(2026, 11, 2, 13),
+            ("due in 23 hours".into(), Urgency::Now)
+        );
+        assert_eq!(due(2026, 11, 2, 14), ("due in 1 day".into(), Urgency::Soon));
+        assert_eq!(
+            due(2026, 11, 8, 14),
+            ("due in 7 days".into(), Urgency::Later)
+        );
+        assert_eq!(
+            due(2026, 11, 1, 14),
+            ("due in less than an hour".into(), Urgency::Now)
+        );
+        assert_eq!(due(2026, 10, 31, 0), ("overdue".into(), Urgency::Now));
     }
 
     #[test]
@@ -315,7 +366,7 @@ mod tests {
         assert!(
             page.todo
                 .iter()
-                .all(|i| i.properties.first().map(String::as_str) == Some("DEMO.102"))
+                .all(|t| t.course.as_deref() == Some("DEMO.102"))
         );
         let mut requests = ilias.requests(&base);
         requests.sort();

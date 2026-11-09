@@ -1,5 +1,6 @@
 //! Small helpers for reading HTML: selectors, visible text, link bases.
 
+use super::Kind;
 use scraper::node::Node;
 use scraper::{ElementRef, Selector};
 use url::Url;
@@ -37,13 +38,13 @@ pub(super) fn visible_text(el: ElementRef) -> String {
 }
 
 /// Object type from a list item's icon, e.g. `…/icon_webr.svg` → `webr`.
-pub(super) fn kind_from_icon(container: ElementRef) -> Option<String> {
+pub(super) fn kind_from_icon(container: ElementRef) -> Option<Kind> {
     let src = container
         .select(&sel("img"))
         .find_map(|img| img.attr("src"))?;
     let name = src.rsplit('/').next()?.strip_prefix("icon_")?;
     let kind = name.split(['.', '_']).next()?;
-    (!kind.is_empty() && kind != "custom").then(|| kind.to_string())
+    (!kind.is_empty() && kind != "custom").then(|| kind.into())
 }
 
 /// What relative links on a page are relative to: the ILIAS root, also on `goto.php/crs/123`

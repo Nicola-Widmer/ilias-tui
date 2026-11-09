@@ -25,7 +25,7 @@ fn finds_show_more_buttons() {
             shown: vec!["lg_div_110_pref_109".into(), "lg_div_111_pref_109".into()],
         }]
     );
-    assert_eq!(found[0].last_ref_id(), Some(111));
+    assert_eq!(found[0].last_shown(), Some(Id::Ref(111)));
     assert!(has_show_more(html));
     assert!(show_more("<p>no button</p>", &url("https://ilias.example/ilias/")).is_empty());
 }
@@ -33,34 +33,30 @@ fn finds_show_more_buttons() {
 #[test]
 fn permalinks_to_share() {
     let base = url("https://ilias.example/ilias/");
-    let item = |kind: &str, ref_id: u64, link: &str| Item {
+    let item = |kind: &str, id: Id, link: &str| Item {
         kind: kind.into(),
-        ref_id,
+        id,
         url: link.into(),
         ..Item::default()
     };
     let sendfile =
         "https://ilias.example/ilias/ilias.php?cmdClass=ilObjFileGUI&cmd=sendfile&ref_id=5";
     assert_eq!(
-        item("file", 5, sendfile).permalink(&base),
+        item("file", Id::Ref(5), sendfile).permalink(&base),
         "https://ilias.example/ilias/goto.php/file/5"
     );
     assert_eq!(
-        item("crs", 1, "x").permalink(&base),
+        item("crs", Id::Ref(1), "x").permalink(&base),
         "https://ilias.example/ilias/goto.php/crs/1"
     );
+    // Only reference ids have permalinks; the rest share their own link.
+    let thread = "https://ilias.example/ilias/ilias.php?cmd=viewThread&thr_pk=42";
+    let zoom = "https://zoom.us/j/1";
+    let attachment = "https://ilias.example/ilias/ilias.php?cmd=downloadFile";
     for own in [
-        item(
-            "thr",
-            42,
-            "https://ilias.example/ilias/ilias.php?cmd=viewThread&thr_pk=42",
-        ),
-        item("link", 9, "https://zoom.us/j/1"),
-        item(
-            "file",
-            attachment_id("a"),
-            "https://ilias.example/ilias/ilias.php?cmd=downloadFile",
-        ),
+        item("thr", Id::Thread(42), thread),
+        item("link", Id::local(zoom), zoom),
+        item("file", Id::local(attachment), attachment),
     ] {
         assert_eq!(own.permalink(&base), own.url);
     }
@@ -71,23 +67,23 @@ fn parses_permalinks() {
     let base = "https://elearning.hslu.ch/ilias/";
     assert_eq!(
         parse_target(&url(&format!("{base}goto.php/crs/3035013"))),
-        Some(("crs".into(), 3035013))
+        Some(("crs".into(), Id::Ref(3035013)))
     );
     assert_eq!(
         parse_target(&url(&format!("{base}goto.php?target=file_42_download"))),
-        Some(("file".into(), 42))
+        Some(("file".into(), Id::Ref(42)))
     );
     assert_eq!(
         parse_target(&url(&format!(
             "{base}ilias.php?baseClass=ilrepositorygui&cmdNode=yb:o1&cmdClass=ilObjFileGUI&cmd=sendfile&ref_id=123456"
         ))),
-        Some(("file".into(), 123456))
+        Some(("file".into(), Id::Ref(123456)))
     );
     assert_eq!(
         parse_target(&url(&format!(
             "{base}ilias.php?baseClass=ilrepositorygui&cmdClass=ilObjForumGUI&cmd=viewThread&ref_id=123456&thr_pk=42&page=0"
         ))),
-        Some(("thr".into(), 42))
+        Some(("thr".into(), Id::Thread(42)))
     );
     assert_eq!(
         parse_target(&url(&format!("{base}ilias.php?ref_id=1"))),
@@ -112,7 +108,7 @@ fn parses_root_page_without_breadcrumbs() {
     let page = parse_page(include_str!("../../../tests/fixtures/root.html"), &page_url);
     let items: Vec<_> = page
         .items()
-        .map(|i| (i.kind.as_str(), i.ref_id, i.title.as_str()))
+        .map(|i| (i.kind.code(), i.key(), i.title.as_str()))
         .collect();
     assert_eq!(items, vec![("cat", 5066130, "Öffentlicher Bereich")]);
 }
@@ -126,11 +122,15 @@ fn parses_category_contents() {
     );
     let items: Vec<_> = page.items().collect();
     assert!(items.len() > 3, "found {items:?}");
-    assert!(items.iter().all(|i| i.kind == "grp" && !i.title.is_empty()));
     assert!(
         items
             .iter()
-            .all(|i| i.ref_id != 5066130 && i.ref_id != 5066132)
+            .all(|i| i.kind.code() == "grp" && !i.title.is_empty())
+    );
+    assert!(
+        items
+            .iter()
+            .all(|i| i.key() != 5066130 && i.key() != 5066132)
     );
 }
 
@@ -166,10 +166,10 @@ fn lists_the_assignments_of_an_exercise_with_their_modes_as_tabs() {
     assert!(page.tabs[1].url.contains("mode=past"));
 
     // The assignment has the same number as the exercise's reference id; it stays.
-    page.remove(7);
+    page.remove(Id::Ref(7));
     let assignment = page.items().next().unwrap();
-    assert_eq!(assignment.kind, "ass");
-    assert_eq!(assignment.ref_id, 7);
+    assert_eq!(assignment.kind.code(), "ass");
+    assert_eq!(assignment.key(), 7);
     assert_eq!(assignment.title, "Blatt 1");
     assert_eq!(assignment.description, "2 Days to Submit");
     assert_eq!(
@@ -198,7 +198,7 @@ fn lists_handed_in_files_and_finds_their_delete_form() {
         </form>"#;
     let page = parse_page(html, &base);
     let file = page.items().next().unwrap();
-    assert_eq!(file.kind, "file");
+    assert_eq!(file.kind.code(), "file");
     assert_eq!(file.title, "Bericht.pdf");
     assert_eq!(file.properties, ["6. Nov 2026, 18:05"]);
     assert!(
@@ -256,11 +256,11 @@ fn reads_an_assignment_with_its_files_and_submission() {
         </div>"##;
     let page = parse_page(html, &base);
     let file = page.items().next().unwrap();
-    assert_eq!(file.kind, "file");
+    assert_eq!(file.kind.code(), "file");
     assert_eq!(file.title, "Blatt 1.pdf");
     assert_eq!(file.extension().as_deref(), Some("pdf"));
     assert!(file.url.contains("cmd=downloadFile"));
-    assert!(file.ref_id > 1 << 62, "no real reference id");
+    assert!(file.key() > 1 << 62, "no real reference id");
 
     let text: Vec<&str> = page
         .blocks
@@ -294,7 +294,7 @@ fn an_assignment_lists_its_submission_below_the_section_of_that_name() {
     );
     let page = parse_page(&html, &base);
     let submission = page.items().next().unwrap();
-    assert_eq!(submission.kind, "sub");
+    assert_eq!(submission.kind.code(), "sub");
     assert_eq!(submission.title, "Handed-in files");
     assert!(submission.url.ends_with("cmd=submissionScreen&ass_id=1"));
     assert!(submission.is_container());
@@ -391,13 +391,13 @@ fn parses_course_layout() {
     assert_eq!(title, "Unterlagen");
     assert_eq!(items.len(), 3);
     let file = &items[0];
-    assert_eq!((file.kind.as_str(), file.ref_id), ("file", 9));
+    assert_eq!((file.kind.code(), file.key()), ("file", 9));
     assert_eq!(file.description, "Folien Woche 1");
     assert_eq!(file.properties, vec!["pdf", "1.2 MB"]);
     assert_eq!(file.extension().as_deref(), Some("pdf"));
-    assert_eq!(items[1].kind, "fold");
+    assert_eq!(items[1].kind.code(), "fold");
     let link = &items[2];
-    assert_eq!((link.kind.as_str(), link.ref_id), ("webr", 10));
+    assert_eq!((link.kind.code(), link.key()), ("webr", 10));
     assert!(link.properties.is_empty());
 }
 
@@ -425,7 +425,7 @@ fn links_in_page_text_follow_their_paragraph() {
     assert!(title.is_empty());
     let links: Vec<(&str, &str, &str)> = items
         .iter()
-        .map(|i| (i.kind.as_str(), i.title.as_str(), i.url.as_str()))
+        .map(|i| (i.kind.code(), i.title.as_str(), i.url.as_str()))
         .collect();
     // Only web links, each once, and none that would change something on ILIAS.
     assert_eq!(
@@ -496,7 +496,7 @@ fn parses_forum_threads_without_rating_buttons() {
         2,
         "both threads, although they share the forum's ref_id"
     );
-    assert_eq!((threads[0].kind.as_str(), threads[0].ref_id), ("thr", 1));
+    assert_eq!((threads[0].kind.code(), threads[0].key()), ("thr", 1));
     assert!(threads[0].is_container());
     assert_eq!(threads[0].properties, vec!["Beiträge: 2 (1 Ungelesen)"]);
 }
@@ -558,8 +558,8 @@ fn parses_the_todo_block() {
         .iter()
         .map(|i| {
             (
-                i.kind.as_str(),
-                i.ref_id,
+                i.kind.code(),
+                i.key(),
                 i.title.as_str(),
                 i.description.as_str(),
             )
@@ -626,7 +626,7 @@ fn reads_favourites_and_their_menu_links() {
         panic!("no favourites");
     };
     assert_eq!(title, "Favoriten");
-    assert_eq!((items[0].ref_id, items[0].favorite), (101, true));
+    assert_eq!((items[0].key(), items[0].favorite), (101, true));
     assert!(
         items[0]
             .favorite_toggle
@@ -636,7 +636,7 @@ fn reads_favourites_and_their_menu_links() {
     );
 
     let page = parse_page(html, &base);
-    let course = |id| page.items().find(|i| i.ref_id == id).unwrap();
+    let course = |id| page.items().find(|i| i.key() == id).unwrap();
     assert!(!course(102).favorite);
     assert_eq!(
         course(102).favorite_toggle.as_deref(),
@@ -662,4 +662,34 @@ fn files_know_their_folders() {
     let items: Vec<_> = page.items().collect();
     assert_eq!(items[0].path, vec!["DEMO.101", "Unterlagen", "Woche 1"]);
     assert!(items[1].path.is_empty(), "only files need it");
+}
+
+#[test]
+fn cached_pages_from_before_typed_ids_still_load() {
+    // As older versions wrote them: kinds as ILIAS' codes, every id a plain `ref_id`.
+    let json = r#"{"tabs":[],"blocks":[{"Items":{"title":"","items":[
+        {"kind":"crs","ref_id":5,"title":"DEMO","url":"u","description":"","properties":[]},
+        {"kind":"ass","ref_id":3,"title":"Blatt 1","url":"u","description":"","properties":[]},
+        {"kind":"thr","ref_id":42,"title":"Frage","url":"u","description":"","properties":[]},
+        {"kind":"file","ref_id":9223372036854775809,"title":"a.pdf","url":"u","description":"","properties":[]},
+        {"kind":"lm","ref_id":8,"title":"Modul","url":"u","description":"","properties":[]}]}}],
+        "todo":[{"kind":"exc","ref_id":7,"title":"Blatt 1","url":"u","description":"due in 3 days","properties":["DEMO"]}]}"#;
+    let page: Page = serde_json::from_str(json).unwrap();
+    let ids: Vec<(Kind, Id)> = page.items().map(|i| (i.kind.clone(), i.id)).collect();
+    assert_eq!(
+        ids,
+        [
+            (Kind::Course, Id::Ref(5)),
+            (Kind::Assignment, Id::Assignment(3)),
+            (Kind::Thread, Id::Thread(42)),
+            (Kind::File, Id::Local(1 << 63 | 1)),
+            (Kind::Other("lm".into()), Id::Ref(8)),
+        ]
+    );
+    // The old To-Do shape is dropped (the refresh brings it back), not the whole page.
+    assert!(page.todo.is_empty());
+    // Written again the same way, so indexes keyed by these numbers stay valid.
+    let again = serde_json::to_value(&page.blocks).unwrap();
+    assert_eq!(again[0]["Items"]["items"][1]["kind"], "ass");
+    assert_eq!(again[0]["Items"]["items"][1]["ref_id"], 3);
 }

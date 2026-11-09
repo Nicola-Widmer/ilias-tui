@@ -26,7 +26,7 @@ pub fn set_nerd_font(on: bool) {
 /// Glyph and colour for an item.
 pub fn icon(item: &Item) -> (&'static str, Color) {
     let c = colors();
-    let (nerd, plain, color) = match item.kind.as_str() {
+    let (nerd, plain, color) = match item.kind.code() {
         "crs" => ("\u{f19d}", "◆", c.cyan),           // graduation-cap
         "grp" => ("\u{f0c0}", "◆", c.blue),           // users
         "cat" | "root" => ("\u{f0e8}", "▸", c.blue),  // sitemap
