@@ -125,6 +125,9 @@ fn main() -> Result<()> {
                 })
                 .collect();
             println!("tabs: {}", tabs.join(" | "));
+            if !page.rights.is_empty() {
+                println!("rights: {}", page.rights);
+            }
             for block in &page.blocks {
                 match block {
                     ilias::Block::Heading(text) => println!("\n## {text}"),

@@ -5,6 +5,8 @@ use std::collections::HashSet;
 use serde::{Deserialize, Serialize};
 use url::Url;
 
+use super::Rights;
+
 /// What an item is. Stored as ILIAS' short type name (`crs`, `fold`, …), so cached pages
 /// keep working; types ilias-tui has no use for stay [`Kind::Other`].
 #[derive(Debug, Clone, Default, PartialEq, Eq, Hash, Serialize, Deserialize)]
@@ -351,6 +353,9 @@ pub struct Page {
     /// Assignments still to hand in; only on "My courses", shown beside the page.
     #[serde(default, deserialize_with = "skip_unreadable")]
     pub todo: Vec<Todo>,
+    /// What ILIAS lets you change here (see [`Rights`]).
+    #[serde(default)]
+    pub rights: Rights,
 }
 
 /// An assignment still to hand in (My courses' To-Do).

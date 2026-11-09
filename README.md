@@ -81,6 +81,10 @@ What it does:
   Its **Handed-in files** entry (in the Submission section, open it like any other entry)
   lists what you handed in; `X` deletes the selected file again (asks first), as long as
   ILIAS allows it, which is until the deadline.
+- **Knows what you may change** in a course or folder: if ILIAS offers you "Add New
+  Item", an upload form or an item's Delete (as a lecturer, tutor or administrator, or in a
+  shared folder), ilias-tui reads that from the page and offers the matching keys there.
+  Nothing new appears where you may only read. `ilias-tui show URL` lists them as `rights:`.
 - Opens everything else (tests, surveys, …) in your normal web browser, and copies any
   item's permalink with `y`.
 - Logs in once through Switch edu-ID (2FA included) and keeps the session in a private

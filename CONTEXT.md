@@ -59,6 +59,13 @@ asking), and the logout
 _Avoid_: action, command (ILIAS's `cmd=` parameter is a command; only some commands are
 writes).
 
+**Rights**
+What ILIAS lets you change on a page besides reading it: upload files, create items ("Add
+New Item"), delete items. Read from the page's own menus and forms for that page (its
+reference id), never guessed; students usually have none. They decide which editing keys
+work.
+_Avoid_: permissions (ILIAS' own tab for setting them), capabilities.
+
 **Write guard**
 The check every page request passes: a request that looks like a write (it carries an
 `rtoken`, or its command is a known write such as `addToDesk`) is refused unless it comes

@@ -256,10 +256,9 @@ impl Client {
                 continue;
             };
             let answer = self.more_items(&more)?;
-            let items = parse_page(&answer.html, &more.url)
-                .items()
-                .cloned()
-                .collect();
+            let batch = parse_page(&answer.html, &more.url);
+            let items = batch.items().cloned().collect();
+            page.rights.delete.extend(batch.rights.delete);
             if page.insert_after(after, items) == 0 {
                 continue;
             }

@@ -332,6 +332,7 @@ fn mouse_selects_opens_switches_tabs_and_goes_back() {
     file.properties = vec!["pdf".into()];
     let page = Page {
         todo: Vec::new(),
+        rights: Default::default(),
         tabs: vec![
             crate::ilias::parse::Tab {
                 title: "Inhalt".into(),
@@ -455,6 +456,7 @@ fn renders_course_page_like_ilias() {
     file.properties = vec!["pdf".into(), "1.2 MB".into()];
     let page = Page {
         todo: Vec::new(),
+        rights: Default::default(),
         tabs: vec![
             crate::ilias::parse::Tab {
                 title: "Inhalt".into(),

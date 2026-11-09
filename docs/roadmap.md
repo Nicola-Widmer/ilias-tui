@@ -109,6 +109,21 @@ front of every page request (only `src/ilias/write.rs` gets past it).
 - [ ] **Human security review** of `src/auth.rs`, `src/session.rs`, `src/open.rs`,
   `src/ilias/mod.rs`.
 
+## Editing courses
+
+For people with edit rights in a course (lecturer, tutor, administrator), and students in
+shared folders. Each one is offered only where ILIAS offers it to you (see Rights in
+[CONTEXT.md](../CONTEXT.md)) and follows the [rules for features that
+write](#rules-for-features-that-write). Tried only on the local test ILIAS.
+
+- [x] **What may I do here?** Rights read from each course and folder page (upload, Add New
+  Item, Delete); `ilias-tui show` prints them.
+- [ ] **Upload files** into the course or folder on screen.
+- [ ] **New folder** in the course or folder on screen.
+- [ ] **Delete** an item (into the ILIAS trash).
+- [ ] **Forum posts**: start a thread, reply to a post.
+- [ ] **Submissions of an assignment**: list and download all participants' submissions.
+
 ## App and quality of life
 
 - [x] **Copy permalink** of the selected item (`y`; `pbcopy` on macOS, else OSC 52).

@@ -26,6 +26,7 @@ src/
 │   │   ├── forum.rs     Thread posts
 │   │   ├── exercise.rs  Submission item, handed-in files, upload and delete forms
 │   │   ├── dashboard.rs Favourites, To-Do, course in a breadcrumb, dates
+│   │   ├── rights.rs    Rights: what the page lets you change (upload, Add New Item, Delete)
 │   │   ├── show_more.rs "Show more" buttons
 │   │   ├── html.rs      Selectors, visible text, link base
 │   │   └── tests.rs
@@ -213,6 +214,15 @@ pub struct Todo { assignment: Item, course, deadline, due, urgency }   // My cou
   `CUT_SHORT` line to the page instead of leaving items missing silently. This POST only
   reads; `Client::more_items` sends it only to this ILIAS and only with
   `cmd=renderBlockAsynch`, and it is the one POST outside `write.rs`.
+- **Rights** (`parse/rights.rs`, see [CONTEXT.md](../CONTEXT.md)): `parse_page` fills
+  `Page::rights` from the page's own menus and forms, only those for the page itself (its
+  reference id, from `goto.php/<kind>/<ref_id>` or the `ref_id` after ILIAS' redirect):
+  `upload` from an upload form (`cmdClass=ilObjFileGUI`, `fallbackCmd=uploadFiles`), `create`
+  from the "Add New Item" links (`cmd=create&new_type=<kind>`), `delete` from the item action
+  menus' Delete buttons (`data-action` with `cmd=delete&item_ref_id=<n>`). Batches loaded
+  through "Show more" add their items' deletes. Rights only enable keys; every write reads
+  its form again from a fresh page (forms carry one-time tokens). A cached page without
+  rights (older versions) has none. `ilias-tui show` prints them.
 - **Favourite links**: `Walker::item` keeps the item's own `cmd=addToDesk` /
   `cmd=removeFromDesk` link from its action menu (`favorite_toggle`, only if its
   `item_ref_id` is the item's) and sets `favorite` when it is a remove link.

@@ -7,6 +7,12 @@ features and changes in behaviour, the last one for fixes only. See
 
 ## Unreleased
 
+### Added
+
+- **Rights**: ilias-tui reads from each course and folder page what ILIAS lets you change
+  there (upload, "Add New Item", Delete), to offer the editing keys only where they work.
+  `ilias-tui show` prints them. Nothing changes for students.
+
 ## 0.2.0 - 2026-11-09
 
 ### Added

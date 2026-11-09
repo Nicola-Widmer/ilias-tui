@@ -693,3 +693,61 @@ fn cached_pages_from_before_typed_ids_still_load() {
     assert_eq!(again[0]["Items"]["items"][1]["kind"], "ass");
     assert_eq!(again[0]["Items"]["items"][1]["ref_id"], 3);
 }
+
+/// What root sees on a folder of the local ILIAS: "Add New Item", the upload form and the
+/// items' action menus (anonymised, shortened).
+const EDITABLE: &str = r#"<div id="il_center_col">
+    <ul class="c-drilldown__menu">
+      <li><a class="il-link link-bulky" href="http://ilias.example/ilias/ilias.php?baseClass=ilrepositorygui&amp;cmd=create&amp;ref_id=89&amp;new_type=fold">Folder</a></li>
+      <li><a class="il-link link-bulky" href="http://ilias.example/ilias/ilias.php?baseClass=ilrepositorygui&amp;cmd=create&amp;ref_id=89&amp;new_type=file">File</a></li>
+      <li><a href="http://ilias.example/ilias/ilias.php?baseClass=ilrepositorygui&amp;cmd=create&amp;ref_id=12&amp;new_type=wiki">Wiki somewhere else</a></li>
+    </ul>
+    <form enctype="multipart/form-data" action="ilias.php?baseClass=ilrepositorygui&amp;cmdNode=wq:mk&amp;cmdClass=ilObjFileGUI&amp;cmd=post&amp;fallbackCmd=uploadFiles&amp;ref_id=89&amp;new_type=file&amp;origin=dropzone&amp;rtoken=t" method="post"></form>
+    <form enctype="multipart/form-data" action="ilias.php?baseClass=ilrepositorygui&amp;cmdNode=wq:mk&amp;cmdClass=ilObjFileGUI&amp;cmd=post&amp;fallbackCmd=uploadFiles&amp;ref_id=90&amp;new_type=file&amp;origin=dropzone&amp;rtoken=t" method="post"></form>
+    <ul>
+      <li><button class="btn btn-link" data-action="ilias.php?baseClass=ilrepositorygui&amp;cmdNode=wq:mp&amp;cmdClass=ilObjFolderGUI&amp;cmd=delete&amp;ref_id=89&amp;item_ref_id=90">Delete</button></li>
+      <li><button class="btn btn-link" data-action="ilias.php?baseClass=ilrepositorygui&amp;cmdNode=wq:mp&amp;cmdClass=ilObjFolderGUI&amp;cmd=cut&amp;ref_id=89&amp;item_ref_id=90">Cut</button></li>
+      <li><button class="btn btn-link" data-action="ilias.php?baseClass=ilrepositorygui&amp;cmdNode=wq:mp&amp;cmdClass=ilObjFolderGUI&amp;cmd=delete&amp;ref_id=89&amp;item_ref_id=91">Delete</button></li>
+      <li><button class="btn btn-link" data-action="https://evil.example/ilias/ilias.php?cmd=delete&amp;ref_id=89&amp;item_ref_id=92">Delete</button></li>
+    </ul></div>"#;
+
+#[test]
+fn reads_the_rights_ilias_offers_on_a_page() {
+    let page = parse_page(
+        EDITABLE,
+        &url("http://ilias.example/ilias/goto.php/fold/89"),
+    );
+    assert_eq!(
+        page.rights,
+        Rights {
+            upload: true,
+            create: vec![Kind::Folder, Kind::File],
+            delete: vec![90, 91],
+        }
+    );
+    assert_eq!(
+        page.rights.to_string(),
+        "upload · new: fold, file · delete: 2 items"
+    );
+
+    // After ILIAS' redirect the page is known by its `ref_id`.
+    let redirected = url(
+        "http://ilias.example/ilias/ilias.php?baseClass=ilrepositorygui&cmdClass=ilobjfoldergui&ref_id=89",
+    );
+    assert_eq!(parse_page(EDITABLE, &redirected).rights, page.rights);
+
+    // On another page none of it is for that page.
+    let other = parse_page(EDITABLE, &url("http://ilias.example/ilias/goto.php/fold/7"));
+    assert!(other.rights.is_empty());
+}
+
+#[test]
+fn a_student_has_no_rights_and_old_cached_pages_have_none_either() {
+    let page = parse_page(
+        r#"<div id="il_center_col"><a class="il_ContainerItemTitle" href="goto.php/file/90">a.pdf</a></div>"#,
+        &url("http://ilias.example/ilias/goto.php/fold/89"),
+    );
+    assert!(page.rights.is_empty());
+    let cached: Page = serde_json::from_str(r#"{"tabs":[],"blocks":[]}"#).unwrap();
+    assert!(cached.rights.is_empty());
+}

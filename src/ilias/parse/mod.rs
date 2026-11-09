@@ -9,12 +9,14 @@ mod exercise;
 mod forum;
 mod html;
 mod model;
+mod rights;
 mod show_more;
 mod walker;
 
 pub use dashboard::{Dashboard, course_title, parse_dashboard, parse_date};
 pub use exercise::{delete_form, lists_delivered, parse_upload_form};
 pub use model::{Block, Id, Item, Kind, Page, Post, Tab, Todo, Urgency};
+pub use rights::Rights;
 pub use show_more::{ShowMore, has_show_more, show_more};
 
 use exercise::add_submission;
@@ -111,9 +113,10 @@ pub fn logout_link(html: &str, page_url: &Url) -> Option<Url> {
 
 /// Parses a whole ILIAS page.
 pub fn parse_page(html: &str, page_url: &Url) -> Page {
+    let doc = Html::parse_document(html);
+    let rights = rights::rights(&doc, page_url);
     let link_base = link_base(page_url);
     let page_url = &link_base;
-    let doc = Html::parse_document(html);
     let mut tabs: Vec<Tab> = doc
         .select(&sel("#ilTab > li"))
         // Real tabs have `tab_…` ids; the rest are the back link and the "…" overflow menu.
@@ -159,6 +162,7 @@ pub fn parse_page(html: &str, page_url: &Url) -> Page {
         return Page {
             tabs,
             blocks: posts,
+            rights,
             ..Page::default()
         };
     }
@@ -183,6 +187,7 @@ pub fn parse_page(html: &str, page_url: &Url) -> Page {
     Page {
         tabs,
         blocks,
+        rights,
         ..Page::default()
     }
 }
