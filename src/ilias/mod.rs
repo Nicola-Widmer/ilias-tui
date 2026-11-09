@@ -119,16 +119,21 @@ impl Client {
     /// GETs a page. Refused if it looks like a write (the write guard); writes go through
     /// `write.rs`.
     pub fn get(&self, url: &Url) -> Result<Fetched> {
-        self.request(url, false)
+        self.request(url, None, false)
     }
 
-    /// The one place page requests leave the client. Only `write.rs` passes `write: true`.
-    fn request(&self, url: &Url, write: bool) -> Result<Fetched> {
+    /// The one place page requests leave the client: a GET, or a POST of `form`. Nothing is
+    /// sent offline, and a request that looks like a write is refused unless `write` is
+    /// set, which only `write.rs` does.
+    fn request(&self, url: &Url, form: Option<&[Form]>, write: bool) -> Result<Fetched> {
         self.ensure_online()?;
         if !write && write::is_write(url) {
             bail!("refused to request {url}: it would change something on ILIAS");
         }
-        self.pages.get(url)
+        match form {
+            None => self.pages.get(url),
+            Some(form) => self.pages.post(url, form),
+        }
     }
 
     /// Anonymous ILIAS pages carry a "force_login" link; redirects to Keycloak/edu-ID or the
@@ -211,12 +216,12 @@ impl Client {
     }
 
     fn authed(&self, url: &Url, write: bool) -> Result<Fetched> {
-        let page = self.request(url, write)?;
+        let page = self.request(url, None, write)?;
         if self.is_logged_in(&page) {
             return Ok(page);
         }
         if self.silent_login()? {
-            let page = self.request(url, write)?;
+            let page = self.request(url, None, write)?;
             if self.is_logged_in(&page) {
                 return Ok(page);
             }
@@ -270,8 +275,9 @@ impl Client {
     }
 
     /// The next items of a list cut short behind "Show more". ILIAS wants a POST of the
-    /// items already shown, but it only reads. This is the one POST outside `write.rs`, so it
-    /// only goes to this ILIAS, with the one command the button uses.
+    /// items already shown, but it only reads. It is the one POST outside `write.rs`, so on
+    /// top of the write guard it only goes to this ILIAS, with the one command the button
+    /// uses.
     fn more_items(&self, more: &parse::ShowMore) -> Result<Fetched> {
         self.ensure_online()?;
         let url = &more.url;
@@ -290,7 +296,7 @@ impl Client {
                 value: id,
             })
             .collect();
-        let answer = self.pages.post(url, &ids)?;
+        let answer = self.request(url, Some(&ids), false)?;
         if !self.is_logged_in(&answer) {
             bail!("session expired: press L to log in again");
         }

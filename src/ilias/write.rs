@@ -128,12 +128,13 @@ impl Client {
         }
 
         self.ensure_online()?;
-        let uploaded = self.pages.post(
+        let uploaded = self.request(
             &form.upload,
-            &[Form::File {
+            Some(&[Form::File {
                 name: "file[0]",
                 path,
-            }],
+            }]),
+            true,
         )?;
         // Status 1 is ILIAS' "OK" for an upload; anything but this answer means it failed.
         #[derive(Deserialize)]
@@ -154,12 +155,13 @@ impl Client {
         } else {
             answer.filename
         };
-        let done = self.pages.post(
+        let done = self.request(
             &form.finish,
-            &[Form::Field {
+            Some(&[Form::Field {
                 name: &form.field,
                 value: &listed,
-            }],
+            }]),
+            true,
         )?;
         if !parse::shows(&done.html, &listed) {
             bail!("{listed} was sent, but ILIAS doesn't list it: check the assignment in ILIAS");
@@ -222,9 +224,9 @@ impl Client {
         }
 
         self.ensure_online()?;
-        let ask = self.pages.post(
+        let ask = self.request(
             &tick,
-            &[
+            Some(&[
                 Form::Field {
                     name: "delivered[]",
                     value: &delivered,
@@ -233,7 +235,8 @@ impl Client {
                     name: "cmd[confirmDeleteDelivered]",
                     value: "Delete",
                 },
-            ],
+            ]),
+            true,
         )?;
         let confirm = checked(parse::delete_form(
             &ask.html,
@@ -247,9 +250,9 @@ impl Client {
                 file.title
             )
         })?;
-        let done = self.pages.post(
+        let done = self.request(
             &confirm,
-            &[
+            Some(&[
                 Form::Field {
                     name: "delivered[]",
                     value: &delivered,
@@ -258,7 +261,8 @@ impl Client {
                     name: "cmd[deleteDelivered]",
                     value: "Delete",
                 },
-            ],
+            ]),
+            true,
         )?;
         if parse::lists_delivered(&done.html, &delivered) {
             bail!(
@@ -298,7 +302,7 @@ impl Client {
         if url.host_str() != self.base.host_str() {
             bail!("unexpected logout link: {url}");
         }
-        self.request(&url, true)?;
+        self.request(&url, None, true)?;
         let after = self.get(&self.url(MEMBERSHIPS)?)?;
         Ok(!self.is_logged_in(&after))
     }

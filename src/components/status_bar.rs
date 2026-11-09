@@ -134,20 +134,8 @@ impl Component for StatusBar {
                 )),
                 false => Status::Info(format!("Dry run: would have deleted {}", file.title)),
             },
-            Action::Ask { .. }
-            | Action::AskHandIn { .. }
-            | Action::Handled
-            | Action::Quit
-            | Action::ToggleHelp
-            | Action::ToggleSettings
-            | Action::SetConfig(_)
-            | Action::NewItems(_)
-            | Action::OpenInBrowser(_)
-            | Action::CopyLink(_)
-            | Action::NewCounts(_)
-            | Action::Filter(_) => {
-                return None;
-            }
+            // Everything else says nothing here.
+            _ => return None,
         };
         self.keep = matches!(
             action,

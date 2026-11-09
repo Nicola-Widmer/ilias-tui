@@ -33,6 +33,28 @@ pub fn path(base: &Url) -> Result<PathBuf> {
 }
 
 /// Loads the saved cookies, or an empty jar if there are none (or they are unreadable).
+/// Another file of this ILIAS next to the session, e.g. `elearning.hslu.ch.seen.json` for
+/// `name` = `seen`.
+pub fn host_file(base: &Url, name: &str) -> Option<PathBuf> {
+    path(base)
+        .ok()
+        .map(|p| p.with_extension(format!("{name}.json")))
+}
+
+/// Reads such a file; `None` if it is missing or unreadable.
+pub fn read_json<T: serde::de::DeserializeOwned>(file: Option<&std::path::Path>) -> Option<T> {
+    serde_json::from_str(&fs::read_to_string(file?).ok()?).ok()
+}
+
+/// Writes such a file, in the private folder.
+pub fn write_json<T: serde::Serialize>(file: &std::path::Path, value: &T) -> Result<()> {
+    if let Some(dir) = file.parent() {
+        private_dir(dir)?;
+    }
+    fs::write(file, serde_json::to_string_pretty(value)?)?;
+    Ok(())
+}
+
 pub fn load(base: &Url) -> CookieStore {
     path(base)
         .and_then(|p| Ok(File::open(p)?))

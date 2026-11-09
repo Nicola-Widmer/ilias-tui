@@ -542,6 +542,16 @@ If the feature needs ILIAS data, add a method to `ilias::Client`, then a matchin
 `Action::Xxx` / `Action::XxxLoaded` pair. Add a method for it in `app/effects.rs` that
 spawns the work like `App::fetch`, and route the action to it in `App::effect`.
 
+### Keeping it maintainable
+
+- A file stays under about 600 lines of code (tests not counted); split by topic before it
+  gets there, as `parse/`, `browser/` and `app/` are split.
+- A new kind of ILIAS page gets its own module in `parse/`, not another branch in `Walker`.
+- A new kind of item gets a `Kind` variant (and, if it isn't identified by a reference id,
+  an `Id` variant), never a string compare.
+- A new key goes into `keymap.rs`; the README test fails until the keys table has it.
+- A new side effect gets its own method in `app/effects.rs`.
+
 ## 4. Testing
 
 `cargo test` runs:
@@ -563,7 +573,7 @@ spawns the work like `App::fetch`, and route the action to it in `App::effect`.
   check the output. This covers navigation, stale responses, filtering and deep search.
   No terminal or network is needed.
 
-CI (`.github/workflows/ci.yml`, GitHub Actions) runs `cargo test` and
+CI (`.github/workflows/ci.yml`, GitHub Actions) runs `cargo fmt --check`, `cargo test` and
 `cargo clippy --all-targets -- -D warnings` on macOS and Linux for every push to `main` and
 every pull request, and `cargo audit` against the RustSec advisories (also weekly, since new
 advisories appear without code changes). No test reaches the network, so CI needs no ILIAS.
@@ -572,7 +582,8 @@ The login itself and the real HTML of logged-in pages can't run in CI, because t
 your edu-ID. Test those by hand with `ilias-tui login`, `ilias-tui ls …` and
 `ilias-tui dump …`.
 
-**The write guard.** `Client::request` is the one place page requests leave the client.
+**The write guard.** `Client::request` is the one place page requests leave the client,
+GETs and POSTs alike (the read-only "Show more" request and `write.rs`'s forms included).
 It refuses URLs that `write::is_write` flags (an `rtoken`, or a command in
 `WRITE_COMMANDS`) unless the caller is the write path (`write.rs`: `toggle_favorite`,
 `logout`). When ILIAS gains a write command ilias-tui might see in a link, add it there.

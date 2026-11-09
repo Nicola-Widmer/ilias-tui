@@ -8,7 +8,6 @@
 //! What a page you are looking at shows new is seen right away.
 
 use std::collections::{BTreeMap, BTreeSet, HashMap};
-use std::fs;
 use std::path::PathBuf;
 
 use jiff::civil::Date;
@@ -82,18 +81,11 @@ pub struct Seen {
 
 impl Seen {
     pub fn load(base: &Url) -> Self {
-        let file = session::path(base)
-            .ok()
-            .map(|p| p.with_extension("seen.json"));
-        Self::from_file(file)
+        Self::from_file(session::host_file(base, "seen"))
     }
 
     fn from_file(file: Option<PathBuf>) -> Self {
-        let unseen = file
-            .as_ref()
-            .and_then(|f| fs::read_to_string(f).ok())
-            .and_then(|json| serde_json::from_str(&json).ok())
-            .unwrap_or_default();
+        let unseen = session::read_json(file.as_deref()).unwrap_or_default();
         Self { file, unseen }
     }
 
@@ -141,20 +133,16 @@ impl Seen {
 
     /// Best effort, like the page cache: a failed write only loses a "new" mark.
     fn save(&self) {
-        let Some(file) = &self.file else {
-            return;
-        };
-        if let Some(dir) = file.parent() {
-            let _ = session::private_dir(dir);
-        }
-        if let Ok(json) = serde_json::to_string(&self.unseen) {
-            let _ = fs::write(file, json);
+        if let Some(file) = &self.file {
+            let _ = session::write_json(file, &self.unseen);
         }
     }
 }
 
 #[cfg(test)]
 mod tests {
+    use std::fs;
+
     use super::*;
     use crate::ilias::Id;
     use jiff::civil::date;
@@ -213,8 +201,9 @@ mod tests {
 
     #[test]
     fn opening_a_course_marks_it_and_its_folders_seen() {
-        let file = std::env::temp_dir().join(format!("ilias-tui-seen-{}.json", std::process::id()));
-        let _ = fs::remove_file(&file);
+        let dir = std::env::temp_dir().join(format!("ilias-tui-seen-{}", std::process::id()));
+        let file = dir.join("host.seen.json");
+        let _ = fs::remove_dir_all(&dir);
         let mut seen = Seen::in_file(file.clone());
         // A sync of course 1 found new files in it (container 1) and in its folder 2;
         // course 5 got one too.
@@ -239,6 +228,6 @@ mod tests {
             HashMap::from([(5, 1)])
         );
 
-        let _ = fs::remove_file(&file);
+        let _ = fs::remove_dir_all(&dir);
     }
 }

@@ -82,17 +82,11 @@ pub struct Downloads {
 impl Downloads {
     /// Loads the index; a missing or unreadable file means "nothing saved yet".
     pub fn load(base: &Url) -> Self {
-        let file = session::path(base)
-            .ok()
-            .map(|p| p.with_extension("downloads.json"));
-        Self::from_file(file)
+        Self::from_file(session::host_file(base, "downloads"))
     }
 
     fn from_file(file: Option<PathBuf>) -> Self {
-        let entries = file
-            .as_ref()
-            .and_then(|f| fs::read_to_string(f).ok())
-            .and_then(|json| serde_json::from_str::<HashMap<String, Stored>>(&json).ok())
+        let entries = session::read_json::<HashMap<String, Stored>>(file.as_deref())
             .unwrap_or_default()
             .into_iter()
             .filter_map(|(id, stored)| {
@@ -174,8 +168,7 @@ impl Downloads {
             .iter()
             .map(|(id, s)| (id.to_string(), s))
             .collect();
-        fs::write(file, serde_json::to_string_pretty(&json)?)?;
-        Ok(())
+        session::write_json(file, &json)
     }
 }
 
