@@ -7,6 +7,8 @@ features and changes in behaviour, the last one for fixes only. See
 
 ## Unreleased
 
+## 0.4.0 - 2026-11-09
+
 ### Added
 
 - **Two-way sync** (settings, `ILIAS_TWO_WAY=1`; off by default), first part: sync compares
