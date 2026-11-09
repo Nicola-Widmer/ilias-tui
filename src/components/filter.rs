@@ -20,6 +20,11 @@ pub struct Filter {
 }
 
 impl Filter {
+    /// Whether you are typing into it.
+    pub fn is_editing(&self) -> bool {
+        self.editing
+    }
+
     /// Whether the bar takes up a line on screen.
     pub fn is_visible(&self) -> bool {
         self.editing || !self.query.is_empty()

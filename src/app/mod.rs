@@ -167,10 +167,23 @@ impl App {
         if key.modifiers.contains(KeyModifiers::CONTROL) && key.code == KeyCode::Char('c') {
             return Some(Action::Quit);
         }
-        let handled = self
-            .components()
-            .into_iter()
-            .find_map(|c| c.handle_key_event(key));
+        // While you type into the filter, letters are text: `c` or `?` must not open the
+        // settings or the help (above it in the z-order) and send them the rest of the word.
+        let order: [&mut dyn Component; 8] = if self.filter.is_editing() {
+            [
+                &mut self.confirm,
+                &mut self.hand_in,
+                &mut self.report,
+                &mut self.filter,
+                &mut self.help,
+                &mut self.settings,
+                &mut self.browser,
+                &mut self.status_bar,
+            ]
+        } else {
+            self.components()
+        };
+        let handled = order.into_iter().find_map(|c| c.handle_key_event(key));
         // `q` comes last so it can still be typed into the search bar.
         handled.or(
             (crate::keymap::command(key) == Some(crate::keymap::Command::Quit))

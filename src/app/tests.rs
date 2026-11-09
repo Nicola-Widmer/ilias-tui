@@ -68,6 +68,30 @@ fn one_enter_in_the_filter_opens_the_match() {
 }
 
 #[test]
+fn letters_typed_into_the_filter_open_nothing() {
+    let dir = std::env::temp_dir().join(format!("ilias-tui-typing-{}", std::process::id()));
+    let mut app = app(&dir);
+    show_my_courses(&mut app);
+    let key = |c| ratatui::crossterm::event::KeyEvent::from(c);
+    // `c` opens the settings and `?` the help, but not while you type: "scripts?".
+    for c in "/scripts?".chars() {
+        let action = app
+            .handle_key(key(KeyCode::Char(c)))
+            .expect("the filter takes it");
+        assert!(matches!(action, Action::Filter(_)), "{c}: {action:?}");
+        app.dispatch(action).unwrap();
+    }
+    assert!(app.filter.is_editing());
+    // Done typing: `c` is the settings key again.
+    app.handle_key(key(KeyCode::Enter));
+    assert!(matches!(
+        app.handle_key(key(KeyCode::Char('c'))),
+        Some(Action::ToggleSettings)
+    ));
+    let _ = std::fs::remove_dir_all(dir);
+}
+
+#[test]
 fn f_shows_the_question_on_screen() {
     let dir = std::env::temp_dir().join(format!("ilias-tui-confirm-{}", std::process::id()));
     let mut app = app(&dir);
