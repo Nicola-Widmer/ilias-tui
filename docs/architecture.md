@@ -19,7 +19,16 @@ src/
 │   ├── mod.rs           HTTP client: session check, silent re-login, pages, downloads
 │   ├── my_courses.rs    My courses: course list + favourites + To-Do, assembled
 │   ├── pages.rs         The seam for page requests: Https, and FakeIlias for tests
-│   ├── parse.rs         HTML → Page { tabs, blocks } (ILIAS 10 markup)
+│   ├── parse/           HTML → Page { tabs, blocks } (ILIAS 10 markup)
+│   │   ├── mod.rs       parse_page, links → (kind, ref_id), breadcrumb
+│   │   ├── model.rs     Item, Tab, Post, Block, Page
+│   │   ├── walker.rs    The content column → headings, text, items, text links
+│   │   ├── forum.rs     Thread posts
+│   │   ├── exercise.rs  Submission item, handed-in files, upload and delete forms
+│   │   ├── dashboard.rs Favourites, To-Do, course in a breadcrumb, dates
+│   │   ├── show_more.rs "Show more" buttons
+│   │   ├── html.rs      Selectors, visible text, link base
+│   │   └── tests.rs
 │   └── write.rs         Every write (favourites, handing in, logout) and the write guard
 ├── action.rs            Action enum (the app's messages)
 ├── app.rs               Event loop, side effects, action routing
@@ -114,7 +123,7 @@ reads the course list to find out, and keeps that page (`checked_courses`); the 
   of date), `Login` (session expired: Chrome opens) or `Offline` (ILIAS unreachable).
 - **CLI** (`main::connect`): runs the check first and falls back to the browser login.
 
-## 2. Reading ILIAS (`ilias/parse.rs`)
+## 2. Reading ILIAS (`ilias/parse/`)
 
 ILIAS 10 renders HTML on the server. `parse_page` turns a page into a `Page`:
 
@@ -267,8 +276,10 @@ To fix it:
 
 1. Run `ilias-tui show <url>` to see what the parser makes of the page, and
    `ilias-tui dump <url> > page.html` for the raw HTML.
-2. Adjust `Walker` or the selectors in `parse.rs`.
-3. Add a test next to the existing ones in `parse.rs`. Use a small HTML snippet modelled
+2. Adjust `Walker` (`parse/walker.rs`) or the module for that kind of page
+   (`parse/forum.rs`, `parse/exercise.rs`, …). A new kind of page gets its own module rather
+   than another branch in `Walker`.
+3. Add a test next to the existing ones in `parse/tests.rs`. Use a small HTML snippet modelled
    on the real markup rather than a full page: course pages contain personal data.
 
 ## 3. The TUI: component architecture
@@ -501,7 +512,7 @@ If the feature needs ILIAS data, add a method to `ilias::Client`, then a matchin
 
 `cargo test` runs:
 
-- **Parser tests** (`ilias/parse.rs`) against real public HSLU pages in `tests/fixtures/`.
+- **Parser tests** (`ilias/parse/tests.rs`) against real public HSLU pages in `tests/fixtures/`.
 - **Client tests through the `Pages` seam.** `Client` sends every page request to a
   `Pages` adapter: `Https` in the app, `FakeIlias` in tests (answers from a closure, records
   the URLs asked for). With it the tests cover silent re-login and its failure, the write

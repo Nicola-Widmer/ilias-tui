@@ -456,7 +456,7 @@ tool with your account.
 | `could not start Chrome/Chromium` | Install Google Chrome, or set `CHROME=/path/to/chrome`. |
 | Can't select text with the mouse | Hold Option (iTerm2, Terminal.app) or Shift while dragging, or set `ILIAS_MOUSE=0`. |
 | Icons show up as `?` or boxes | Your terminal font has no Nerd Font glyphs. Install one and select it in your terminal, or set `ILIAS_NERD_FONT=0`. |
-| A list is empty that shouldn't be | Check with `ilias-tui show goto.php/fold/<id>`. If that's empty too, ILIAS changed its HTML. Run `ilias-tui dump goto.php/fold/<id> > page.html` and compare it with the selectors in `src/ilias/parse.rs`. |
+| A list is empty that shouldn't be | Check with `ilias-tui show goto.php/fold/<id>`. If that's empty too, ILIAS changed its HTML. Run `ilias-tui dump goto.php/fold/<id> > page.html` and compare it with the selectors in `src/ilias/parse/`. |
 | Want to log out / reset | Run `ilias-tui logout`. It removes the session and the page cache. The session is stored in `~/Library/Application Support/ch.ilias-tui.ilias-tui/` (macOS) or `~/.local/share/ilias-tui/` (Linux), readable only by you. |
 | `ILIAS returned a page instead of the file` | You don't have access, or the object isn't a plain file. Press `o` to open it in the browser. |
 | Login window doesn't close | Make sure you end up on an ILIAS page (not an error page). The login times out after 5 minutes. |
