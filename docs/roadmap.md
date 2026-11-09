@@ -57,7 +57,7 @@ Read-only; safe to build.
     plan, shown in the sync report.
   - [x] Upload new files (asks first, re-checks each folder, mass-change brake, journal).
   - [x] New versions of edited files ("Create New Version", tested on the local ILIAS).
-  - [ ] A review screen with the proposed deletions to tick.
+  - [x] A review screen with the proposed deletions to tick (unticked by default).
   - [ ] New local folders become ILIAS folders.
 - [ ] **Sync from the command line** (`ilias-tui sync URL…`), e.g. for cron.
 - [ ] **Sync through the fake ILIAS in tests.** Downloads bypass the `Pages` seam, so only

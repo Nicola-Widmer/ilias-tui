@@ -26,7 +26,8 @@ with any ILIAS 10 that logs in through OpenID Connect. Runs on macOS, Linux and 
   the saved copy opens at once.
 - **Sync** whole courses (`S`, `A`): every file up to 50 MB, later only what changed, and
   never over files you edited. **Two-way sync** (settings, off by default) also uploads
-  your new files and your edits (as new versions), after asking. See [Sync](#sync).
+  your new files and your edits (as new versions), and moves files you deleted to the
+  ILIAS trash if you tick them; it shows everything first and asks. See [Sync](#sync).
 - Works **offline** with what it has seen before. See [Offline](#offline).
 
 **Exercises and forums**
@@ -120,6 +121,15 @@ opens again when the HSLU login itself has expired.
 | `?`             | Toggle help                                     |
 | `q` / `Ctrl-c`  | Quit                                            |
 
+In the sync review:
+
+| Key             | Action                                          |
+| --------------- | ----------------------------------------------- |
+| `↓` `j` / `↑` `k` | Next / previous proposal (else scroll)        |
+| `Space`         | Tick / untick: move this file to the ILIAS trash |
+| `Enter`         | Send what is listed and ticked (asks first)     |
+| `Esc` / `q`     | Close, send nothing                             |
+
 `?` shows the keys in the app. The mouse works too: click to select, double-click to open, scroll to move, click a tab or a
 breadcrumb. To select text, hold **Option** (iTerm2, Terminal.app) or **Shift** (most other
 terminals); `ILIAS_MOUSE=0` turns the mouse off.
@@ -178,10 +188,10 @@ files skipped for their size, saved beside your copy, or failed.
 
 With "Two-way sync" on (settings, or `ILIAS_TWO_WAY=1`), sync also compares your copy of each
 synced course and folder with what it recorded when it last saved them (the **base**: the
-file's version on ILIAS, its size, date and a hash of its content) and with ILIAS now. The
-report lists what it would send, and it asks before anything is sent (with
-`ILIAS_DRY_RUN=1` it stops there). So far it sends new files and edited ones; deleted
-ones are only listed.
+file's version on ILIAS, its size, date and a hash of its content) and with ILIAS now.
+Then the **review** shows, grouped, what it would send and what it leaves alone: `Enter`
+goes on to the usual question, `Esc` sends nothing (keys above). With `ILIAS_DRY_RUN=1` it
+is a plain report and nothing is sent.
 
 | Your copy vs base | ILIAS vs base | Sync                                                       |
 | --- | --- | --- |
@@ -189,7 +199,7 @@ ones are only listed.
 | unchanged         | changed       | downloads it, as always                                    |
 | edited            | unchanged     | uploads it as a new version (ILIAS keeps the old ones)     |
 | edited            | changed       | a **conflict**: saves ILIAS' copy beside yours, sends nothing |
-| deleted           | unchanged     | would propose moving it to the ILIAS trash                 |
+| deleted           | unchanged     | a **proposal**: moves it to the ILIAS trash if you tick it (`Space`) |
 | deleted           | changed       | downloads it again                                         |
 | any               | gone on ILIAS | keeps yours and lists it                                   |
 
@@ -215,7 +225,9 @@ ones are only listed.
   sees it as unchanged; a renamed file's old name is never proposed for the trash.
 - **A journal** of every write (time, action, file, ILIAS object, result) is kept next to
   the session, as `<ilias host>.journal.jsonl`.
-- **Nothing is ever deleted**, on your disk or on ILIAS.
+- **Nothing is ever deleted for good**: sync never removes your files, and on ILIAS only
+  moves the ones you ticked to its trash (where they can be restored), never where ILIAS
+  has no trash.
 
 ## Offline
 

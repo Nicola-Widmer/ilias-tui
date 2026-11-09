@@ -281,6 +281,41 @@ impl Client {
         Ok(())
     }
 
+    /// Looks for something in a container's page with `find`, and if it isn't there, in
+    /// each "Show more" batch of it in turn (read only, as [`Client::show_all`]): an item
+    /// listed after a block limit brings its action menu along in its batch. For writes that
+    /// take a link from an item's menu.
+    pub(crate) fn find_in_batches<T>(
+        &self,
+        fetched: &Fetched,
+        find: impl Fn(&Fetched) -> Option<T>,
+    ) -> Result<Option<T>> {
+        if let Some(found) = find(fetched) {
+            return Ok(Some(found));
+        }
+        let mut pending = parse::show_more(&fetched.html, &fetched.url);
+        let mut requests = 0;
+        while let Some(more) = pending.pop() {
+            requests += 1;
+            if requests > MAX_SHOW_MORE || more.last_shown().is_none() {
+                break;
+            }
+            let answer = self.more_items(&more)?;
+            let batch = Fetched {
+                url: more.url.clone(),
+                html: answer.html,
+            };
+            if let Some(found) = find(&batch) {
+                return Ok(Some(found));
+            }
+            for mut next in parse::show_more(&batch.html, &more.url) {
+                next.shown.splice(0..0, more.shown.iter().cloned());
+                pending.push(next);
+            }
+        }
+        Ok(None)
+    }
+
     /// The next items of a list cut short behind "Show more". ILIAS wants a POST of the
     /// items already shown, but it only reads. It is the one POST outside `write.rs`, so on
     /// top of the write guard it only goes to this ILIAS, with the one command the button
@@ -865,6 +900,62 @@ mod tests {
                     "{more} <- ids[]=lg_div_1_pref_9&ids[]=lg_div_2_pref_9&ids[]=lg_div_3_pref_9&ids[]=lg_div_4_pref_9"
                 ),
             ]
+        );
+    }
+
+    #[test]
+    fn an_items_delete_behind_show_more_is_found_in_its_batch() {
+        let deleted = Arc::new(AtomicBool::new(false));
+        let gone = deleted.clone();
+        let delete = "ilias.php?baseClass=ilrepositorygui&amp;cmdClass=ilObjFolderGUI&amp;cmd=delete&amp;ref_id=9&amp;item_ref_id=3";
+        let (client, ilias) = fake(move |url| {
+            let query = url.query().unwrap_or_default();
+            if query.contains("fallbackCmd=confirmedDelete") {
+                gone.store(true, Ordering::SeqCst);
+            }
+            if query.contains("cmd=delete&") {
+                return reply(
+                    url,
+                    r#"<dialog class="c-modal"><div class="modal-body"><div class="alert alert-warning" role="status">Are you sure that you want to delete the following?</div>
+                    <form class="c-form" action="ilias.php?cmdClass=ilObjFolderGUI&amp;cmd=post&amp;fallbackCmd=confirmedDelete&amp;ref_id=9&amp;rtoken=t" method="post"><input type="hidden" name="form/input_0" value="3" /></form></div></dialog>"#,
+                );
+            }
+            match url.path() {
+                "/ilias/goto.php/fold/9" => reply(
+                    url,
+                    &format!(r#"<div id="il_center_col">{}</div>"#, list_block(&[1, 2], true)),
+                ),
+                // The batch brings item 3 with its menu (until it is deleted).
+                "/ilias/ilias.php" if !gone.load(Ordering::SeqCst) => reply(
+                    url,
+                    &list_block(&[3], false).replace(
+                        "</a></div>",
+                        &format!(r#"</a><button class="btn btn-link" data-action="{delete}">Delete</button></div>"#),
+                    ),
+                ),
+                "/ilias/ilias.php" => reply(url, &list_block(&[4], false)),
+                other => Err(eyre!("unexpected request {other}")),
+            }
+        });
+        let folder = Item {
+            kind: "fold".into(),
+            id: Id::Ref(9),
+            url: "https://ilias.example/ilias/goto.php/fold/9".into(),
+            ..Item::default()
+        };
+        let exam = Item {
+            kind: "file".into(),
+            id: Id::Ref(3),
+            title: "Exam 3".into(),
+            ..Item::default()
+        };
+        assert!(client.delete_item(&folder, &exam).unwrap());
+        assert!(deleted.load(Ordering::SeqCst));
+        assert!(
+            ilias
+                .posts(&base())
+                .iter()
+                .any(|p| p.contains("fallbackCmd=confirmedDelete") && p.ends_with("form/input_0=3"))
         );
     }
 

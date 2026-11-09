@@ -62,6 +62,7 @@ src/
     │   └── tests.rs
     ├── filter.rs        `/` search bar + matching
     ├── status_bar.rs    Footer messages
+    ├── report.rs        The sync report; after a two-way sync the review (ticks, Enter, Esc)
     ├── confirm.rs       Yes/no dialog in front of every write
     ├── pick_files.rs    Asks for the files to hand in (`H`) or upload (`u`)
     ├── complete.rs      `Tab` in that dialog: completes the path being typed, as a shell does
@@ -292,7 +293,8 @@ pub struct Todo { assignment: Item, course, deadline, due, urgency }   // My cou
   rights' `delete` has it; `Ask` names title, kind and place and says it goes to the trash.
   The client reads the container's page again and takes that item's Delete from its action
   menu (`parse::delete_link`: `cmd=delete`, the container's `ref_id`, the item's
-  `item_ref_id`, this ILIAS), GETs it through the write path (its command is a write's) and
+  `item_ref_id`, this ILIAS; for an item behind "Show more" from its batch,
+  `Client::find_in_batches`), GETs it through the write path (its command is a write's) and
   reads ILIAS' question (`parse::confirm_delete`): a modal whose form posts to
   `fallbackCmd=confirmedDelete` for that container, with the item's ref id in its hidden
   field. Without a trash ILIAS adds "(WARNING: … irretrievably deleted …)" to the question,
@@ -533,9 +535,13 @@ file's proposal; same names on ILIAS, copies of saved files and folders shared b
 places become conflicts; saved files in a place that ILIAS no longer lists are `gone`. The
 report lists all of it.
 
-`Synced` carries the `Review`. `App::synced` takes what can be sent (`Review::sendable`:
-uploads and new versions so far) and, unless it's a dry run, asks with `push::question` (each file
-and its size); if `push::brake` finds more than usual (over `MAX_FILES` = 20 files, or
+`Synced` carries the `Review`, and `Report` shows it as the **review**: the report's
+sections, with the proposals (`sync::PROPOSALS`) as `[ ]` rows, its own keys
+(`keymap::REVIEW`: move, `Space` ticks, `Enter`, `Esc`), the cursor kept on screen with
+`Paragraph::line_count`. `Enter` sends `AskPush` with `Review::sendable` (uploads and new
+versions) plus the ticked proposals; `Esc` or a click sends `Cancelled`. In a dry run the
+review is a plain report. `App::ask_push` asks with `push::question` (each file and its
+size); if `push::brake` finds more than usual (over `MAX_FILES` = 20 files, or
 over `MAX_SHARE` = 30 % of a place's ILIAS files replaced or trashed) the "yes" leads to a
 second `Ask`. `Push(changes)` runs `push::push` on a worker, one at a time like a sync:
 per place it reads the page again (the re-check: a file of that name now is a conflict,
@@ -545,8 +551,9 @@ ILIAS' version, so the next sync finds it in sync; for a rename it marks the mis
 files with that content `moved_to`, which keeps them out of the trash proposals for good.
 A `NewVersion` is sent only if the place still lists the file with the version it was
 edited from (`base`), else it is a conflict; then `Client::upload_version` runs and the
-file is recorded with the listing's new version. Every write is appended to the
-`Journal`. `Pushed` shows the result like a sync.
+file is recorded with the listing's new version. A `Trash` is sent only if ILIAS still
+has the version and the file is still gone from your disk, through `Client::delete_item`
+(which refuses without a trash). Every write is appended to the `Journal`. `Pushed` shows the result like a sync.
 
 The crawl uses `Client::descendants_with_pages`, which hands every course and folder page it
 reads to a callback; sync puts them in the page cache under the key the TUI uses when it
@@ -653,7 +660,7 @@ pages.
 | `Browser`   | stack of `Level { item, deep, page, items, query, visible, cursor, list }` | Tab bar, then the page laid out as rows: headings, wrapped text, items with icon and details. Only item rows can be selected. `Tab` loads another tab into the same level. Back = pop (no request, unless the level went out of date while hidden: then it reloads once). `r` refreshes the top level. Only responses for the page asked for last are applied. |
 | `StatusBar` | `Status` (idle/busy/done/info/error), start time | Spinner while busy, ✓ / ⚠ icons for results and errors; key hints on the right. |
 | `Help`      | `visible: bool`                          | Overlay drawn last, on top of everything. Keys come from `keymap::SECTIONS` (a title like `Edit · where ILIAS lets you` shows its note beside the name), plus a few lines on the mouse. Texts wrap; two columns when the terminal is at least 154 wide. |
-| `Report`    | the last sync's report lines, `scroll`   | Overlay after a sync that skipped, kept or failed files. `j`/`k` scroll, any other key closes. Keys it uses up return `Action::Handled`. |
+| `Report`    | the last sync's report sections, `scroll`; for a review also what `Enter` sends, the proposals with their ticks, `cursor` | Overlay after a sync that skipped, kept or failed files: `j`/`k` scroll, any other key closes. After a two-way sync with something to send it is the review (`keymap::REVIEW`), which only `Enter` (to `AskPush`), `Esc`/`q` or a click close. Keys it uses up return `Action::Handled`. |
 | `Confirm`   | `pending: Option<(question, Action)>`    | Yes/no dialog, first in the z-order. `Action::Ask { question, then }` opens it; `y` sends `then`, anything that cancels sends `Cancelled`. Every write goes through it, and opening a link to another site. |
 
 ### Windows

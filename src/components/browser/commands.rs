@@ -96,7 +96,9 @@ impl Browser {
             | Command::Filter
             | Command::Settings
             | Command::Help
-            | Command::Quit => return None,
+            | Command::Quit
+            | Command::Tick
+            | Command::Send => return None,
         }
         None
     }

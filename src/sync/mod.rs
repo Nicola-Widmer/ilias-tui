@@ -39,6 +39,9 @@ pub mod review;
 use review::{Candidates, Place};
 pub use review::{Change, Review};
 
+/// The report's section of proposed deletions, which the review shows as checkboxes.
+pub const PROPOSALS: &str = "Deleted by you: tick to move to the ILIAS trash";
+
 /// Downloads running at the same time; polite to the server, still much faster than one.
 const PARALLEL: usize = 3;
 
@@ -186,8 +189,6 @@ pub struct Summary {
     pub unseen: Vec<FoundNew>,
     /// Two-way: what to send to ILIAS, once you agree.
     pub review: Review,
-    /// Dry run: two-way sync stops after the plan.
-    pub dry_run: bool,
 }
 
 /// New items a sync found on one page.
@@ -222,7 +223,7 @@ impl Summary {
         if to_send > 0 {
             parts.push(format!("{to_send} to send to ILIAS (see the report)"));
         }
-        if to_send > 0 && self.dry_run {
+        if to_send > 0 && self.review.dry_run {
             parts.push("dry run: nothing will be sent".into());
         }
         if !self.too_big.is_empty() {
@@ -272,10 +273,7 @@ impl Summary {
                 "Edited by you: to upload as a new version".to_string(),
                 changes(&mut review.new_versions()),
             ),
-            (
-                "Deleted by you: could go to the ILIAS trash (nothing sent yet)".to_string(),
-                changes(&mut review.proposals()),
-            ),
+            (PROPOSALS.to_string(), changes(&mut review.proposals())),
             (
                 "New folders on your disk (nothing sent yet)".to_string(),
                 changes(&mut review.new_folders()),
@@ -459,7 +457,7 @@ pub fn sync(
         let places = places.into_inner().unwrap_or_else(PoisonError::into_inner);
         summary.review =
             review::decide(&places, &on_ilias, candidates, downloads, rules.max_bytes());
-        summary.dry_run = client.is_dry_run();
+        summary.review.dry_run = client.is_dry_run();
     }
     Ok(summary)
 }

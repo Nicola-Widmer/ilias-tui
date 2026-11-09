@@ -1,7 +1,8 @@
 //! The keys of the main view, in one place: which key means which [`Command`], and how the
 //! help overlay describes it. The README's keys table is checked against it (see the
 //! tests). Overlays have their own keys while they are open: the settings, the sync report,
-//! the filter while you type, and questions.
+//! the filter while you type, and questions. The sync review's keys are here too
+//! ([`REVIEW`]), with a README table of their own.
 
 use ratatui::crossterm::event::{KeyCode, KeyEvent};
 
@@ -39,6 +40,10 @@ pub enum Command {
     Settings,
     Help,
     Quit,
+    /// Sync review: tick or untick the proposal under the cursor.
+    Tick,
+    /// Sync review: on to the question before sending.
+    Send,
 }
 
 pub struct Binding {
@@ -179,6 +184,39 @@ pub const SECTIONS: &[(&str, &[Binding])] = &[
     ),
 ];
 
+/// The keys of the sync review (two-way sync), which has them while it is open.
+pub const REVIEW: &[Binding] = &[
+    bind(
+        Down,
+        &[KeyCode::Down, Char('j')],
+        "Next proposal (else scroll)",
+    ),
+    bind(
+        Up,
+        &[KeyCode::Up, Char('k')],
+        "Previous proposal (else scroll)",
+    ),
+    bind(
+        Tick,
+        &[Char(' ')],
+        "Tick / untick: move this file to the ILIAS trash",
+    ),
+    bind(
+        Send,
+        &[Enter],
+        "Send what is listed and ticked (asks first)",
+    ),
+    bind(Back, &[Esc, Char('q')], "Close, send nothing"),
+];
+
+/// The command `key` stands for in the sync review.
+pub fn review_command(key: KeyEvent) -> Option<Command> {
+    REVIEW
+        .iter()
+        .find(|b| b.keys.contains(&key.code))
+        .map(|b| b.command)
+}
+
 /// The command `key` stands for in the main view.
 pub fn command(key: KeyEvent) -> Option<Command> {
     SECTIONS
@@ -258,5 +296,32 @@ mod tests {
             .flat_map(|b| b.keys.iter().map(|k| key_name(*k)))
             .collect();
         assert_eq!(listed, bound);
+    }
+
+    /// The README's table of the sync review names exactly its keys.
+    #[test]
+    fn the_readme_lists_every_review_key() {
+        let readme = include_str!("../README.md");
+        let table = readme
+            .split("In the sync review:")
+            .nth(1)
+            .and_then(|rest| rest.split("\n\n").nth(1))
+            .expect("a table after \"In the sync review:\"");
+        let mut listed = BTreeSet::new();
+        for row in table.lines().skip(2) {
+            let keys = row.split('|').nth(1).unwrap_or_default();
+            for code in keys.split('`').skip(1).step_by(2) {
+                listed.extend(code.split_whitespace().map(String::from));
+            }
+        }
+        let bound: BTreeSet<String> = REVIEW
+            .iter()
+            .flat_map(|b| b.keys.iter().map(|k| key_name(*k)))
+            .collect();
+        assert_eq!(listed, bound);
+        let mut seen = BTreeSet::new();
+        for key in REVIEW.iter().flat_map(|b| b.keys) {
+            assert!(seen.insert(format!("{key:?}")), "{key:?} is bound twice");
+        }
     }
 }

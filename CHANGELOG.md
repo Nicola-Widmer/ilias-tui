@@ -21,12 +21,21 @@ features and changes in behaviour, the last one for fixes only. See
 - **Two-way sync uploads your edits as new versions** through the file's own "Create New
   Version" (never "Replace File", so ILIAS keeps the older versions), only if the file is
   still at the version you edited, and checks that ILIAS lists the new version.
+- **The sync review**: after a two-way sync the report shows what Enter sends and lists
+  the files you deleted as proposals for the ILIAS trash, unticked until you tick them
+  (`Space`); `Esc` sends nothing. Ticked ones go to the trash only if ILIAS has one and
+  still has the version you deleted.
 - **Content hashes** in the saved-files list: a file whose date changed but whose content
   didn't is no longer "edited", so sync can update it.
 
 - **`Tab` completes paths** in the file dialog of `u` (upload) and `H` (hand in), as a shell
   does: the only file or folder that fits, else as far as all of them agree, with the
   matches listed below the input.
+
+### Fixed
+
+- **`D` in lists cut short behind "Show more"**: an item after the block limit could not be
+  moved to the trash, because its menu only comes with its batch. Its batch is read now.
 
 ### Changed
 

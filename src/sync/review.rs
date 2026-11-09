@@ -91,6 +91,8 @@ pub struct Review {
     pub too_big: Vec<PathBuf>,
     /// How many files ILIAS lists in each place (by key), for the mass-change brake.
     pub listed: HashMap<u64, usize>,
+    /// Dry run: two-way sync stops after the plan.
+    pub dry_run: bool,
 }
 
 impl Review {

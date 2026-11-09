@@ -24,6 +24,7 @@ impl App {
             | Action::AskFolderName { .. }
             | Action::Compose(_)
             | Action::Sync(_)
+            | Action::AskPush(_)
             | Action::Push(_) => true,
             _ => false,
         };
@@ -33,7 +34,7 @@ impl App {
             );
         }
         let wants_sync = match action {
-            Action::Sync(_) | Action::Push(_) => true,
+            Action::Sync(_) | Action::AskPush(_) | Action::Push(_) => true,
             Action::Ask { then, .. } => matches!(**then, Action::Sync(_)),
             _ => false,
         };
@@ -97,7 +98,11 @@ impl App {
                 self.downloads = Downloads::load(&self.client.base);
             }
             Action::Sync(roots) => self.sync(roots.clone()),
-            Action::Synced { review, .. } => self.synced(review)?,
+            Action::Synced { review, .. } => {
+                self.listed.clone_from(&review.listed);
+                self.synced()?;
+            }
+            Action::AskPush(changes) => self.ask_push(changes)?,
             Action::Push(changes) => self.push(changes.clone()),
             Action::Pushed { .. } => self.downloads = Downloads::load(&self.client.base),
             Action::SetConfig(config) => self.set_config(config.clone())?,
@@ -408,19 +413,25 @@ impl App {
         });
     }
 
-    /// The sync wrote its own copies of the index and of what's new; read them again. If
-    /// two-way sync found something to send, ask (twice, for more than usual); a dry run
-    /// stops here.
-    fn synced(&mut self, review: &sync::Review) -> Result<()> {
+    /// The sync wrote its own copies of the index and of what's new; read them again. (What
+    /// two-way sync would send is in the review, which `Report` shows.)
+    fn synced(&mut self) -> Result<()> {
         self.downloads = Downloads::load(&self.client.base);
         self.seen = Seen::load(&self.client.base);
         self.tx.send(Action::NewCounts(self.seen.counts()))?;
-        let changes = review.sendable();
+        Ok(())
+    }
+
+    /// What the review sends: ask first (twice, for more than usual). In a dry run there is
+    /// nothing to ask: it stops at the plan.
+    fn ask_push(&mut self, changes: &[sync::Change]) -> Result<()> {
         if changes.is_empty() || self.client.is_dry_run() {
+            self.tx
+                .send(Action::Progress("Dry run: nothing sent to ILIAS".into()))?;
             return Ok(());
         }
-        let push = Action::Push(changes.clone());
-        let then = match sync::push::brake(&changes, &review.listed) {
+        let push = Action::Push(changes.to_vec());
+        let then = match sync::push::brake(changes, &self.listed) {
             Some(question) => Action::Ask {
                 question,
                 then: Box::new(push),
@@ -428,7 +439,7 @@ impl App {
             None => push,
         };
         self.tx.send(Action::Ask {
-            question: sync::push::question(&changes, &self.download_dir),
+            question: sync::push::question(changes, &self.download_dir),
             then: Box::new(then),
         })?;
         Ok(())

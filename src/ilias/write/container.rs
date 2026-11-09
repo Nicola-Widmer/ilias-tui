@@ -151,7 +151,8 @@ impl Client {
         let name = file_name(path)?;
         let page = self.get_authed(&Url::parse(&container.url)?)?;
         // Only ever send what this function is for: a new version of this very file.
-        let tab = parse::versions_link(&page.html, &page.url, file_ref)
+        let tab = self
+            .find_in_batches(&page, |p| parse::versions_link(&p.html, &p.url, file_ref))?
             .ok_or_else(|| eyre!("ILIAS doesn't let you change {}", file.title))?;
         let tab = self.get_authed(&tab)?;
         let before = parse::versions(&tab.html).into_iter().max().unwrap_or(0);
@@ -266,7 +267,10 @@ impl Client {
         };
         let page = self.get_authed(&Url::parse(&container.url)?)?;
         // Only ever send what this function is for: this very item, from this container.
-        let link = parse::delete_link(&page.html, &page.url, ref_id, item_ref)
+        let link = self
+            .find_in_batches(&page, |p| {
+                parse::delete_link(&p.html, &p.url, ref_id, item_ref)
+            })?
             .ok_or_else(|| eyre!("ILIAS doesn't let you delete {}", item.title))?;
         // Only shows ILIAS' question, but its command is a write's (`delete`).
         let asked = self.authed(&link, true)?;

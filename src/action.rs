@@ -190,6 +190,9 @@ pub enum Action {
         saved: Vec<u64>,
         review: Box<crate::sync::Review>,
     },
+    /// Two-way sync: ask before sending these (what the review sends: uploads, new
+    /// versions, the ticked deletions).
+    AskPush(Vec<crate::sync::Change>),
     /// Two-way sync: send these changes to ILIAS (you agreed to them).
     Push(Vec<crate::sync::Change>),
     /// What a push sent (one line) and what deserves a look (by section).

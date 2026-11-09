@@ -24,6 +24,8 @@ pub struct Pushed {
     pub uploaded: Vec<PathBuf>,
     /// Edited files sent as new versions.
     pub new_versions: Vec<PathBuf>,
+    /// Files you deleted, now in the ILIAS trash.
+    pub trashed: Vec<PathBuf>,
     /// Changed on ILIAS since the plan: nothing sent.
     pub conflicts: Vec<String>,
     pub failed: Vec<String>,
@@ -40,6 +42,9 @@ impl Pushed {
         let mut parts = vec![format!("{} uploaded", self.uploaded.len())];
         if !self.new_versions.is_empty() {
             parts.push(format!("{} new versions", self.new_versions.len()));
+        }
+        if !self.trashed.is_empty() {
+            parts.push(format!("{} moved to the ILIAS trash", self.trashed.len()));
         }
         if !self.conflicts.is_empty() {
             parts.push(format!(
@@ -93,6 +98,11 @@ pub fn question(changes: &[Change], dir: &Path) -> String {
         .filter(|c| matches!(c, Change::Upload { .. }))
         .map(|c| sized(c.path()))
         .collect();
+    let trash: Vec<String> = changes
+        .iter()
+        .filter(|c| matches!(c, Change::Trash { .. }))
+        .map(|c| short(c.path()))
+        .collect();
     let edited: Vec<String> = changes
         .iter()
         .filter(|c| matches!(c, Change::NewVersion { .. }))
@@ -113,11 +123,21 @@ pub fn question(changes: &[Change], dir: &Path) -> String {
             list(edited)
         ));
     }
+    if !trash.is_empty() {
+        parts.push(format!(
+            "move {} you deleted to the ILIAS trash (not deleted for good; ilias-tui never empties it): {}",
+            plural(trash.len(), "file", "files"),
+            list(trash)
+        ));
+    }
     let mut question = parts.join("; and ");
     if let Some(first) = question.get(..1) {
         question = first.to_uppercase() + &question[1..];
     }
-    format!("{question}? Everyone who can open them on ILIAS sees them.")
+    match changes.iter().any(|c| !matches!(c, Change::Trash { .. })) {
+        true => format!("{question}? Everyone who can open them on ILIAS sees them."),
+        false => format!("{question}?"),
+    }
 }
 
 /// Why `changes` are more than usual (more than [`MAX_FILES`] files, or more than
@@ -313,7 +333,70 @@ pub fn push(
             );
         }
     }
+    for change in changes {
+        if let Change::Trash {
+            place,
+            file,
+            path,
+            base,
+        } = change
+        {
+            progress(format!("Two-way sync: {} to the ILIAS trash", file.title));
+            trash(client, place, file, path, base, journal, &mut pushed);
+        }
+    }
     pushed
+}
+
+/// Moves one file you deleted (and ticked) into the ILIAS trash, if ILIAS still has the
+/// version you had and it is still gone from your disk. `delete_item` refuses where ILIAS
+/// has no trash.
+fn trash(
+    client: &Client,
+    place: &Item,
+    file: &Item,
+    path: &Path,
+    base: &str,
+    journal: &mut Journal,
+    pushed: &mut Pushed,
+) {
+    let fail = |journal: &mut Journal, pushed: &mut Pushed, why: String| {
+        fail_as("trash", journal, pushed, place, path, why);
+    };
+    // The re-check: the file as ILIAS lists it now, and your disk now.
+    let now = match client.page(place, None) {
+        Ok(page) => page.items().find(|i| i.id == file.id).cloned(),
+        Err(e) => return fail(journal, pushed, format!("{e:#}")),
+    };
+    match now {
+        None => return fail(journal, pushed, "no longer on ILIAS".into()),
+        Some(now) if version(&now) != base => {
+            pushed.conflicts.push(format!(
+                "{}: changed on ILIAS since the plan ({} → {}); not moved to the trash",
+                path.display(),
+                base,
+                version(&now)
+            ));
+            return;
+        }
+        Some(_) if path.exists() => {
+            pushed.conflicts.push(format!(
+                "{}: back on your disk; not moved to the trash",
+                path.display()
+            ));
+            return;
+        }
+        Some(_) => {}
+    }
+    match client.delete_item(place, file) {
+        Ok(false) => pushed.dry_run = true,
+        Ok(true) => {
+            let result = format!("ok: {} in the ILIAS trash", object(file));
+            let _ = journal.write("trash", path, &object(place), &result);
+            pushed.trashed.push(path.to_path_buf());
+        }
+        Err(e) => fail(journal, pushed, format!("{e:#}")),
+    }
 }
 
 /// Sends one edited file as a new version, if ILIAS still has the version it was edited
@@ -665,6 +748,123 @@ mod tests {
         );
         assert!(fake.posts(&base()).is_empty());
         assert_eq!(journal(&s)[0]["action"], "new version");
+        let _ = std::fs::remove_dir_all(&s.dir);
+    }
+
+    const DELETE: &str = "ilias.php?baseClass=ilrepositorygui&cmdNode=wq:mp&cmdClass=ilObjFolderGUI&cmd=delete&ref_id=89&item_ref_id=95";
+    const CONFIRMED: &str = "ilias.php?baseClass=ilrepositorygui&cmdNode=wq:mp&cmdClass=ilObjFolderGUI&cmd=post&fallbackCmd=confirmedDelete&ref_id=89&id=95&rtoken=t";
+
+    /// Folder 89 listing file 95 "Skript" at `size` with Delete in its menu (until it is
+    /// deleted), and ILIAS' question `question` for it (markup of the local ILIAS 10).
+    fn trash_ilias(size: &'static str, question: &'static str) -> Arc<FakeIlias> {
+        let gone = AtomicBool::new(false);
+        Arc::new(FakeIlias::new(move |url| {
+            if url.as_str().contains("fallbackCmd=confirmedDelete") {
+                gone.store(true, Ordering::SeqCst);
+            }
+            if url.as_str().contains("cmd=delete&") {
+                return reply(
+                    url,
+                    &format!(
+                        r#"<dialog class="c-modal"><div class="modal-body">
+                        <div class="alert alert-warning" role="status">{question}</div>
+                        <form class="c-form" action="{}" method="post"><input type="hidden" name="form/input_0" value="95" /></form>
+                        </div></dialog>"#,
+                        CONFIRMED.replace('&', "&amp;")
+                    ),
+                );
+            }
+            let listing = match gone.load(Ordering::SeqCst) {
+                true => String::new(),
+                false => format!(
+                    r#"<div class="ilContainerListItemOuter"><a class="il_ContainerItemTitle" href="ilias.php?cmdClass=ilObjFileGUI&amp;cmd=sendfile&amp;ref_id=95">Skript</a>
+                    <div class="il_ItemProperties"><span class="il_ItemProperty">pdf</span><span class="il_ItemProperty">{size}</span></div>
+                    <ul><li><button class="btn btn-link" data-action="{}">Delete</button></li></ul></div>"#,
+                    DELETE.replace('&', "&amp;")
+                ),
+            };
+            reply(url, &format!(r#"<div id="il_center_col">{listing}</div>"#))
+        }))
+    }
+
+    const ASKED: &str = "Are you sure that you want to delete the following?";
+
+    fn skript_trash(s: &Setup, base: &str) -> Vec<Change> {
+        vec![Change::Trash {
+            place: folder(),
+            file: Item {
+                kind: Kind::File,
+                id: Id::Ref(95),
+                title: "Skript".into(),
+                ..Item::default()
+            },
+            path: s.dir.join("Skript.pdf"),
+            base: base.into(),
+        }]
+    }
+
+    #[test]
+    fn moves_a_ticked_deletion_into_the_trash_and_journals_it() {
+        let mut s = setup("trash");
+        let fake = trash_ilias("1.2 MB", ASKED);
+        let client = Client::with_pages(base(), fake.clone());
+        let changes = skript_trash(&s, "1.2 MB");
+        let pushed = push(&client, &changes, &mut s.downloads, &mut s.journal, |_| {});
+        assert_eq!(pushed.trashed, [s.dir.join("Skript.pdf")], "{pushed:?}");
+        assert_eq!(
+            fake.posts(&base()),
+            [format!("{CONFIRMED} <- form/input_0=95")]
+        );
+        let lines = journal(&s);
+        assert_eq!(lines[0]["action"], "trash");
+        assert_eq!(lines[0]["result"], "ok: file 95 Skript in the ILIAS trash");
+        let _ = std::fs::remove_dir_all(&s.dir);
+    }
+
+    #[test]
+    fn a_dry_run_trashes_nothing() {
+        let mut s = setup("trash-dry");
+        let fake = trash_ilias("1.2 MB", ASKED);
+        let client = Client::with_pages(base(), fake.clone());
+        client.set_dry_run(true);
+        let changes = skript_trash(&s, "1.2 MB");
+        let pushed = push(&client, &changes, &mut s.downloads, &mut s.journal, |_| {});
+        assert!(pushed.dry_run && pushed.trashed.is_empty(), "{pushed:?}");
+        assert!(fake.posts(&base()).is_empty());
+        assert!(journal(&s).is_empty());
+        let _ = std::fs::remove_dir_all(&s.dir);
+    }
+
+    #[test]
+    fn trashes_nothing_for_good_nor_anything_changed_since_the_plan() {
+        let mut s = setup("trash-refuse");
+        // No trash on this ILIAS: it would be gone for good.
+        let warned = "Are you sure that you want to delete the following? (WARNING: The selected object(s) will be irretrievably deleted from the system.)";
+        let fake = trash_ilias("1.2 MB", warned);
+        let client = Client::with_pages(base(), fake.clone());
+        let changes = skript_trash(&s, "1.2 MB");
+        let pushed = push(&client, &changes, &mut s.downloads, &mut s.journal, |_| {});
+        assert!(pushed.failed[0].contains("for good"), "{pushed:?}");
+        assert!(fake.posts(&base()).is_empty());
+        // Changed on ILIAS since the plan.
+        let fake = trash_ilias("1.3 MB", ASKED);
+        let client = Client::with_pages(base(), fake.clone());
+        let pushed = push(&client, &changes, &mut s.downloads, &mut s.journal, |_| {});
+        assert!(
+            pushed.conflicts[0].contains("changed on ILIAS since the plan"),
+            "{pushed:?}"
+        );
+        assert!(fake.posts(&base()).is_empty());
+        // Back on your disk.
+        std::fs::write(s.dir.join("Skript.pdf"), "restored").unwrap();
+        let fake = trash_ilias("1.2 MB", ASKED);
+        let client = Client::with_pages(base(), fake.clone());
+        let pushed = push(&client, &changes, &mut s.downloads, &mut s.journal, |_| {});
+        assert!(
+            pushed.conflicts[0].contains("back on your disk"),
+            "{pushed:?}"
+        );
+        assert!(fake.posts(&base()).is_empty());
         let _ = std::fs::remove_dir_all(&s.dir);
     }
 

@@ -83,8 +83,8 @@ impl Field {
                  Files you have are never replaced, and no new versions are saved beside them."
             }
             Field::TwoWay => {
-                "Sync also uploads your new files and new versions of the ones you edited, \
-                 after listing them and asking. Deleted files are only listed so far."
+                "Sync also uploads your new files and new versions of the ones you edited, and \
+                 moves the deleted ones you tick to the ILIAS trash: after a review, asking."
             }
             Field::NerdFont => "Off: plain Unicode symbols, for fonts without Nerd Font glyphs.",
             Field::Theme => {

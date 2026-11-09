@@ -519,19 +519,37 @@ fn two_way_sync_asks_before_sending_and_a_dry_run_stops_at_the_plan() {
         path: dir.join(format!("{n}.md")),
         renamed_from: None,
     };
-    let synced = |changes: Vec<crate::sync::Change>| Action::Synced {
+    let trash = |n: u64| crate::sync::Change::Trash {
+        place: folder.clone(),
+        file: Item {
+            kind: "file".into(),
+            id: Id::Ref(n),
+            ..Item::default()
+        },
+        path: dir.join(format!("{n}.pdf")),
+        base: "v1".into(),
+    };
+    let drain =
+        |app: &mut App| -> Vec<Action> { std::iter::from_fn(|| app.rx.try_recv().ok()).collect() };
+    // The sync itself asks nothing: the review does, and it remembers the folders' sizes.
+    app.dispatch(Action::Synced {
         summary: String::new(),
         report: Vec::new(),
         saved: Vec::new(),
         review: Box::new(crate::sync::Review {
-            changes,
+            changes: vec![upload(1)],
+            listed: std::collections::HashMap::from([(89, 4)]),
             ..Default::default()
         }),
-    };
-    let drain =
-        |app: &mut App| -> Vec<Action> { std::iter::from_fn(|| app.rx.try_recv().ok()).collect() };
+    })
+    .unwrap();
+    assert!(
+        !drain(&mut app)
+            .iter()
+            .any(|a| matches!(a, Action::Ask { .. }))
+    );
 
-    app.dispatch(synced(vec![upload(1)])).unwrap();
+    app.dispatch(Action::AskPush(vec![upload(1)])).unwrap();
     let asked = drain(&mut app);
     let Some(Action::Ask { question, then }) = asked.last() else {
         panic!("{asked:?}");
@@ -539,23 +557,30 @@ fn two_way_sync_asks_before_sending_and_a_dry_run_stops_at_the_plan() {
     assert!(question.starts_with("Upload 1 new file into"), "{question}");
     assert!(matches!(**then, Action::Push(ref c) if c.len() == 1));
 
-    // More than usual: a second question before anything is sent.
-    app.dispatch(synced(
-        (0..=crate::sync::push::MAX_FILES).map(upload).collect(),
-    ))
-    .unwrap();
+    // More than usual (2 of the folder's 4 files to the trash): a second question.
+    app.dispatch(Action::AskPush(vec![trash(1), trash(2)]))
+        .unwrap();
     let asked = drain(&mut app);
-    let Some(Action::Ask { then, .. }) = asked.last() else {
+    let Some(Action::Ask { question, then }) = asked.last() else {
         panic!("{asked:?}");
     };
+    assert!(question.contains("to the ILIAS trash"), "{question}");
     assert!(
         matches!(**then, Action::Ask { ref then, .. } if matches!(**then, Action::Push(_))),
         "{then:?}"
     );
+    app.dispatch(Action::AskPush(
+        (0..=crate::sync::push::MAX_FILES).map(upload).collect(),
+    ))
+    .unwrap();
+    assert!(matches!(
+        drain(&mut app).last(),
+        Some(Action::Ask { then, .. }) if matches!(**then, Action::Ask { .. })
+    ));
 
-    // A dry run shows the plan and asks nothing.
+    // A dry run asks nothing.
     app.client.set_dry_run(true);
-    app.dispatch(synced(vec![upload(1)])).unwrap();
+    app.dispatch(Action::AskPush(vec![upload(1)])).unwrap();
     assert!(
         !drain(&mut app)
             .iter()
@@ -563,14 +588,21 @@ fn two_way_sync_asks_before_sending_and_a_dry_run_stops_at_the_plan() {
     );
     app.client.set_dry_run(false);
 
-    // Offline nothing is sent.
+    // Offline nothing is asked or sent.
     app.client.set_offline(true);
-    app.dispatch(Action::Push(vec![upload(1)])).unwrap();
-    assert!(
-        drain(&mut app)
-            .iter()
-            .any(|a| matches!(a, Action::Error(e) if e.contains("Offline")))
-    );
+    for action in [
+        Action::AskPush(vec![upload(1)]),
+        Action::Push(vec![upload(1)]),
+    ] {
+        app.dispatch(action).unwrap();
+        let after = drain(&mut app);
+        assert!(
+            after
+                .iter()
+                .any(|a| matches!(a, Action::Error(e) if e.contains("Offline"))),
+            "{after:?}"
+        );
+    }
     assert!(!app.syncing.load(Ordering::SeqCst));
     let _ = std::fs::remove_dir_all(dir);
 }
