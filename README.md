@@ -59,7 +59,8 @@ What it does:
   since you last opened the page are marked `● new`; forums and threads with new posts are
   marked `● new posts`, in another colour (reading posts elsewhere doesn't count). After a
   sync, each course on My courses and each folder on the way shows how much is new below
-  it (`● 3 new  ● new posts in 1 forum`), so you can follow the counts down.
+  it (`● 3 new  ● new posts in 1 forum`), so you can follow the counts down. The settings
+  (`c`) choose which kinds of news show: files, folders, forum posts, everything else.
 - **Nerd Font icons** per object type and file type: PDF, Word, Excel, PowerPoint,
   images, archives, code, …
 - **Filters** any list as you type (`/`).

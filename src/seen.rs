@@ -20,31 +20,67 @@ use crate::ilias::parse::parse_date;
 use crate::ilias::{Item, Kind, Page};
 use crate::session;
 
-/// What is new on a page, by what it means to you.
-#[derive(Debug, Clone, Default, PartialEq, Eq)]
-pub struct New {
-    /// New or changed files, folders and everything else.
-    pub items: Vec<u64>,
+/// What kind of thing is new; each can be shown or hidden in the settings.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord, Hash, Serialize, Deserialize)]
+#[serde(rename_all = "lowercase")]
+pub enum Group {
+    Files,
+    /// Folders, courses, groups, sessions: places that hold things.
+    Folders,
     /// Forums and threads with new posts.
-    pub posts: Vec<u64>,
+    Posts,
+    /// Everything else: exercises, tests, links, …
+    Other,
 }
+
+impl Group {
+    pub fn of(kind: &Kind) -> Group {
+        match kind {
+            Kind::File => Group::Files,
+            Kind::Root
+            | Kind::Category
+            | Kind::Course
+            | Kind::Group
+            | Kind::Folder
+            | Kind::Session => Group::Folders,
+            Kind::Forum | Kind::Thread => Group::Posts,
+            _ => Group::Other,
+        }
+    }
+}
+
+/// What is new on a page, by [`Group`].
+#[derive(Debug, Clone, Default, PartialEq, Eq)]
+pub struct New(pub BTreeMap<Group, Vec<u64>>);
 
 impl New {
     pub fn is_empty(&self) -> bool {
-        self.items.is_empty() && self.posts.is_empty()
+        self.0.values().all(Vec::is_empty)
     }
 
-    /// Everything, to mark on screen (each row says itself which kind of new it is).
+    /// Everything, to mark on screen (each row knows its own group).
     pub fn all(&self) -> Vec<u64> {
-        self.items.iter().chain(&self.posts).copied().collect()
+        self.0.values().flatten().copied().collect()
+    }
+
+    #[cfg(test)]
+    pub fn get(&self, group: Group) -> &[u64] {
+        self.0.get(&group).map_or(&[], Vec::as_slice)
+    }
+
+    fn push(&mut self, group: Group, key: u64) {
+        self.0.entry(group).or_default().push(key);
     }
 }
 
-/// How much is new below a course or folder.
-#[derive(Debug, Clone, Copy, Default, PartialEq, Eq)]
-pub struct Counts {
-    pub items: usize,
-    pub posts: usize,
+/// How much is new below a course or folder, by [`Group`].
+#[derive(Debug, Clone, Default, PartialEq, Eq)]
+pub struct Counts(pub BTreeMap<Group, usize>);
+
+impl Counts {
+    pub fn get(&self, group: Group) -> usize {
+        self.0.get(&group).copied().unwrap_or(0)
+    }
 }
 
 /// What `new` has that `old` doesn't (by id), or has with other properties. Forums and
@@ -70,16 +106,13 @@ pub fn diff(old: &Page, old_day: Date, new: &Page, new_day: Date) -> New {
         if was.is_some_and(|was| was.contains(&now)) || !reported.insert(item.key()) {
             continue;
         }
-        match (was, &item.kind) {
-            // A new thread is a new post; a new forum is new content.
-            (None, Kind::Thread) => found.posts.push(item.key()),
-            (None, _) => found.items.push(item.key()),
-            (Some(was), Kind::Forum | Kind::Thread) => {
-                if was.iter().all(|was| went_up(was, &now)) {
-                    found.posts.push(item.key());
-                }
-            }
-            (Some(_), _) => found.items.push(item.key()),
+        let group = Group::of(&item.kind);
+        let news = match was {
+            Some(was) if group == Group::Posts => was.iter().all(|was| went_up(was, &now)),
+            _ => true,
+        };
+        if news {
+            found.push(group, item.key());
         }
     }
     found
@@ -138,10 +171,26 @@ struct Unseen {
     /// The folders between the course and the container, from the top.
     #[serde(default)]
     path: Vec<u64>,
-    items: BTreeSet<u64>,
-    /// Forums and threads with new posts.
     #[serde(default)]
+    new: BTreeMap<Group, BTreeSet<u64>>,
+    /// Written by older versions, before the groups: read as `Other` and `Posts`.
+    #[serde(default, skip_serializing)]
+    items: BTreeSet<u64>,
+    #[serde(default, skip_serializing)]
     posts: BTreeSet<u64>,
+}
+
+impl Unseen {
+    /// Moves what older versions wrote into the groups.
+    fn upgrade(&mut self) {
+        let items = std::mem::take(&mut self.items);
+        let posts = std::mem::take(&mut self.posts);
+        for (group, keys) in [(Group::Other, items), (Group::Posts, posts)] {
+            if !keys.is_empty() {
+                self.new.entry(group).or_default().extend(keys);
+            }
+        }
+    }
 }
 
 #[derive(Debug, Default)]
@@ -157,7 +206,9 @@ impl Seen {
     }
 
     fn from_file(file: Option<PathBuf>) -> Self {
-        let unseen = session::read_json(file.as_deref()).unwrap_or_default();
+        let mut unseen: BTreeMap<u64, Unseen> =
+            session::read_json(file.as_deref()).unwrap_or_default();
+        unseen.values_mut().for_each(Unseen::upgrade);
         Self { file, unseen }
     }
 
@@ -175,8 +226,9 @@ impl Seen {
         let entry = self.unseen.entry(container).or_default();
         entry.course = course;
         entry.path = path.to_vec();
-        entry.items.extend(&new.items);
-        entry.posts.extend(&new.posts);
+        for (group, keys) in &new.0 {
+            entry.new.entry(*group).or_default().extend(keys);
+        }
         self.save();
     }
 
@@ -187,7 +239,7 @@ impl Seen {
             return Vec::new();
         };
         self.save();
-        unseen.items.into_iter().chain(unseen.posts).collect()
+        unseen.new.into_values().flatten().collect()
     }
 
     /// Unseen items per course and folder: each counts what is below it, its own page
@@ -199,8 +251,9 @@ impl Seen {
             places.extend([unseen.course, *container]);
             for place in places {
                 let count = counts.entry(place).or_default();
-                count.items += unseen.items.len();
-                count.posts += unseen.posts.len();
+                for (group, keys) in &unseen.new {
+                    *count.0.entry(*group).or_default() += keys.len();
+                }
             }
         }
         counts
@@ -225,17 +278,14 @@ mod tests {
     use pretty_assertions::assert_eq;
 
     fn items(keys: &[u64]) -> New {
-        New {
-            items: keys.to_vec(),
-            posts: Vec::new(),
-        }
+        New(BTreeMap::from([(Group::Files, keys.to_vec())]))
     }
 
-    /// The counts of new items (not posts) by place.
+    /// The counts of new files by place.
     fn counted(seen: &Seen) -> HashMap<u64, usize> {
         seen.counts()
             .into_iter()
-            .map(|(k, c)| (k, c.items))
+            .map(|(k, c)| (k, c.get(Group::Files)))
             .collect()
     }
 
@@ -264,7 +314,7 @@ mod tests {
             item(4, &["xlsx"]),
             // 3 was deleted: nothing to mark.
         ]);
-        assert_eq!(diff(&old, day, &new, day).items, [2, 4]);
+        assert_eq!(diff(&old, day, &new, day).get(Group::Files), [2, 4]);
         assert!(diff(&new, day, &new, day).is_empty());
     }
 
@@ -307,23 +357,23 @@ mod tests {
             // You read three posts: nothing new.
             forum("frm", 2, "Posts (Unread): 0 (9)"),
             forum("thr", 3, "Posts: 4"),
-            // A new thread is a new post; a new file and a new forum are new items.
+            // A new thread and a new forum are posts; a new file is a file.
             forum("thr", 5, "Posts: 1"),
             item(4, &["pdf"]),
             item(6, &["docx"]),
             forum("frm", 7, "Posts (Unread): 0 (0)"),
         ]);
         let found = diff(&old, day, &new, day);
-        assert_eq!(found.posts, [1, 5]);
-        assert_eq!(found.items, [6, 7]);
-        assert_eq!(found.all(), [6, 7, 1, 5]);
+        assert_eq!(found.get(Group::Posts), [1, 5, 7]);
+        assert_eq!(found.get(Group::Files), [6]);
+        assert_eq!(found.all(), [6, 1, 5, 7]);
 
         // Counted apart, on every level.
         let dir = std::env::temp_dir().join(format!("ilias-tui-posts-{}", std::process::id()));
         let mut seen = Seen::in_file(dir.join("host.seen.json"));
         seen.record(8, &[], 9, &found);
-        let both = Counts { items: 2, posts: 2 };
-        assert_eq!(seen.counts(), HashMap::from([(8, both), (9, both)]));
+        let both = Counts(BTreeMap::from([(Group::Files, 1), (Group::Posts, 3)]));
+        assert_eq!(seen.counts(), HashMap::from([(8, both.clone()), (9, both)]));
         let _ = fs::remove_dir_all(&dir);
     }
 
@@ -346,7 +396,7 @@ mod tests {
         let newer = Page::from_items(vec![item(1, &["pdf", "Today, 09:00"])]);
         let (monday, tuesday) = (date(2026, 11, 9), date(2026, 11, 10));
         assert!(diff(&old, monday, &same, tuesday).is_empty());
-        assert_eq!(diff(&old, monday, &newer, tuesday).items, [1]);
+        assert_eq!(diff(&old, monday, &newer, tuesday).get(Group::Files), [1]);
     }
 
     #[test]
@@ -388,9 +438,10 @@ mod tests {
             HashMap::from([(5, 1)])
         );
 
-        // Files written before folders were counted (no `path`) still load.
-        fs::write(&file, r#"{"7":{"course":7,"items":[70]}}"#).unwrap();
-        assert_eq!(counted(&Seen::in_file(file)), HashMap::from([(7, 1)]));
+        // Files written by older versions (no `path`, no groups) still load.
+        fs::write(&file, r#"{"7":{"course":7,"items":[70],"posts":[71]}}"#).unwrap();
+        let old = Counts(BTreeMap::from([(Group::Posts, 1), (Group::Other, 1)]));
+        assert_eq!(Seen::in_file(file).counts(), HashMap::from([(7, old)]));
         let _ = fs::remove_dir_all(&dir);
     }
 }

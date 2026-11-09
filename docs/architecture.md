@@ -415,11 +415,14 @@ opens that item (`Cache::key(item.url)`), so a synced course can be browsed offl
 skipped for size, saved beside, failed); the `Report` overlay shows them after the sync.
 
 **What's new** (`seen.rs`, see [CONTEXT.md](../CONTEXT.md)): `Cache::update` stores a
-freshly fetched page and returns `seen::diff` against the copy it replaces, a `New` with two
-lists: `items` (ids the old copy lacks, or with other properties) and `posts` (forums and
-threads, only when a number in their properties went up, so reading posts doesn't count).
-`Seen` keeps both and `Seen::counts` gives a `Counts { items, posts }` per place; the
-browser shows `● new` / `● 3 new` and, in cyan, `● new posts` / `● new posts in 2 forums`. Relative dates are made absolute with the
+freshly fetched page and returns `seen::diff` against the copy it replaces: the ids the old
+copy lacks, or has with other properties, by `Group` (files, folders, posts, other; from the
+item's kind). Forums and threads count only when a number in their properties went up, so
+reading posts doesn't count. An item listed twice (a favourite on My courses) is unchanged
+if any of its old copies is the same. `Seen` keeps the groups and `Seen::counts` gives
+`Counts` by group per place; the browser shows `● new` / `● 3 new` and, in cyan,
+`● new posts` / `● new posts in 2 forums`, leaving out the groups in `Config::hide_new`
+(the "What's new" rows in the settings). Relative dates are made absolute with the
 day each copy was fetched (the cache file's mtime), and countdowns are left out, so a page
 that didn't change gives nothing. No cached copy, no diff.
 

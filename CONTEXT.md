@@ -85,7 +85,8 @@ An item of a course or folder that appeared, or whose properties (size, date, ‚Ä
 since the cached copy of that page. Countdowns ("5 Hours, 8 Minutes") don't count. Marked
 `‚óè new` while ilias-tui runs. Forums and threads are kept apart as **new posts**: they
 count only when one of their numbers went up (posts, unread, the last post's date), so
-reading posts is no news.
+reading posts is no news. Every new item belongs to one **group** (files, folders, forum
+posts, other); the settings switch each group's marks and counts on or off.
 
 **Unseen**
 New items a sync found on a page (a course or folder) you haven't opened since. Kept per

@@ -35,12 +35,16 @@ fn load(browser: &mut Browser, item: Option<Item>, page: Page, deep: bool) {
 
 #[test]
 fn marks_what_is_new_since_the_last_visit() {
-    let mut browser = Browser::new(HashSet::new(), Default::default());
+    let mut browser = Browser::new(HashSet::new(), &Default::default());
     let courses = vec![item("crs", 1, "Algebra"), item("crs", 2, "Biologie")];
     load(&mut browser, None, Page::from_items(courses), false);
     browser.update(&Action::NewCounts(HashMap::from([(
         1,
-        crate::seen::Counts { items: 3, posts: 2 },
+        crate::seen::Counts(std::collections::BTreeMap::from([
+            (crate::seen::Group::Files, 2),
+            (crate::seen::Group::Folders, 1),
+            (crate::seen::Group::Posts, 2),
+        ])),
     )])));
     let shown = screen(&mut browser);
     assert!(
@@ -63,8 +67,33 @@ fn marks_what_is_new_since_the_last_visit() {
 }
 
 #[test]
+fn hidden_kinds_of_news_are_neither_marked_nor_counted() {
+    use crate::seen::{Counts, Group};
+    let config = crate::config::Config {
+        hide_new: [Group::Posts].into(),
+        ..Default::default()
+    };
+    let mut browser = Browser::new(HashSet::new(), &config);
+    let page = Page::from_items(vec![item("frm", 1, "Forum"), item("file", 2, "Skript")]);
+    load(&mut browser, Some(item("crs", 9, "DEMO")), page, false);
+    browser.update(&Action::NewItems(vec![1, 2]));
+    let shown = screen(&mut browser);
+    assert!(shown.contains("Skript  ● new"), "{shown}");
+    assert!(!shown.contains("new posts"), "{shown}");
+
+    // Switched on again in the settings: it shows at once.
+    browser.update(&Action::SetConfig(crate::config::Config::default()));
+    browser.update(&Action::NewCounts(HashMap::from([(
+        2,
+        Counts(std::collections::BTreeMap::from([(Group::Posts, 1)])),
+    )])));
+    let shown = screen(&mut browser);
+    assert!(shown.contains("Forum  ● new posts"), "{shown}");
+}
+
+#[test]
 fn a_asks_before_syncing_all_courses_from_anywhere() {
-    let mut browser = Browser::new(HashSet::new(), Default::default());
+    let mut browser = Browser::new(HashSet::new(), &Default::default());
     assert!(matches!(
         browser.handle_key_event(KeyCode::Char('A').into()),
         Some(Action::Error(_))
@@ -241,7 +270,7 @@ fn navigates_into_containers_and_back() {
 #[test]
 fn marks_saved_files_and_d_saves_without_opening() {
     let file = item("file", 2, "Skript");
-    let mut browser = Browser::new(HashSet::from([2]), Default::default());
+    let mut browser = Browser::new(HashSet::from([2]), &Default::default());
     load(
         &mut browser,
         None,

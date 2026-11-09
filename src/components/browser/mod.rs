@@ -46,6 +46,8 @@ pub struct Browser {
     marked: Vec<Item>,
     /// How sync decides (from the settings), for the question before `A`.
     sync_rules: crate::sync::Rules,
+    /// Kinds of news that are switched off in the settings.
+    hide_new: std::collections::BTreeSet<crate::seen::Group>,
 }
 
 /// What `S` can sync: places that hold files.
@@ -71,10 +73,11 @@ enum Hit {
 const DOUBLE_CLICK: Duration = Duration::from_millis(400);
 
 impl Browser {
-    pub fn new(saved: HashSet<u64>, sync_rules: crate::sync::Rules) -> Self {
+    pub fn new(saved: HashSet<u64>, config: &crate::config::Config) -> Self {
         Self {
             saved,
-            sync_rules,
+            sync_rules: crate::sync::Rules::new(config),
+            hide_new: config.hide_new.clone(),
             ..Self::default()
         }
     }
@@ -233,7 +236,10 @@ impl Component for Browser {
 
     fn update(&mut self, action: &Action) -> Option<Action> {
         match action {
-            Action::SetConfig(config) => self.sync_rules = crate::sync::Rules::new(config),
+            Action::SetConfig(config) => {
+                self.sync_rules = crate::sync::Rules::new(config);
+                self.hide_new.clone_from(&config.hide_new);
+            }
             Action::Load { item, deep, .. } => {
                 self.pending = Some((item.as_ref().map(|i| i.id), *deep));
             }

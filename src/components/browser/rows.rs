@@ -6,7 +6,7 @@ use ratatui::widgets::ListItem;
 
 use crate::icons::icon;
 use crate::ilias::{Item, Kind, Post, Todo, Urgency};
-use crate::seen::Counts;
+use crate::seen::{Counts, Group};
 use crate::theme;
 
 use super::*;
@@ -158,10 +158,9 @@ pub(super) fn item_row(item: &Item, query: &str, marks: Marks) -> ListItem<'stat
             _ => Span::styled("  ● new", new),
         });
     }
-    let Counts {
-        items,
-        posts: post_count,
-    } = marks.new_inside;
+    let counts = &marks.new_inside;
+    let items = counts.get(Group::Files) + counts.get(Group::Folders) + counts.get(Group::Other);
+    let post_count = counts.get(Group::Posts);
     if items > 0 {
         title.push(Span::styled(format!("  ● {items} new"), new));
     }

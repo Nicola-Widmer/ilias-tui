@@ -14,6 +14,7 @@ use super::Component;
 use crate::action::Action;
 use crate::config::{self, Config};
 use crate::keymap::{self, Command};
+use crate::seen::Group;
 use crate::theme;
 
 /// One row of the page.
@@ -29,9 +30,11 @@ enum Field {
     Offline,
     DryRun,
     Url,
+    /// Whether this kind of news is marked and counted.
+    ShowNew(Group),
 }
 
-const FIELDS: [Field; 10] = [
+const FIELDS: [Field; 14] = [
     Field::DownloadDir,
     Field::SyncMaxMb,
     Field::MissingOnly,
@@ -42,6 +45,10 @@ const FIELDS: [Field; 10] = [
     Field::Offline,
     Field::DryRun,
     Field::Url,
+    Field::ShowNew(Group::Files),
+    Field::ShowNew(Group::Folders),
+    Field::ShowNew(Group::Posts),
+    Field::ShowNew(Group::Other),
 ];
 
 impl Field {
@@ -57,6 +64,10 @@ impl Field {
             Field::Offline => "Always start offline",
             Field::DryRun => "Dry run",
             Field::Url => "ILIAS URL",
+            Field::ShowNew(Group::Files) => "What's new: files",
+            Field::ShowNew(Group::Folders) => "What's new: folders",
+            Field::ShowNew(Group::Posts) => "What's new: forum posts",
+            Field::ShowNew(Group::Other) => "What's new: other",
         }
     }
 
@@ -78,6 +89,17 @@ impl Field {
             Field::Offline => "Start with cached pages and saved files only (L goes online).",
             Field::DryRun => "Never send favourites changes; only say what would have happened.",
             Field::Url => "The ILIAS root, the folder that contains login.php.",
+            Field::ShowNew(Group::Files) => "Mark new and changed files (● new) and count them.",
+            Field::ShowNew(Group::Folders) => {
+                "Mark new and changed folders, courses, groups and sessions, and count them."
+            }
+            Field::ShowNew(Group::Posts) => {
+                "Mark forums and threads with new posts (● new posts) and count them."
+            }
+            Field::ShowNew(Group::Other) => {
+                "Mark everything else that is new or changed (exercises, tests, links, …) \
+                 and count it."
+            }
         }
     }
 
@@ -86,7 +108,7 @@ impl Field {
         match self {
             Field::DownloadDir => "ILIAS_DOWNLOAD_DIR",
             Field::SyncMaxMb => "ILIAS_SYNC_MAX_MB",
-            Field::MissingOnly | Field::Theme => "",
+            Field::MissingOnly | Field::Theme | Field::ShowNew(_) => "",
             Field::NerdFont => "ILIAS_NERD_FONT",
             Field::Mouse => "ILIAS_MOUSE",
             Field::Cache => "ILIAS_CACHE",
@@ -113,6 +135,7 @@ impl Field {
             Field::Cache => config.cache(),
             Field::Offline => config.offline(),
             Field::DryRun => config.dry_run(),
+            Field::ShowNew(group) => config.shows_new(group),
             Field::DownloadDir | Field::SyncMaxMb | Field::Theme | Field::Url => return None,
         })
     }
@@ -125,6 +148,12 @@ impl Field {
             Field::Cache => config.cache = Some(on),
             Field::Offline => config.offline = on,
             Field::DryRun => config.dry_run = on,
+            Field::ShowNew(group) if on => {
+                config.hide_new.remove(&group);
+            }
+            Field::ShowNew(group) => {
+                config.hide_new.insert(group);
+            }
             Field::DownloadDir | Field::SyncMaxMb | Field::Theme | Field::Url => {}
         }
     }
@@ -142,6 +171,7 @@ impl Field {
             Field::Offline => config.offline,
             Field::DryRun => config.dry_run,
             Field::Url => config.url.is_some(),
+            Field::ShowNew(group) => !config.shows_new(group),
         }
     }
 
@@ -159,6 +189,9 @@ impl Field {
             Field::Offline => config.offline = default.offline,
             Field::DryRun => config.dry_run = default.dry_run,
             Field::Url => config.url = default.url,
+            Field::ShowNew(group) => {
+                config.hide_new.remove(&group);
+            }
         }
     }
 
@@ -513,7 +546,7 @@ mod tests {
         // Up from the first row wraps to the last.
         select(&mut s, Field::DownloadDir);
         key(&mut s, KeyCode::Up);
-        assert_eq!(s.field(), Field::Url);
+        assert_eq!(s.field(), FIELDS[FIELDS.len() - 1]);
     }
 
     #[test]

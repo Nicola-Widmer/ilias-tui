@@ -172,7 +172,7 @@ mod tests {
             "nothing to compare with"
         );
         let new = Page::from_items(vec![file(1, "1. Nov 2026, 10:00"), file(2, "Today, 09:00")]);
-        assert_eq!(cache.update("page", &new).items, [2]);
+        assert_eq!(cache.update("page", &new).all(), [2]);
         assert_eq!(cache.get("page"), Some(new.clone()));
         assert!(cache.update("page", &new).is_empty());
         cache.clear();

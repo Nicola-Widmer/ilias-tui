@@ -664,10 +664,10 @@ mod tests {
                 root: 1,
                 path: vec![2],
                 container: 3,
-                new: crate::seen::New {
-                    items: vec![10],
-                    posts: Vec::new(),
-                },
+                new: crate::seen::New(std::collections::BTreeMap::from([(
+                    crate::seen::Group::Files,
+                    vec![10]
+                )])),
             }]
         );
         let _ = std::fs::remove_dir_all(dir);

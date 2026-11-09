@@ -14,6 +14,7 @@ use crate::ilias::Page;
 use crate::theme;
 
 use super::*;
+use crate::seen::Group;
 
 impl Browser {
     /// The whole view: header, tabs, the page and the To-Do panel.
@@ -131,15 +132,19 @@ impl Browser {
                 Row::Styled(line) => ListItem::new(line),
                 Row::Item(i) => {
                     let item = &level.items[i];
+                    // Kinds of news switched off in the settings are neither marked nor counted.
+                    let shown = |group| !self.hide_new.contains(&group);
+                    let mut new_inside = self
+                        .new_counts
+                        .get(&item.key())
+                        .cloned()
+                        .unwrap_or_default();
+                    new_inside.0.retain(|group, _| shown(*group));
                     let marks = Marks {
                         saved: self.saved.contains(&item.key()),
                         marked: self.marked.iter().any(|m| m.id == item.id),
-                        new: self.new.contains(&item.key()),
-                        new_inside: self
-                            .new_counts
-                            .get(&item.key())
-                            .copied()
-                            .unwrap_or_default(),
+                        new: self.new.contains(&item.key()) && shown(Group::of(&item.kind)),
+                        new_inside,
                     };
                     item_row(item, &query, marks)
                 }

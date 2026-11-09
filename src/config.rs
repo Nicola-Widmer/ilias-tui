@@ -1,13 +1,14 @@
 //! Settings changed in the app (the settings page, `c`), saved as `config.json` in the app's
 //! config folder. Environment variables (`ILIAS_*`) still win over them.
 
-use std::collections::BTreeMap;
+use std::collections::{BTreeMap, BTreeSet};
 use std::fs;
 use std::path::{Path, PathBuf};
 
 use color_eyre::Result;
 use serde::{Deserialize, Serialize};
 
+use crate::seen::Group;
 use crate::session;
 use crate::theme::{self, Palette};
 
@@ -45,6 +46,9 @@ pub struct Config {
     /// The ILIAS root URL; `None` means [`DEFAULT_URL`].
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub url: Option<String>,
+    /// Kinds of news not to show (marks and counts); none by default.
+    #[serde(default, skip_serializing_if = "BTreeSet::is_empty")]
+    pub hide_new: BTreeSet<Group>,
 }
 
 pub const DEFAULT_URL: &str = "https://elearning.hslu.ch/ilias/";
@@ -106,6 +110,11 @@ impl Config {
     }
 
     /// `ILIAS_DOWNLOAD_DIR`, else the saved folder, else `~/Downloads/ILIAS`.
+    /// Whether this kind of news is shown.
+    pub fn shows_new(&self, group: Group) -> bool {
+        !self.hide_new.contains(&group)
+    }
+
     pub fn download_dir(&self) -> PathBuf {
         std::env::var_os("ILIAS_DOWNLOAD_DIR")
             .map(PathBuf::from)

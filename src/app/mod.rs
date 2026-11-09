@@ -60,7 +60,7 @@ impl App {
         let downloads = Downloads::load(&client.base);
         let cache = Cache::new(&client.base);
         let seen = Seen::load(&client.base);
-        let browser = Browser::new(downloads.saved().collect(), sync::Rules::new(&config));
+        let browser = Browser::new(downloads.saved().collect(), &config);
         let download_dir = config.download_dir();
         let settings = Settings::new(config.clone(), download_dir.clone());
         crate::icons::set_nerd_font(config.nerd_font());
