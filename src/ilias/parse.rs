@@ -34,7 +34,17 @@ impl Item {
     pub fn is_container(&self) -> bool {
         matches!(
             self.kind.as_str(),
-            "root" | "cat" | "crs" | "grp" | "fold" | "sess" | "frm" | "thr"
+            "root"
+                | "cat"
+                | "crs"
+                | "grp"
+                | "fold"
+                | "sess"
+                | "frm"
+                | "thr"
+                | "exc"
+                | "ass"
+                | "sub"
         )
     }
 
@@ -47,6 +57,8 @@ impl Item {
             "sess" => "Session",
             "file" => "File",
             "exc" => "Exercise",
+            "ass" => "Assignment",
+            "sub" => "Submission",
             "tst" => "Test",
             "svy" => "Survey",
             "frm" => "Forum",
@@ -155,7 +167,8 @@ impl Page {
     pub fn remove(&mut self, ref_id: u64) {
         for block in &mut self.blocks {
             if let Block::Items { items, .. } = block {
-                items.retain(|i| i.ref_id != ref_id);
+                // Assignments count separately: theirs are no reference ids.
+                items.retain(|i| i.ref_id != ref_id || i.kind == "ass");
             }
         }
         self.blocks
@@ -187,6 +200,11 @@ pub fn parse_target(url: &Url) -> Option<(String, u64)> {
         && let Some(thread) = param("thr_pk")
     {
         return Some(("thr".into(), thread.parse().ok()?));
+    }
+    if param("cmdClass").is_some_and(|c| c.eq_ignore_ascii_case("ilAssignmentPresentationGUI"))
+        && let Some(assignment) = param("ass_id")
+    {
+        return Some(("ass".into(), assignment.parse().ok()?));
     }
     if let Some(target) = param("target") {
         let mut parts = target.split('_');
@@ -285,7 +303,7 @@ pub fn parse_page(html: &str, page_url: &Url) -> Page {
     }
     let page_url = &link_base;
     let doc = Html::parse_document(html);
-    let tabs = doc
+    let mut tabs: Vec<Tab> = doc
         .select(&sel("#ilTab > li"))
         // Real tabs have `tab_…` ids; the rest are the back link and the "…" overflow menu.
         .filter(|li| li.attr("id").is_some_and(|id| id.starts_with("tab_")))
@@ -299,6 +317,26 @@ pub fn parse_page(html: &str, page_url: &Url) -> Page {
             })
         })
         .collect();
+    // An exercise lists one kind of assignment at a time (ongoing, past, …): these switches
+    // work like tabs, and take the place of the tab they belong to.
+    let modes: Vec<Tab> = doc
+        .select(&sel("#il_center_col .il-viewcontrol-mode button"))
+        .filter_map(|button| {
+            let link = button.attr("data-action")?;
+            link.to_ascii_lowercase()
+                .contains("ilexercisehandlergui")
+                .then_some(())?;
+            Some(Tab {
+                title: visible_text(button),
+                url: page_url.join(link).ok()?.into(),
+                active: button.attr("aria-pressed") == Some("true"),
+            })
+        })
+        .collect();
+    if !modes.is_empty() {
+        tabs.retain(|t| !t.active);
+        tabs.splice(0..0, modes);
+    }
     let path = breadcrumb_path(&doc, page_url);
 
     // A forum thread: its posts are all that matters.
@@ -329,10 +367,44 @@ pub fn parse_page(html: &str, page_url: &Url) -> Page {
             }
         }
     }
+    let mut blocks = walker.blocks;
+    add_submission(&tabs, &mut blocks);
     Page {
         tabs,
-        blocks: walker.blocks,
+        blocks,
         ..Page::default()
+    }
+}
+
+/// An assignment's overview gets its Submission tab as an item too, so the list keys reach
+/// it: under the heading of the section of the same name if there is one, else at the end.
+fn add_submission(tabs: &[Tab], blocks: &mut Vec<Block>) {
+    let Some(tab) = tabs.iter().find(|t| {
+        !t.active
+            && t.url
+                .to_ascii_lowercase()
+                .contains("cmdclass=ilexsubmissionfilegui")
+    }) else {
+        return;
+    };
+    let item = Item {
+        kind: "sub".into(),
+        ref_id: attachment_id(&tab.url),
+        title: "Handed-in files".into(),
+        url: tab.url.clone(),
+        description: "H hands one in, X deletes one".into(),
+        ..Item::default()
+    };
+    let block = Block::Items {
+        title: tab.title.clone(),
+        items: vec![item],
+    };
+    match blocks
+        .iter()
+        .position(|b| matches!(b, Block::Heading(h) if *h == tab.title))
+    {
+        Some(heading) => blocks[heading] = block,
+        None => blocks.push(block),
     }
 }
 
@@ -407,6 +479,65 @@ fn post(row: ElementRef, page_url: &Url) -> Post {
                 .is_some()
         }),
     }
+}
+
+/// What it takes to hand in a file, from an assignment's upload form.
+#[derive(Debug, PartialEq, Eq)]
+pub struct UploadForm {
+    /// Takes the file; this stores it in the submission.
+    pub upload: Url,
+    /// Takes the name of the uploaded file, under [`Self::field`], and finishes the form.
+    pub finish: Url,
+    pub field: String,
+}
+
+/// `None` if the page has no upload form, as when the deadline has passed.
+pub fn parse_upload_form(html: &str, page_url: &Url) -> Option<UploadForm> {
+    let doc = Html::parse_document(html);
+    let form = doc
+        .select(&sel(r#"form[action*="cmd=addUpload"]"#))
+        .next()?;
+    // The address for the file only exists in a script: `File.init('id', 'upload url', …`.
+    let (_, script) = html.split_once("il.UI.Input.File.init(")?;
+    let upload = script.split('\'').nth(3)?.replace("&amp;", "&");
+    let field = form.select(&sel(r#"input[type="hidden"]"#)).next()?;
+    Some(UploadForm {
+        upload: page_url.join(&upload).ok()?,
+        finish: page_url.join(form.attr("action")?).ok()?,
+        field: field.attr("name")?.to_string(),
+    })
+}
+
+/// Where a form on the page that holds handed-in file `delivered` (as a checkbox, or hidden
+/// once you are asked to confirm) and the button `cmd[command]` posts to. `None` if there is
+/// no such form, as when the deadline has passed and ILIAS offers no Delete button.
+pub fn delete_form(html: &str, page_url: &Url, delivered: &str, command: &str) -> Option<Url> {
+    let doc = Html::parse_document(html);
+    let button = sel(&format!(r#"input[type="submit"][name="cmd[{command}]"]"#));
+    let file = sel(r#"input[name="delivered[]"]"#);
+    doc.select(&sel("form[action]"))
+        .find(|form| {
+            form.select(&button).next().is_some()
+                && form
+                    .select(&file)
+                    .any(|input| input.attr("value") == Some(delivered))
+        })
+        .and_then(|form| page_url.join(form.attr("action")?).ok())
+}
+
+/// Whether the page still lists handed-in file `delivered`.
+pub fn lists_delivered(html: &str, delivered: &str) -> bool {
+    Html::parse_document(html)
+        .select(&sel(r#"input[name="delivered[]"]"#))
+        .any(|input| input.attr("value") == Some(delivered))
+}
+
+/// Whether the page's text mentions `text`, as a person would read it.
+pub fn shows(html: &str, text: &str) -> bool {
+    Html::parse_document(html)
+        .root_element()
+        .text()
+        .any(|t| t.contains(text))
 }
 
 /// What ilias-tui uses from the dashboard.
@@ -625,14 +756,57 @@ impl<'a> Walker<'a> {
         if is_item_container(el) {
             self.flush();
             if let Some(item) = self.item(el) {
-                match self.blocks.last_mut() {
-                    Some(Block::Items { items, .. }) => items.push(item),
-                    _ => self.blocks.push(Block::Items {
-                        title: String::new(),
-                        items: vec![item],
-                    }),
-                }
+                self.push_item(item);
             }
+            return;
+        }
+        // Submission pages: a table row per handed-in file, with a checkbox for deleting it.
+        if name == "tr"
+            && let Some(item) = self.submitted_file(el)
+        {
+            self.flush();
+            self.push_item(item);
+            return;
+        }
+        // Assignment pages: `<div class="row"><div class="control-label">Last Submission</div>
+        // <div>Today, 17:58</div></div>`, or a file with a download link as the value. Rows
+        // without a label hold only buttons and links to other tabs.
+        if has_class("row")
+            && let Some(label) = el
+                .children()
+                .filter_map(ElementRef::wrap)
+                .find(|c| c.value().classes().any(|x| x == "control-label"))
+        {
+            self.flush();
+            let label_text = visible_text(label);
+            if label_text.is_empty() {
+                return;
+            }
+            let download = el.select(&sel(r#"a[href*="cmd=downloadFile"]"#)).next();
+            if let Some(url) = download
+                .and_then(|a| a.attr("href"))
+                .and_then(|href| self.page_url.join(href).ok())
+            {
+                self.push_item(Item {
+                    kind: "file".into(),
+                    ref_id: attachment_id(url.as_str()),
+                    title: label_text,
+                    url: url.into(),
+                    ..Item::default()
+                });
+                return;
+            }
+            let value: Vec<String> = el
+                .children()
+                .filter_map(ElementRef::wrap)
+                .filter(|c| c.id() != label.id())
+                .map(visible_text)
+                .filter(|t| !t.is_empty())
+                .collect();
+            self.blocks.push(Block::Text(match value.is_empty() {
+                true => label_text,
+                false => format!("{label_text}: {}", value.join(" ")),
+            }));
             return;
         }
         // Info screens and forms: `<div class="form-group"><div class="control-label">Sprache</div>
@@ -680,6 +854,40 @@ impl<'a> Walker<'a> {
         }
     }
 
+    /// `<tr><td><input name="delivered[]" value="2"></td><td><label>Bericht.pdf</label></td>
+    /// <td>6. Nov 2026, 18:05</td><td><a href="…cmd=download…&delivered=2">Download</a></td>`
+    fn submitted_file(&self, row: ElementRef) -> Option<Item> {
+        row.select(&sel(r#"input[name="delivered[]"]"#)).next()?;
+        let link = row.select(&sel(r#"a[href*="delivered="]"#)).next()?;
+        let url = self.page_url.join(link.attr("href")?).ok()?;
+        let cells: Vec<String> = row
+            .children()
+            .filter_map(ElementRef::wrap)
+            .filter(|c| c.value().name() == "td")
+            .map(visible_text)
+            .filter(|t| !t.is_empty() && *t != visible_text(link))
+            .collect();
+        let (title, properties) = cells.split_first()?;
+        Some(Item {
+            kind: "file".into(),
+            ref_id: attachment_id(url.as_str()),
+            title: title.clone(),
+            url: url.into(),
+            properties: properties.to_vec(),
+            ..Item::default()
+        })
+    }
+
+    fn push_item(&mut self, item: Item) {
+        match self.blocks.last_mut() {
+            Some(Block::Items { items, .. }) => items.push(item),
+            _ => self.blocks.push(Block::Items {
+                title: String::new(),
+                items: vec![item],
+            }),
+        }
+    }
+
     fn item(&mut self, container: ElementRef) -> Option<Item> {
         let a = container
             .select(&sel(
@@ -701,8 +909,13 @@ impl<'a> Walker<'a> {
         if !self.seen.insert(ref_id) {
             return None;
         }
+        // Assignments show the time left in front of the title instead of a description.
         let description = container
-            .select(&sel(".il_Description, .il-item-description"))
+            .select(&sel(if kind == "ass" {
+                ".col-sm-3"
+            } else {
+                ".il_Description, .il-item-description"
+            }))
             .next()
             .map(text_of)
             .unwrap_or_default();
@@ -767,6 +980,15 @@ impl<'a> Walker<'a> {
             self.blocks.push(Block::Text(text));
         }
     }
+}
+
+/// A stable id for a file attached to an assignment, which has no reference id of its own.
+/// The top bit keeps it apart from real reference ids (FNV-1a, like the cache's file names).
+fn attachment_id(url: &str) -> u64 {
+    let hash = url.bytes().fold(0xcbf29ce484222325_u64, |h, b| {
+        (h ^ b as u64).wrapping_mul(0x100000001b3)
+    });
+    hash | 1 << 63
 }
 
 fn is_item_container(el: ElementRef) -> bool {
@@ -850,6 +1072,186 @@ mod tests {
                 .iter()
                 .all(|i| i.ref_id != 5066130 && i.ref_id != 5066132)
         );
+    }
+
+    #[test]
+    fn lists_the_assignments_of_an_exercise_with_their_modes_as_tabs() {
+        let base = Url::parse("https://ilias.example/ilias/").unwrap();
+        let html = r##"<ul id="ilTab">
+              <li id="tab_content" class="active"><a href="ilias.php?cmd=showOverview&amp;ref_id=7">Assignments</a></li>
+              <li id="tab_info"><a href="ilias.php?cmd=showSummary&amp;ref_id=7">Info</a></li></ul>
+            <div id="il_center_col">
+              <div class="il-viewcontrol-mode">
+                <button class="btn engaged" aria-pressed="true" data-action="ilias.php?baseClass=ilexercisehandlergui&amp;mode=ongoing&amp;ref_id=7">Ongoing</button>
+                <button class="btn" aria-pressed="false" data-action="ilias.php?baseClass=ilexercisehandlergui&amp;mode=past&amp;ref_id=7">Past</button>
+              </div>
+              <div class="il-item-group"><h3>Ongoing</h3><ul><li class="il-std-item-container"><div class="il-item il-std-item">
+                <div class="row"><div class="col-sm-3">2 Days to Submit</div><div class="col-sm-9">
+                  <h4 class="il-item-title"><a href="ilias.php?baseClass=ilexercisehandlergui&amp;cmdClass=ilAssignmentPresentationGUI&amp;ref_id=7&amp;ass_id=7">Blatt 1</a></h4>
+                  <div class="il-item-actions"><button data-action="ilias.php?cmd=submissionScreen&amp;ref_id=7&amp;ass_id=7">Hand In</button></div>
+                  <span class="il-item-property-name">Edit Until</span><span class="il-item-property-value">9. Nov 2026, 17:47</span>
+                  <span class="il-item-property-name">Last Submission</span><span class="il-item-property-value">No submission yet.</span>
+                </div></div></div></li></ul></div>
+            </div>"##;
+        let mut page = parse_page(html, &base);
+        let titles: Vec<(&str, bool)> = page
+            .tabs
+            .iter()
+            .map(|t| (t.title.as_str(), t.active))
+            .collect();
+        assert_eq!(
+            titles,
+            [("Ongoing", true), ("Past", false), ("Info", false)]
+        );
+        assert!(page.tabs[1].url.contains("mode=past"));
+
+        // The assignment has the same number as the exercise's reference id; it stays.
+        page.remove(7);
+        let assignment = page.items().next().unwrap();
+        assert_eq!(assignment.kind, "ass");
+        assert_eq!(assignment.ref_id, 7);
+        assert_eq!(assignment.title, "Blatt 1");
+        assert_eq!(assignment.description, "2 Days to Submit");
+        assert_eq!(
+            assignment.properties,
+            [
+                "Edit Until: 9. Nov 2026, 17:47",
+                "Last Submission: No submission yet."
+            ]
+        );
+        assert!(assignment.is_container());
+    }
+
+    #[test]
+    fn lists_handed_in_files_and_finds_their_delete_form() {
+        let base =
+            Url::parse("https://ilias.example/ilias/ilias.php?cmd=submissionScreen").unwrap();
+        let html = r#"<h3>Submitted Files - Laborbericht</h3>
+            <form action="ilias.php?cmdClass=ilExSubmissionFileGUI&amp;cmd=post&amp;ref_id=7&amp;ass_id=3">
+            <table><tr><th></th><th>File Name</th><th>Date</th><th>Action</th></tr>
+            <tr class="tblrow1">
+              <td class="std"><input type="checkbox" id="deli_2" name="delivered[]" value="2" /></td>
+              <td class="std"><label for="deli_2">Bericht.pdf</label></td>
+              <td class="std">6. Nov 2026, 18:05</td>
+              <td class="std"><a href="ilias.php?cmdClass=ilExSubmissionFileGUI&amp;cmd=download&amp;ref_id=7&amp;ass_id=3&amp;delivered=2">Download</a></td>
+            </tr></table>
+            <input class="btn btn-default" type="submit" name="cmd[confirmDeleteDelivered]" value="Delete" />
+            </form>"#;
+        let page = parse_page(html, &base);
+        let file = page.items().next().unwrap();
+        assert_eq!(file.kind, "file");
+        assert_eq!(file.title, "Bericht.pdf");
+        assert_eq!(file.properties, ["6. Nov 2026, 18:05"]);
+        assert!(
+            file.url
+                .ends_with("cmd=download&ref_id=7&ass_id=3&delivered=2")
+        );
+
+        let form = delete_form(html, &base, "2", "confirmDeleteDelivered").unwrap();
+        assert!(form.as_str().ends_with("cmd=post&ref_id=7&ass_id=3"));
+        assert!(delete_form(html, &base, "3", "confirmDeleteDelivered").is_none());
+        assert!(delete_form(html, &base, "2", "deleteDelivered").is_none());
+        assert!(lists_delivered(html, "2"));
+        assert!(!lists_delivered(html, "3"));
+    }
+
+    #[test]
+    fn finds_the_upload_form_of_an_assignment() {
+        let base = Url::parse("https://ilias.example/ilias/ilias.php?cmd=uploadForm").unwrap();
+        let html = r##"<form class="c-form" action="ilias.php?cmd=addUpload&amp;ref_id=7&amp;ass_id=1" method="post">
+              <template><input id="x" type="hidden" name="form/input_0/input_1[input_0][]" value="" /></template>
+            </form>
+            <script>il.UI.Input.File.init(
+              'il_ui_fw_1',
+              'ilias.php?cmdClass=ilRepoStandardUploadHandlerGUI&cmd=upload&ref_id=7&ass_id=1',
+              'ilias.php?cmdClass=ilRepoStandardUploadHandlerGUI&cmd=remove&ref_id=7&ass_id=1',
+              'filename', 0, 20);</script>"##;
+        let form = parse_upload_form(html, &base).unwrap();
+        assert_eq!(
+            form.upload.as_str(),
+            "https://ilias.example/ilias/ilias.php?cmdClass=ilRepoStandardUploadHandlerGUI&cmd=upload&ref_id=7&ass_id=1"
+        );
+        assert!(
+            form.finish
+                .as_str()
+                .ends_with("cmd=addUpload&ref_id=7&ass_id=1")
+        );
+        assert_eq!(form.field, "form/input_0/input_1[input_0][]");
+
+        assert_eq!(parse_upload_form("<p>Time is up.</p>", &base), None);
+    }
+
+    #[test]
+    fn reads_an_assignment_with_its_files_and_submission() {
+        let base = Url::parse("https://ilias.example/ilias/").unwrap();
+        let html = r##"<div id="il_center_col">
+              <h3>Work Instructions</h3><p>Solve the first sheet.</p>
+              <h3>Files</h3>
+              <div class="row"><div class="control-label col-sm-4"><p>Blatt 1.pdf</p></div>
+                <div class="col-sm-8"><p><a href="ilias.php?cmd=downloadFile&amp;ref_id=7&amp;ass_id=1&amp;file=Blatt+1.pdf">Download</a></p></div></div>
+              <h3>Submission</h3>
+              <div class="row"><div class="control-label col-sm-4"><p>Last Submission</p></div>
+                <div class="col-sm-8"><p>Today, 17:58</p></div></div>
+              <div class="row"><div class="control-label col-sm-4"></div>
+                <div class="col-sm-8"><button data-action="ilias.php?cmd=submissionScreen">Hand In</button></div></div>
+            </div>"##;
+        let page = parse_page(html, &base);
+        let file = page.items().next().unwrap();
+        assert_eq!(file.kind, "file");
+        assert_eq!(file.title, "Blatt 1.pdf");
+        assert_eq!(file.extension().as_deref(), Some("pdf"));
+        assert!(file.url.contains("cmd=downloadFile"));
+        assert!(file.ref_id > 1 << 62, "no real reference id");
+
+        let text: Vec<&str> = page
+            .blocks
+            .iter()
+            .filter_map(|b| match b {
+                Block::Text(text) | Block::Heading(text) => Some(text.as_str()),
+                _ => None,
+            })
+            .collect();
+        assert_eq!(
+            text,
+            [
+                "Work Instructions",
+                "Solve the first sheet.",
+                "Files",
+                "Submission",
+                "Last Submission: Today, 17:58"
+            ]
+        );
+    }
+
+    #[test]
+    fn an_assignment_lists_its_submission_below_the_section_of_that_name() {
+        let base = Url::parse("https://ilias.example/ilias/").unwrap();
+        let tabs = r#"<ul id="ilTab">
+              <li id="tab_overview" class="active"><a href="ilias.php?cmdClass=ilAssignmentPresentationGUI&amp;ass_id=1">Overview</a></li>
+              <li id="tab_submission"><a href="ilias.php?cmdClass=ilExSubmissionFileGUI&amp;cmd=submissionScreen&amp;ass_id=1">Abgabe</a></li>
+            </ul>"#;
+        let html = format!(
+            r#"{tabs}<div id="il_center_col"><h3>Files</h3><h3>Abgabe</h3><p>Nothing yet.</p></div>"#
+        );
+        let page = parse_page(&html, &base);
+        let submission = page.items().next().unwrap();
+        assert_eq!(submission.kind, "sub");
+        assert_eq!(submission.title, "Handed-in files");
+        assert!(submission.url.ends_with("cmd=submissionScreen&ass_id=1"));
+        assert!(submission.is_container());
+        // It takes the place of the section's heading.
+        assert!(matches!(&page.blocks[1], Block::Items { title, .. } if title == "Abgabe"));
+        assert!(matches!(&page.blocks[2], Block::Text(t) if t == "Nothing yet."));
+
+        // On the Submission tab itself, no such item.
+        let active = tabs
+            .replace(r#"tab_overview" class="active""#, r#"tab_overview""#)
+            .replace(
+                r#"id="tab_submission""#,
+                r#"id="tab_submission" class="active""#,
+            );
+        let page = parse_page(&format!("{active}<p>Files</p>"), &base);
+        assert_eq!(page.items().count(), 0);
     }
 
     /// Markup modelled on a real ILIAS 10 course: tabs, page-editor text, item groups,

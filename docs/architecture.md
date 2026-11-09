@@ -18,7 +18,7 @@ src/
 │   ├── my_courses.rs    My courses: course list + favourites + To-Do, assembled
 │   ├── pages.rs         The seam for page requests: Https, and FakeIlias for tests
 │   ├── parse.rs         HTML → Page { tabs, blocks } (ILIAS 10 markup)
-│   └── write.rs         Every write (favourites, logout) and the write guard
+│   └── write.rs         Every write (favourites, handing in, logout) and the write guard
 ├── action.rs            Action enum (the app's messages)
 ├── app.rs               Event loop, side effects, action routing
 └── components/
@@ -160,6 +160,19 @@ pub struct Item {
   one of those two commands, same item) and GETs it, unless `ILIAS_DRY_RUN=1`. After a
   change, `Browser` reloads the page on screen and marks hidden levels that list the item,
   and My courses, as *out of date*; they reload once they are on screen again.
+- **Handing in** (`H`, `Client::hand_in`): the `hand_in` dialog asks for a path, then `Ask`
+  asks to confirm. The client reads the assignment's upload form, checks that both addresses
+  are for that assignment on this ILIAS, posts the file (`Pages::post`; ILIAS stores it now),
+  then posts the form's finishing step and checks that the file is listed.
+- **Handed-in files**: `parse_page` turns an assignment's Submission tab into a `sub` item
+  (in place of the overview's heading of the same name), so it opens as a level like any
+  container. `H` and `X` there act for the nearest level above that isn't a `sub`.
+- **Deleting a handed-in file** (`X`, `Client::delete_submission`): the submission page
+  lists each handed-in file as a `file` item linking to its download (`…&delivered=<id>`).
+  After `Ask`, the client reads the submission page, finds the form with that file and a
+  `confirmDeleteDelivered` button (none after the deadline), checks it posts to that
+  assignment on this ILIAS, posts it, then posts the confirmation page's `deleteDelivered`
+  form the same way and checks that the file is gone.
 - **Download folders**: `breadcrumb_path` takes the page's breadcrumb (ILIAS writes it
   leaf to root) from the course or group down, and every file on the page gets it as
   `Item::path`. `Client::download` saves into `<download dir>/<path…>/`, each part

@@ -46,6 +46,32 @@ pub enum Action {
     /// Open a local file with its default app.
     OpenFile(PathBuf),
     OpenInBrowser(Item),
+    /// Ask which file to hand in for `assignment`; `url` is its submission page.
+    AskHandIn {
+        assignment: Item,
+        url: String,
+    },
+    HandIn {
+        assignment: Item,
+        url: String,
+        path: PathBuf,
+    },
+    /// `file` is `None` after a dry run.
+    HandedIn {
+        assignment: Item,
+        file: Option<String>,
+    },
+    /// Delete `file`, handed in for `assignment`, from the submission.
+    DeleteSubmission {
+        assignment: Item,
+        file: Item,
+    },
+    /// `deleted` is `false` after a dry run.
+    SubmissionDeleted {
+        assignment: Item,
+        file: Item,
+        deleted: bool,
+    },
     /// Ask the user first; `then` only runs on "yes". Everything that changes data on ILIAS
     /// goes through this.
     Ask {

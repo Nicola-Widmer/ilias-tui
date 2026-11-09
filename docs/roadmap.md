@@ -28,8 +28,8 @@ Read-only; safe to build and to try against ILIAS.
 - [ ] **Long forums and threads.** Check whether ILIAS splits long thread lists or threads
   into pages; only the first page is read today.
 - [ ] **Links and attachments in forum posts.** Today only the text is shown.
-- [ ] **Exercises.** Show assignments, deadlines and your own submission status (today:
-  opens in the browser).
+- [x] **Exercises.** Assignments (ongoing, upcoming, past), deadlines, instructions, attached
+  files and your own submission status.
 - [ ] **Calendar and session dates.**
 - [ ] **ILIAS mail.** Read the inbox.
 - [ ] **Wikis, blogs, learning modules, content pages.** Read in the TUI (today: open in the
@@ -68,7 +68,9 @@ Read-only; safe to build.
 
 **Not built on purpose.** Each of these needs the safeguards below before it is added.
 
-- [ ] Upload exercise submissions
+- [x] Upload exercise submissions (`H`; asks first, tested only on the local test ILIAS)
+- [x] Delete a handed-in file before the deadline (`X`; asks first, tested only on the local
+      test ILIAS)
 - [ ] Upload files to shared folders
 - [ ] Write forum posts and replies
 - [ ] Send ILIAS mail

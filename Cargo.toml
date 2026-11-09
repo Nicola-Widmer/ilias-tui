@@ -15,7 +15,7 @@ headless_chrome = "1.0.22"
 jiff = "0.2"
 percent-encoding = "2.3.2"
 ratatui = { version = "0.30.2", features = ["unstable-rendered-line-info"] }
-reqwest = { version = "0.13.5", features = ["blocking", "brotli", "cookies", "gzip"] }
+reqwest = { version = "0.13.5", features = ["blocking", "brotli", "cookies", "gzip", "multipart"] }
 reqwest_cookie_store = "0.10.0"
 scraper = "0.29.0"
 serde = { version = "1.0.229", features = ["derive"] }

@@ -4,6 +4,7 @@
 mod browser;
 mod confirm;
 mod filter;
+mod hand_in;
 mod help;
 mod report;
 mod settings;
@@ -12,6 +13,7 @@ mod status_bar;
 pub use browser::Browser;
 pub use confirm::Confirm;
 pub use filter::Filter;
+pub use hand_in::HandIn;
 pub use help::Help;
 pub use report::Report;
 pub use settings::Settings;

@@ -26,6 +26,8 @@ pub struct StatusBar {
     started: Instant,
     /// Shown as a badge until the app is online again.
     offline: bool,
+    /// The status is a change on ILIAS whose page reloads next; keep it through the reload.
+    keep: bool,
 }
 
 impl Default for StatusBar {
@@ -34,6 +36,7 @@ impl Default for StatusBar {
             status: Status::Idle,
             started: Instant::now(),
             offline: false,
+            keep: false,
         }
     }
 }
@@ -47,6 +50,16 @@ const HINTS: &[(&str, &str)] = &[
 
 impl Component for StatusBar {
     fn update(&mut self, action: &Action) -> Option<Action> {
+        if self.keep {
+            match action {
+                Action::Load { refresh: true, .. } => return None,
+                Action::Loaded { .. } => {
+                    self.keep = false;
+                    return None;
+                }
+                _ => {}
+            }
+        }
         self.status = match action {
             Action::Load { deep: true, .. } => Status::Busy("Searching…".into()),
             Action::Load { refresh: true, .. } => Status::Busy("Refreshing…".into()),
@@ -98,7 +111,32 @@ impl Component for StatusBar {
                     Status::Done(text)
                 }
             }
+            Action::HandIn { assignment, .. } => {
+                Status::Busy(format!("Handing in for {}…", assignment.title))
+            }
+            Action::HandedIn { assignment, file } => match file {
+                Some(file) => Status::Done(format!("Handed in {file} for {}", assignment.title)),
+                None => Status::Info(format!(
+                    "Dry run: would have handed in for {}",
+                    assignment.title
+                )),
+            },
+            Action::DeleteSubmission { file, .. } => {
+                Status::Busy(format!("Deleting {} from your submission…", file.title))
+            }
+            Action::SubmissionDeleted {
+                assignment,
+                file,
+                deleted,
+            } => match deleted {
+                true => Status::Done(format!(
+                    "Deleted {} from your submission for {}",
+                    file.title, assignment.title
+                )),
+                false => Status::Info(format!("Dry run: would have deleted {}", file.title)),
+            },
             Action::Ask { .. }
+            | Action::AskHandIn { .. }
             | Action::Handled
             | Action::Quit
             | Action::ToggleHelp
@@ -108,6 +146,11 @@ impl Component for StatusBar {
                 return None;
             }
         };
+        self.keep = matches!(
+            action,
+            Action::HandedIn { file: Some(_), .. }
+                | Action::SubmissionDeleted { deleted: true, .. }
+        );
         None
     }
 
@@ -160,5 +203,51 @@ impl Component for StatusBar {
             .fg(theme::colors().fg);
         frame.render_widget(Paragraph::new(message).style(bar), left);
         frame.render_widget(Paragraph::new(hints).style(bar).right_aligned(), right);
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use crate::ilias::Item;
+
+    #[test]
+    fn a_change_on_ilias_stays_shown_through_the_reload_after_it() {
+        let mut bar = StatusBar::default();
+        let file = Item {
+            title: "Bericht.pdf".into(),
+            ..Item::default()
+        };
+        bar.update(&Action::SubmissionDeleted {
+            assignment: Item::default(),
+            file,
+            deleted: true,
+        });
+        for action in [
+            Action::Load {
+                item: None,
+                url: None,
+                refresh: true,
+                deep: false,
+            },
+            Action::Handled,
+            Action::Loaded {
+                item: None,
+                page: Default::default(),
+                refresh: true,
+                deep: false,
+            },
+        ] {
+            bar.update(&action);
+            assert!(matches!(bar.status, Status::Done(_)));
+        }
+        // Later loads show as usual.
+        bar.update(&Action::Load {
+            item: None,
+            url: None,
+            refresh: true,
+            deep: false,
+        });
+        assert!(matches!(bar.status, Status::Busy(_)));
     }
 }

@@ -27,15 +27,16 @@ pub fn set_nerd_font(on: bool) {
 pub fn icon(item: &Item) -> (&'static str, Color) {
     let c = colors();
     let (nerd, plain, color) = match item.kind.as_str() {
-        "crs" => ("\u{f19d}", "◆", c.cyan),          // graduation-cap
-        "grp" => ("\u{f0c0}", "◆", c.blue),          // users
-        "cat" | "root" => ("\u{f0e8}", "▸", c.blue), // sitemap
-        "fold" => ("\u{f07b}", "▸", c.yellow),       // folder
-        "sess" => ("\u{f073}", "◷", c.purple),       // calendar
-        "exc" => ("\u{f044}", "✎", c.orange),        // edit
-        "tst" => ("\u{f046}", "✓", c.orange),        // check-square-o
-        "svy" => ("\u{f080}", "▤", c.orange),        // bar-chart
-        "iass" => ("\u{f0ae}", "✓", c.orange),       // tasks
+        "crs" => ("\u{f19d}", "◆", c.cyan),           // graduation-cap
+        "grp" => ("\u{f0c0}", "◆", c.blue),           // users
+        "cat" | "root" => ("\u{f0e8}", "▸", c.blue),  // sitemap
+        "fold" => ("\u{f07b}", "▸", c.yellow),        // folder
+        "sess" => ("\u{f073}", "◷", c.purple),        // calendar
+        "exc" | "ass" => ("\u{f044}", "✎", c.orange), // edit
+        "sub" => ("\u{f093}", "↑", c.orange),         // upload
+        "tst" => ("\u{f046}", "✓", c.orange),         // check-square-o
+        "svy" => ("\u{f080}", "▤", c.orange),         // bar-chart
+        "iass" => ("\u{f0ae}", "✓", c.orange),        // tasks
         "poll" => ("\u{f080}", "▤", c.orange),
         "chtr" => ("\u{f086}", "✉", c.green),
         "frm" => ("\u{f086}", "✉", c.green), // comments

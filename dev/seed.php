@@ -68,6 +68,39 @@ function exercise($parent, $title, $instruction, $days, $student)
     $assignment->setPeerReviewValid(ilExAssignment::PEER_REVIEW_VALID_NONE);
     $assignment->save();
     (new ilExerciseMembers($exercise))->assignMember($student);
+    return $assignment->getId();
+}
+
+function temp_file($name, $content)
+{
+    // ILIAS only imports from its own storage folders.
+    $dir = ilFileUtils::ilTempnam();
+    mkdir($dir);
+    file_put_contents("$dir/$name", $content);
+    return $dir;
+}
+
+function attach($assignment, $name, $content)
+{
+    global $DIC;
+    $files = $DIC->exercise()->internal()->domain()->assignment()->instructionFiles($assignment);
+    $files->createCollection();
+    $files->importFromDirectory(temp_file($name, $content));
+}
+
+function hand_in($assignment, $student, $name, $content)
+{
+    global $DIC;
+    // Only the student themselves may hand in.
+    $root = $DIC->user();
+    unset($DIC['ilUser']);
+    $DIC['ilUser'] = new ilObjUser($student);
+    $path = temp_file($name, $content) . "/$name";
+    if (!$DIC->exercise()->internal()->domain()->submission($assignment)->addLocalFile($student, $path, $name)) {
+        echo "Could not hand in $name\n";
+    }
+    unset($DIC['ilUser']);
+    $DIC['ilUser'] = $root;
 }
 
 $users = '<Users><User Action="Insert"><Login>student</Login><Role Id="' . USER_ROLE . '" Type="Global">User</Role>'
@@ -99,7 +132,15 @@ file_in($deep, 'Formelsammlung.pdf', PDF);
 file_in($deep, 'Beispiele.zip', 'A zip file, in spirit.');
 file_in($deep, 'notizen.md', "# Notes\n");
 create($algebra, 'frm', 'Fragen und Antworten', 'Course forum');
-exercise($algebra, 'Blatt 1', 'Solve the first sheet.', 3, $student);
+$sheet = exercise($algebra, 'Blatt 1', 'Solve the first sheet.', 3, $student);
+attach($sheet, 'Blatt 1.pdf', PDF);
+$past = exercise($algebra, 'Blatt 0', 'The warm-up, already over.', 1, $student);
+attach($past, 'Blatt 0.pdf', PDF);
+hand_in($past, $student, 'Loesung Blatt 0.pdf', PDF);
+// Only now: nothing can be handed in after the deadline.
+$over = new ilExAssignment($past);
+$over->setDeadline(time() - 5 * 86400);
+$over->update();
 exercise($biology, 'Laborbericht', 'Hand in the lab report.', 10, $student);
 
 file_in($biology, 'Skript Zellbiologie.pdf', PDF);

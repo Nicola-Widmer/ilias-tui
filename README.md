@@ -44,7 +44,7 @@ What it does:
 - Shows a **To-Do** panel to the right of them (below them on narrow terminals): the
   assignments you still have to hand in, soonest first, with the course and how long you
   have left ("due in 3 days", yellow within 3 days, red within a day). `Tab` moves into the
-  panel; `Enter` opens the assignment in your browser to upload it.
+  panel; `Enter` opens the assignment.
 - **Reads forums**: the threads of a forum (author, number of posts, unread posts, last
   post), and in a thread all posts with author, date, replies indented and unread posts
   marked `● new`. Reading changes nothing on ILIAS; posts stay unread there.
@@ -66,7 +66,14 @@ What it does:
 - **Syncs whole courses** (`S`, mark several with `Space`, or all at once with `A`): every file up to 50 MB,
   in ILIAS's folder structure, and later only what changed. Files you edited (say, an
   annotated PDF) are never overwritten; see [Sync](#sync).
-- Opens everything else (tests, exercises, …) in your normal web browser.
+- **Reads exercises**: the assignments, ongoing or past, with deadline and whether you handed
+  something in; instructions and attached files on the assignment's page. `Enter` on a To-Do
+  entry goes straight there.
+- **Hands in files** for an assignment (`H`): it asks for the file, then asks you to confirm.
+  Its **Handed-in files** entry (in the Submission section, open it like any other entry)
+  lists what you handed in; `X` deletes the selected file again (asks first), as long as
+  ILIAS allows it, which is until the deadline.
+- Opens everything else (tests, surveys, …) in your normal web browser.
 - Logs in once through Switch edu-ID (2FA included) and keeps the session in a private
   file. Later runs refresh the session on their own, without a browser.
 
@@ -167,7 +174,7 @@ ilias-tui get goto.php/file/123456
 | --------------- | ----------------------------------------------- |
 | `↑ ↓` / `k j`   | Move selection; scroll in a forum thread        |
 | `g` / `G`       | First / last item                               |
-| `Enter` `→` `l` | Open folder, forum or thread; open file (downloads it the first time); open anything else in the browser |
+| `Enter` `→` `l` | Open folder, forum, thread or exercise; open file (downloads it the first time); open anything else in the browser |
 | `Esc` `←` `h`   | Clear filter, then go back                      |
 | `/`             | Filter the current list                         |
 | `s`             | Search everything below here                    |
@@ -179,6 +186,8 @@ ilias-tui get goto.php/file/123456
 | `f`             | Add to / remove from your ILIAS favourites (asks first) |
 | `Tab` / `Shift-Tab` | Next / previous tab (Inhalt, Info, …); on My courses, in and out of the To-Do panel |
 | `r`             | Reload current list                             |
+| `H`             | On an assignment: hand in a file (asks first)   |
+| `X`             | Handed-in files: delete the selected file (asks first) |
 | `L`             | Log in again / go online (opens Chrome if needed) |
 | `?`             | Toggle help                                     |
 | `q` / `Ctrl-c`  | Quit                                            |
@@ -218,7 +227,7 @@ page:
 | `ILIAS_CACHE`         | `1`. Set to `0` to turn off the page cache |
 | `ILIAS_SYNC_MAX_MB`   | `50`. Sync skips files bigger than this         |
 | `ILIAS_OFFLINE`       | `0`. Set to `1` to always start offline (same as `--offline`) |
-| `ILIAS_DRY_RUN`       | `0`. Set to `1` to never send changes to ILIAS (favourites); the app only says what it would have done |
+| `ILIAS_DRY_RUN`       | `0`. Set to `1` to never send changes to ILIAS (favourites, handing in); the app only says what it would have done |
 
 ### Themes
 
@@ -290,7 +299,8 @@ seen before:
 - **Deep search** (`s`) searches the cached pages below the page on screen: a synced
   course completely, otherwise the folders you opened before.
 - **Saved files** (`✓ saved`) open as usual; other files can't be downloaded.
-- **Nothing is sent** to ILIAS, not even a session check. Favourites can't be changed.
+- **Nothing is sent** to ILIAS, not even a session check. Favourites can't be changed and
+  nothing can be handed in.
 - **`L` goes online:** it checks the saved session (and only opens Chrome if that has
   expired). Then the page on screen reloads.
 
@@ -381,14 +391,19 @@ download.
 - Only to your ILIAS server (`ILIAS_URL`), over HTTPS with certificate checks. During the
   login, Chrome also talks to Keycloak and edu-ID. There is no telemetry and no third-party
   service.
-- **Almost read-only.** ilias-tui only sends `GET` requests. It never submits forms, uploads
-  files or posts. Two things change something on ILIAS:
+- **Almost read-only.** ilias-tui reads with `GET` requests. Four things change something on
+  ILIAS:
   - `ilias-tui logout` ends your session.
+  - `H` hands in a file for an assignment, and `X` deletes one you handed in. These are the
+    only times it sends a `POST`. Both name the file and the assignment and ask first, check
+    that ILIAS' form belongs to that assignment on your ILIAS, and do nothing with
+    `ILIAS_DRY_RUN=1`. Your lecturer can see what you hand in. A deleted file can't be
+    restored, and after the deadline ILIAS lets you delete nothing.
   - `f` adds or removes a favourite. It asks first, only sends the favourites link from
     that item's own ILIAS menu (checked to be for that item, on your ILIAS), and does
     nothing with `ILIAS_DRY_RUN=1`.
 
-  Both live in `src/ilias/write.rs`. Every other request passes a **write guard** that
+  All of them live in `src/ilias/write.rs`. Every other request passes a **write guard** that
   refuses anything that looks like a write (an ILIAS one-time `rtoken`, or a known write
   command such as `addToDesk`, `markPostRead` or `join`), so a bug elsewhere can't turn a
   link into a change. Tests check this against a fake ILIAS.

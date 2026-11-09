@@ -596,6 +596,14 @@ impl Component for Browser {
         if key.code == KeyCode::Char('A') {
             return Some(self.sync_all());
         }
+        // From inside an assignment's Submission, `H` and `X` are about the assignment.
+        let assignment = self
+            .stack
+            .iter()
+            .rev()
+            .filter_map(|l| l.item.as_ref())
+            .find(|i| i.kind != "sub")
+            .cloned();
         let level = self.stack.last_mut()?;
         match key.code {
             KeyCode::Down | KeyCode::Char('j') => level.move_cursor(|c, last| (c + 1).min(last)),
@@ -700,6 +708,38 @@ impl Component for Browser {
                 }
                 return Some(Action::Sync(roots));
             }
+            KeyCode::Char('H') => {
+                // Assignments that take files have a tab for them; other types don't.
+                let submission = level.page.tabs.iter().find(|t| {
+                    t.url
+                        .to_ascii_lowercase()
+                        .contains("cmdclass=ilexsubmissionfilegui")
+                });
+                return Some(match (assignment, submission) {
+                    (Some(assignment), Some(tab)) => Action::AskHandIn {
+                        assignment,
+                        url: tab.url.clone(),
+                    },
+                    _ => Action::Error("Open an assignment that takes files to hand in".into()),
+                });
+            }
+            KeyCode::Char('X') => {
+                // Handed-in files link to their download with `delivered=<id>`.
+                let file = level.selected().filter(|i| i.url.contains("&delivered="));
+                return Some(match (assignment, file.cloned()) {
+                    (Some(assignment), Some(file)) => Action::Ask {
+                        question: format!(
+                            "Delete {} from your submission for {}? It can't be restored.",
+                            file.title, assignment.title
+                        ),
+                        then: Box::new(Action::DeleteSubmission { assignment, file }),
+                    },
+                    _ => Action::Error(
+                        "Select a handed-in file (in an assignment's Submission) to delete it"
+                            .into(),
+                    ),
+                });
+            }
             KeyCode::Char('L') => return Some(Action::Login),
             _ => return None,
         }
@@ -797,6 +837,16 @@ impl Component for Browser {
                 for level in hidden {
                     level.out_of_date |=
                         level.item.is_none() || level.items.iter().any(|i| i.ref_id == item.ref_id);
+                }
+                return Some(top.reload());
+            }
+            // The submission shows on the page on screen and on the ones below it, and the
+            // To-Do may change.
+            Action::HandedIn { file: Some(_), .. }
+            | Action::SubmissionDeleted { deleted: true, .. } => {
+                let (top, hidden) = self.stack.split_last_mut()?;
+                for level in hidden {
+                    level.out_of_date = true;
                 }
                 return Some(top.reload());
             }
@@ -1528,6 +1578,118 @@ mod tests {
     }
 
     #[test]
+    fn h_hands_in_only_on_assignments_that_take_files() {
+        let tab = |url: &str| crate::ilias::parse::Tab {
+            title: "t".into(),
+            url: url.into(),
+            active: false,
+        };
+        let press = |browser: &mut Browser| browser.handle_key_event(KeyCode::Char('H').into());
+
+        let mut browser = Browser::default();
+        load(
+            &mut browser,
+            None,
+            Page::from_items(vec![item("crs", 1, "DEMO")]),
+            false,
+        );
+        assert!(matches!(press(&mut browser), Some(Action::Error(_))));
+
+        let page = Page {
+            tabs: vec![
+                tab("overview"),
+                tab("x?cmdClass=ilExSubmissionFileGUI&ass_id=1"),
+            ],
+            ..Page::default()
+        };
+        load(&mut browser, Some(item("exc", 2, "Blatt 1")), page, false);
+        let action = press(&mut browser);
+        assert!(
+            matches!(action, Some(Action::AskHandIn { ref assignment, ref url })
+                if assignment.title == "Blatt 1" && url.ends_with("ass_id=1"))
+        );
+
+        // A text assignment: no such tab.
+        let page = Page {
+            tabs: vec![tab("x?cmdClass=ilExSubmissionTextGUI&ass_id=2")],
+            ..Page::default()
+        };
+        load(&mut browser, Some(item("ass", 3, "Essay")), page, false);
+        assert!(matches!(press(&mut browser), Some(Action::Error(_))));
+
+        // Handing in reloads the page on screen and marks the others.
+        let handed_in = browser.update(&Action::HandedIn {
+            assignment: item("ass", 3, "Essay"),
+            file: Some("a.pdf".into()),
+        });
+        assert!(matches!(
+            handed_in,
+            Some(Action::Load { refresh: true, .. })
+        ));
+        assert!(browser.stack[0].out_of_date);
+        let dry = browser.update(&Action::HandedIn {
+            assignment: item("ass", 3, "Essay"),
+            file: None,
+        });
+        assert!(dry.is_none(), "nothing changed");
+    }
+
+    #[test]
+    fn x_asks_before_deleting_a_handed_in_file() {
+        let press = |browser: &mut Browser| browser.handle_key_event(KeyCode::Char('X').into());
+        let mut handed_in = item("file", 9, "Bericht.pdf");
+        handed_in.url = "x?cmdClass=ilExSubmissionFileGUI&cmd=download&ass_id=1&delivered=2".into();
+        let mut browser = Browser::default();
+        load(
+            &mut browser,
+            Some(item("ass", 2, "Laborbericht")),
+            Page::from_items(vec![item("file", 8, "Vorlage.pdf"), handed_in]),
+            false,
+        );
+        // The assignment's own file can't be deleted.
+        assert!(matches!(press(&mut browser), Some(Action::Error(_))));
+
+        browser.handle_key_event(KeyCode::Char('j').into());
+        let Some(Action::Ask { question, then }) = press(&mut browser) else {
+            panic!("asks first");
+        };
+        assert!(question.contains("Bericht.pdf") && question.contains("Laborbericht"));
+        assert!(matches!(*then, Action::DeleteSubmission { ref file, .. } if file.ref_id == 9));
+
+        // Inside the assignment's Submission, it is still about the assignment.
+        let mut submission = item("sub", 3, "Submission");
+        submission.url = "x?cmdClass=ilExSubmissionFileGUI&cmd=submissionScreen&ass_id=1".into();
+        let mut handed_in = item("file", 9, "Bericht.pdf");
+        handed_in.url = "x?cmdClass=ilExSubmissionFileGUI&cmd=download&ass_id=1&delivered=2".into();
+        let page = Page {
+            tabs: vec![crate::ilias::parse::Tab {
+                title: "Submission".into(),
+                url: submission.url.clone(),
+                active: true,
+            }],
+            ..Page::from_items(vec![handed_in])
+        };
+        load(&mut browser, Some(submission), page, false);
+        let Some(Action::Ask { then, .. }) = press(&mut browser) else {
+            panic!("asks first");
+        };
+        assert!(
+            matches!(*then, Action::DeleteSubmission { ref assignment, .. } if assignment.title == "Laborbericht")
+        );
+        let hand_in = browser.handle_key_event(KeyCode::Char('H').into());
+        assert!(
+            matches!(hand_in, Some(Action::AskHandIn { ref assignment, .. }) if assignment.title == "Laborbericht")
+        );
+
+        let deleted = browser.update(&Action::SubmissionDeleted {
+            assignment: item("ass", 2, "Laborbericht"),
+            file: item("file", 9, "Bericht.pdf"),
+            deleted: true,
+        });
+        assert!(matches!(deleted, Some(Action::Load { refresh: true, .. })));
+    }
+
+    #[test]
     fn todo_panel_gets_focus_with_tab_and_opens_assignments() {
         let mut browser = Browser::default();
         let mut assignment = item("exc", 5, "Blatt 1");
@@ -1562,7 +1724,9 @@ mod tests {
         assert!(browser.todo_focus);
         assert!(key(&mut browser, KeyCode::Char('j')).is_none());
         let open = key(&mut browser, KeyCode::Enter);
-        assert!(matches!(open, Some(Action::OpenInBrowser(ref i)) if i.title == "Blatt 2"));
+        assert!(
+            matches!(open, Some(Action::Load { item: Some(ref i), .. }) if i.title == "Blatt 2")
+        );
 
         // Esc gives the keys back to the course list.
         key(&mut browser, KeyCode::Esc);
@@ -1575,7 +1739,9 @@ mod tests {
         // Double-clicking an entry opens it.
         assert!(browser.click(Hit::Todo(0)).is_none());
         let open = browser.click(Hit::Todo(0));
-        assert!(matches!(open, Some(Action::OpenInBrowser(ref i)) if i.title == "Blatt 1"));
+        assert!(
+            matches!(open, Some(Action::Load { item: Some(ref i), .. }) if i.title == "Blatt 1")
+        );
     }
 
     #[test]

@@ -41,6 +41,11 @@ pub const KEYS: &[(&str, &[(&str, &str)])] = &[
             ("o", "Open in your web browser"),
             ("f", "Add to / remove from ILIAS favourites (asks first)"),
             ("r", "Reload"),
+            ("H", "Assignment: hand in a file (asks first)"),
+            (
+                "X",
+                "Handed-in files: delete the selected file (asks first)",
+            ),
             ("Space", "Mark a course / folder for sync"),
             (
                 "S",

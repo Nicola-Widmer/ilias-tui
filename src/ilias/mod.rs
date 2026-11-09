@@ -295,8 +295,11 @@ impl Client {
     /// Downloads a file object into `dir`, never overwriting existing files.
     pub fn download(&self, item: &Item, dir: &Path) -> Result<PathBuf> {
         self.ensure_online()?;
-        // Files listed in folders link straight to `cmd=sendfile`; otherwise use the permalink.
-        let url = if item.url.contains("cmd=sendfile") {
+        // Files listed in folders link straight to `cmd=sendfile`, those of assignments to
+        // `cmd=downloadFile`, handed-in ones to `cmd=download…&delivered=`; otherwise use the
+        // permalink.
+        let direct = ["cmd=sendfile", "cmd=downloadFile", "&delivered="];
+        let url = if direct.iter().any(|d| item.url.contains(d)) {
             Url::parse(&item.url)?
         } else {
             self.url(&format!("goto.php?target=file_{}_download", item.ref_id))?
@@ -407,9 +410,14 @@ pub(crate) fn unique_path(dir: &Path, name: &str) -> PathBuf {
 }
 
 /// Containers whose children deep search and sync look at. Categories lead out of the
-/// course into the rest of the repository; forum threads hold posts, not files.
+/// course into the rest of the repository; forum threads hold posts, not files, and the files
+/// of assignments are read on their pages.
 pub fn crawlable(item: &Item) -> bool {
-    item.is_container() && !matches!(item.kind.as_str(), "cat" | "frm" | "thr")
+    item.is_container()
+        && !matches!(
+            item.kind.as_str(),
+            "cat" | "frm" | "thr" | "exc" | "ass" | "sub"
+        )
 }
 
 /// Everything below `root` in display order, starting from its items `top`; `children`

@@ -30,9 +30,13 @@ The same logins work in a browser at <http://localhost:8080/>.
 ## What's in it
 
 `seed.php` creates three courses (`DEMO.101`, `DEMO.102`, `DEMO.100`), nested folders, files of
-several types, a forum without posts, and two exercises due in 3 and 10 days, counted from when
-you seeded. For anything else, such as forum posts or an edited file, log in as `root` and add
+several types, a forum without posts, and exercises: two due in 3 and 10 days, counted from when
+you seeded, and one past its deadline with a file handed in. For anything else, such as forum posts or an edited file, log in as `root` and add
 it in the browser.
+
+Handing in (`H`) and deleting a handed-in file (`X`) are safe to try here, unlike on a real
+ILIAS. To see what it would do without
+sending anything, set `ILIAS_DRY_RUN=1`.
 
 ## Stopping and starting over
 

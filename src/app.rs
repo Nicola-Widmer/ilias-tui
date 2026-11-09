@@ -15,7 +15,9 @@ use ratatui::{DefaultTerminal, Frame};
 
 use crate::action::Action;
 use crate::cache::Cache;
-use crate::components::{Browser, Component, Confirm, Filter, Help, Report, Settings, StatusBar};
+use crate::components::{
+    Browser, Component, Confirm, Filter, HandIn, Help, Report, Settings, StatusBar,
+};
 use crate::config::Config;
 use crate::downloads::Downloads;
 use crate::ilias::{Client, Item, Page};
@@ -28,6 +30,7 @@ pub struct App {
     downloads: Downloads,
     cache: Cache,
     confirm: Confirm,
+    hand_in: HandIn,
     report: Report,
     filter: Filter,
     browser: Browser,
@@ -62,6 +65,7 @@ impl App {
             downloads,
             cache,
             confirm: Confirm::default(),
+            hand_in: HandIn::default(),
             report: Report::default(),
             filter: Filter::default(),
             browser,
@@ -77,9 +81,10 @@ impl App {
     }
 
     /// Components from top-most to bottom-most; earlier ones get keys first.
-    fn components(&mut self) -> [&mut dyn Component; 7] {
+    fn components(&mut self) -> [&mut dyn Component; 8] {
         [
             &mut self.confirm,
+            &mut self.hand_in,
             &mut self.report,
             &mut self.help,
             &mut self.settings,
@@ -135,7 +140,12 @@ impl App {
 
     fn dispatch(&mut self, action: Action) -> Result<()> {
         // Offline nothing can be changed on ILIAS; say so before asking the question.
-        if self.client.is_offline() && matches!(action, Action::Ask { .. } | Action::Sync(_)) {
+        if self.client.is_offline()
+            && matches!(
+                action,
+                Action::Ask { .. } | Action::AskHandIn { .. } | Action::Sync(_)
+            )
+        {
             self.tx.send(Action::Error(
                 "Offline: nothing can be sent to or fetched from ILIAS. Press L to go online."
                     .into(),
@@ -251,6 +261,28 @@ impl App {
                     Ok(Action::FavoriteToggled {
                         item,
                         dry_run: !sent,
+                    })
+                });
+            }
+            Action::HandIn {
+                assignment,
+                url,
+                path,
+            } => {
+                let (assignment, url, path) = (assignment.clone(), url.clone(), path.clone());
+                self.spawn(move |client, _| {
+                    let file = client.hand_in(&url, &path)?;
+                    Ok(Action::HandedIn { assignment, file })
+                });
+            }
+            Action::DeleteSubmission { assignment, file } => {
+                let (assignment, file) = (assignment.clone(), file.clone());
+                self.spawn(move |client, _| {
+                    let deleted = client.delete_submission(&file)?;
+                    Ok(Action::SubmissionDeleted {
+                        assignment,
+                        file,
+                        deleted,
                     })
                 });
             }
@@ -387,6 +419,7 @@ impl App {
         self.settings.draw(frame, area);
         self.help.draw(frame, area);
         self.report.draw(frame, area);
+        self.hand_in.draw(frame, area);
         // Last, so the question is on top of everything.
         self.confirm.draw(frame, area);
     }
