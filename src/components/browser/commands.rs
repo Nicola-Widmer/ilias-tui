@@ -39,7 +39,9 @@ impl Browser {
             Command::NextTab => return self.switch_tab(1),
             Command::PreviousTab => return self.switch_tab(-1),
             Command::Download => {
-                let item = level.selected().filter(|i| i.kind == Kind::File)?;
+                let item = level.selected().filter(|i| {
+                    i.kind == Kind::File || (i.kind == Kind::Participant && !i.url.is_empty())
+                })?;
                 return Some(Action::Download {
                     item: item.clone(),
                     open: false,
@@ -71,6 +73,22 @@ impl Browser {
             Command::NewFolder => return Some(self.new_folder()),
             Command::Delete => return Some(self.delete()),
             Command::Reply => return Some(self.reply()),
+            Command::DownloadAll => {
+                let handed_in: Vec<Item> = level
+                    .items
+                    .iter()
+                    .filter(|i| i.kind == Kind::Participant && !i.url.is_empty())
+                    .cloned()
+                    .collect();
+                let none = level.items.iter().any(|i| i.kind == Kind::Participant);
+                return Some(match (handed_in.is_empty(), none) {
+                    (false, _) => Action::DownloadSubmissions(handed_in),
+                    (true, true) => Action::Error("Nobody has handed anything in yet".into()),
+                    (true, false) => Action::Error(
+                        "Open an assignment's submissions (the exercise's \"Submissions and Grades\" tab) to download them all".into(),
+                    ),
+                });
+            }
             Command::Login => return Some(Action::Login),
             // Other components' keys, and search inside search results.
             Command::Search

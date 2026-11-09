@@ -399,9 +399,14 @@ impl Client {
     pub fn download(&self, item: &Item, dir: &Path) -> Result<PathBuf> {
         self.ensure_online()?;
         // Files listed in folders link straight to `cmd=sendfile`, those of assignments to
-        // `cmd=downloadFile`, handed-in ones to `cmd=download…&delivered=`; otherwise use the
-        // permalink.
-        let direct = ["cmd=sendfile", "cmd=downloadFile", "&delivered="];
+        // `cmd=downloadFile`, handed-in ones to `cmd=download…&delivered=`, a participant's
+        // submission to `cmd=downloadReturned`; otherwise use the permalink.
+        let direct = [
+            "cmd=sendfile",
+            "cmd=downloadFile",
+            "&delivered=",
+            "cmd=downloadReturned",
+        ];
         let url = if direct.iter().any(|d| item.url.contains(d)) {
             Url::parse(&item.url)?
         } else {

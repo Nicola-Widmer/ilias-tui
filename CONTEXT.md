@@ -125,6 +125,13 @@ tab as the assignment's "Handed-in files" entry. Until the deadline you can add 
 and delete them (`X`).
 _Avoid_: upload, delivery (ILIAS' own word in its code: `delivered`).
 
+**Submissions page**:
+An assignment's "Submissions and Grades" (`ilExerciseManagementGUI`, `cmd=members`), seen
+only by those who grade: every participant with what they handed in, one assignment at a
+time (ilias-tui shows the assignments as tabs). Each participant is an entry of kind
+`Participant`; `a` saves all of their submissions.
+_Avoid_: members page (ILIAS' command name), deliveries.
+
 **Upload**:
 Putting files into a course, group or folder (`u`), as its "Upload Files" form does. Everyone
 who can open the place sees them. Only where the page's rights include it.

@@ -975,3 +975,48 @@ fn n_in_a_forum_starts_a_thread_and_r_replies_to_the_post_at_the_top() {
         Some(Action::Compose(Draft::Reply { post: 7, ref author, .. })) if author == "Bob"
     ));
 }
+
+#[test]
+fn a_downloads_every_submission_and_d_one() {
+    let key = |browser: &mut Browser, c| browser.handle_key_event(KeyCode::Char(c).into());
+    let mut browser = Browser::default();
+    load(
+        &mut browser,
+        Some(item("crs", 1, "DEMO")),
+        Page::from_items(vec![item("file", 3, "Skript")]),
+        false,
+    );
+    assert!(matches!(key(&mut browser, 'a'), Some(Action::Error(_))));
+
+    let participant = |title: &str, url: &str| Item {
+        kind: Kind::Participant,
+        id: Id::local(title),
+        title: title.into(),
+        url: url.into(),
+        ..Default::default()
+    };
+    let page = Page::from_items(vec![
+        participant(
+            "Muster, Anna",
+            "https://ilias.example/x?cmd=downloadReturned&member_id=1",
+        ),
+        participant("Beispiel, Ben", ""),
+    ]);
+    load(&mut browser, Some(item("exc", 2, "Blatt 0")), page, false);
+    let all = key(&mut browser, 'a');
+    assert!(
+        matches!(all, Some(Action::DownloadSubmissions(ref items)) if items.len() == 1 && items[0].title == "Muster, Anna"),
+        "{all:?}"
+    );
+    assert!(matches!(
+        key(&mut browser, 'd'),
+        Some(Action::Download { open: false, .. })
+    ));
+    // Ben has nothing to download.
+    key(&mut browser, 'j');
+    assert!(key(&mut browser, 'd').is_none());
+    assert!(matches!(
+        browser.handle_key_event(KeyCode::Enter.into()),
+        Some(Action::Error(_))
+    ));
+}

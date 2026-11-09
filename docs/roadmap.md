@@ -126,7 +126,10 @@ write](#rules-for-features-that-write). Tried only on the local test ILIAS.
 - [x] **Delete** an item into the ILIAS trash (`D`; refuses where ILIAS has no trash).
 - [x] **Forum posts**: start a thread (`n` in a forum), reply to a post (`R`), written in
   `$EDITOR`.
-- [ ] **Submissions of an assignment**: list and download all participants' submissions.
+- [x] **Submissions of an assignment**: list and download all participants' submissions
+  (`a`, into `<course>/<exercise>/<assignment>/<participant>/`; several files stay ILIAS'
+  zip).
+- [ ] **Unpack submission zips** into the participant's folder.
 
 ## App and quality of life
 

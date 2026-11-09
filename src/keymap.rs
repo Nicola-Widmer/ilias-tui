@@ -31,6 +31,7 @@ pub enum Command {
     NewFolder,
     Delete,
     Reply,
+    DownloadAll,
     MarkForSync,
     Sync,
     SyncAll,
@@ -108,6 +109,11 @@ pub const SECTIONS: &[(&str, &[Binding])] = &[
         "Items",
         &[
             bind(Download, &[Char('d')], "Download a fresh copy (no open)"),
+            bind(
+                DownloadAll,
+                &[Char('a')],
+                "Submissions page: download everyone's submissions",
+            ),
             bind(
                 OpenInBrowser,
                 &[Char('o')],

@@ -99,6 +99,11 @@ What it does:
 - **Deletes items** into the ILIAS trash (`D`), where the item's ILIAS menu offers Delete: it
   names the item, its kind and the place, says it goes to the trash, and asks first. Where
   ILIAS has no trash (it would be deleted for good), it refuses. It never empties the trash.
+- **Lists everyone's submissions** for those who grade: an exercise's "Submissions and
+  Grades" tab shows each participant with how many files they handed in, when, and the
+  grade, with one tab per assignment. `d` (or `Enter`) saves one participant's files, `a`
+  saves everyone's, into `~/Downloads/ILIAS/<course>/<exercise>/<assignment>/<participant>/`
+  (several files come as ILIAS' zip). `a` again only fetches what changed. Read-only.
 - Opens everything else (tests, surveys, …) in your normal web browser, and copies any
   item's permalink with `y`.
 - Logs in once through Switch edu-ID (2FA included) and keeps the session in a private
@@ -208,6 +213,7 @@ ilias-tui get goto.php/file/123456
 | `/`             | Filter the current list                         |
 | `s`             | Search everything below here                    |
 | `d`             | Download a fresh copy without opening it        |
+| `a`             | On an assignment's submissions page: download every participant's submission |
 | `Space`         | Mark a course or folder for sync                |
 | `S`             | Sync the marked courses (or the selected one)   |
 | `A`             | Sync all courses in My courses (asks first)     |

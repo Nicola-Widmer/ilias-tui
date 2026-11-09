@@ -29,6 +29,7 @@ src/
 │   │   ├── dashboard.rs Favourites, To-Do, course in a breadcrumb, dates
 │   │   ├── rights.rs    Rights: what the page lets you change (upload, Add New Item, Delete)
 │   │   ├── show_more.rs "Show more" buttons
+│   │   ├── submissions.rs An assignment's submissions page: participants, assignments as tabs
 │   │   ├── html.rs      Selectors, visible text, link base
 │   │   └── tests.rs
 │   ├── write.rs         The write guard, favourites, logout; every other write is in write/
@@ -290,6 +291,20 @@ pub struct Todo { assignment: Item, course, deadline, due, urgency }   // My cou
   (inside a long post, that post) in `Level::top_post` and marks it `↩ R reply` if it
   offers Reply. A thread keeps its scroll offset across frames (`ListState::select(None)`
   would reset it).
+- **Submissions page** (`parse/submissions.rs`, see [CONTEXT.md](../CONTEXT.md)): a page
+  whose table has `listed_part_ids[]` rows is an assignment's "Submissions and Grades".
+  Each row becomes a `Participant` item: name, login, "2 files" (from its "Download
+  Submissions (n)"), "handed in …" (ILIAS' "Today, …" made absolute when the page is read,
+  so the version stays the same tomorrow) and the grade; its `url` is the row's own
+  `cmd=downloadReturned` link (empty if nothing was handed in), its `path` the breadcrumb
+  plus assignment and `Name (login)`. The page's own assignment list (`select[name=ass_id]`)
+  becomes tabs: the same page with that `ass_id`, a GET that only shows another assignment
+  (ILIAS' own "Select" posts the list with a token instead). `d`/`Enter` download one
+  participant as any file (`Client::download` follows `downloadReturned`; ILIAS sends a
+  single file as it is, several as a zip). `a` sends `DownloadSubmissions`; the job saves
+  them one after the other into their folders, skips copies that are still as saved with
+  the same version (files and date), writes the saved-files list itself like sync, and
+  reports `SubmissionsSaved`. Students never see this page.
 - **Handed-in files**: `parse_page` turns an assignment's Submission tab into a `sub` item
   (in place of the overview's heading of the same name), so it opens as a level like any
   container. `H` and `X` there act for the nearest level above that isn't a `sub`.

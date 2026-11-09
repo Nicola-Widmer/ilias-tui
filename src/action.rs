@@ -155,6 +155,16 @@ pub enum Action {
         draft: Draft,
         sent: bool,
     },
+    /// Save what these participants handed in (an assignment's submissions page), each into
+    /// its own folder; unchanged ones saved before are skipped.
+    DownloadSubmissions(Vec<Item>),
+    /// `folder` is where they went; `saved` the keys of the participants saved now.
+    SubmissionsSaved {
+        folder: PathBuf,
+        saved: Vec<u64>,
+        unchanged: usize,
+        failed: Vec<String>,
+    },
     /// Ask the user first; `then` only runs on "yes". Everything that changes data on ILIAS
     /// goes through this.
     Ask {

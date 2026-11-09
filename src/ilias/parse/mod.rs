@@ -12,6 +12,7 @@ mod html;
 mod model;
 mod rights;
 mod show_more;
+mod submissions;
 mod walker;
 
 pub use container::{confirm_delete, create_form, create_link, delete_link, files_form};
@@ -153,6 +154,13 @@ pub fn parse_page(html: &str, page_url: &Url) -> Page {
     if !modes.is_empty() {
         tabs.retain(|t| !t.active);
         tabs.splice(0..0, modes);
+    }
+    // Submissions and Grades: participants and their submissions.
+    if submissions::is_submissions(&doc) {
+        return Page {
+            rights,
+            ..submissions::submissions_page(&doc, page_url, tabs)
+        };
     }
     let path = breadcrumb_path(&doc, page_url);
 

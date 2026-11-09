@@ -788,3 +788,75 @@ fn a_forum_offers_new_threads_and_its_form_is_read() {
         "<p>a<br />b &amp; &lt;c&gt;</p>\n<p>d</p>"
     );
 }
+
+/// An assignment's "Submissions and Grades" page as the local ILIAS 10 renders it for root
+/// (anonymised, shortened): two assignments, one participant who handed in, one who didn't.
+const SUBMISSIONS: &str = r#"<ol class="breadcrumb">
+      <li><a href="goto.php/exc/103">Blatt 0</a></li><li><a href="goto.php/crs/86">DEMO.101</a></li></ol>
+    <ul id="ilTab"><li id="tab_content"><a href="ilias.php?cmdClass=ilobjexercisegui&amp;cmd=showOverview&amp;ref_id=103">Assignments</a></li>
+      <li id="tab_grades" class="active"><a href="ilias.php?cmdClass=ilexercisemanagementgui&amp;cmd=members&amp;ref_id=103">Submissions and Grades</a></li></ul>
+    <div id="il_center_col"><form id="ilToolbar"><select aria-label="Assignment" id="ass_id" name="ass_id">
+      <option value="2" selected="selected">Blatt 0</option><option value="4">Blatt 0b</option></select></form>
+    <table><tr class="tblrow1">
+      <td class="std"><input type="checkbox" name="sel_part_ids[]" value="316" /><input type="hidden" name="listed_part_ids[]" value="316" /></td>
+      <td class="std"> Muster, Anna </td><td class="std"> amuster </td><td class="std small"> 6. Nov 2026, 18:02:15 </td><td>&nbsp;</td>
+      <td class="std small"><select name="status[316]"><option value="notgraded" selected="selected">Not Graded</option><option value="passed">Passed</option></select></td>
+      <td><ul class="dropdown-menu"><li><button class="btn btn-link" data-action="ilias.php?baseClass=ilexercisehandlergui&amp;cmdClass=ilexsubmissionfilegui&amp;cmd=downloadReturned&amp;ref_id=103&amp;member_id=316&amp;ass_id=2">Download Submissions (2)</button></li>
+        <li><button class="btn btn-link" data-action="ilias.php?cmdClass=ilExerciseManagementGUI&amp;cmd=redirectFeedbackMail&amp;ref_id=103">Send Evaluation Mail</button></li></ul></td></tr>
+    <tr class="tblrow2">
+      <td class="std"><input type="hidden" name="listed_part_ids[]" value="317" /></td>
+      <td class="std"> Beispiel, Ben </td><td class="std"> bbeispiel </td><td class="std small"> &nbsp; </td><td>&nbsp;</td>
+      <td></td><td></td></tr></table></div>"#;
+
+#[test]
+fn lists_every_participants_submission_with_assignments_as_tabs() {
+    let page_url = url(
+        "https://ilias.example/ilias/ilias.php?baseClass=ilexercisehandlergui&cmdClass=ilexercisemanagementgui&cmd=members&ref_id=103",
+    );
+    let page = parse_page(SUBMISSIONS, &page_url);
+    let tabs: Vec<(&str, bool)> = page
+        .tabs
+        .iter()
+        .map(|t| (t.title.as_str(), t.active))
+        .collect();
+    assert_eq!(
+        tabs,
+        [
+            ("Blatt 0", true),
+            ("Blatt 0b", false),
+            ("Assignments", false)
+        ]
+    );
+    assert!(
+        page.tabs[1]
+            .url
+            .ends_with("cmd=members&ref_id=103&ass_id=4"),
+        "{}",
+        page.tabs[1].url
+    );
+    let items: Vec<&Item> = page.items().collect();
+    assert_eq!(items.len(), 2);
+    let anna = items[0];
+    assert_eq!(anna.kind, Kind::Participant);
+    assert_eq!(
+        (anna.title.as_str(), anna.description.as_str()),
+        ("Muster, Anna", "amuster")
+    );
+    assert_eq!(
+        anna.properties,
+        ["2 files", "handed in 6. Nov 2026, 18:02:15", "Not Graded"]
+    );
+    assert!(anna.url.contains("cmd=downloadReturned") && anna.url.contains("member_id=316"));
+    assert_eq!(
+        anna.path,
+        ["DEMO.101", "Blatt 0", "Blatt 0", "Muster, Anna (amuster)"]
+    );
+    let ben = items[1];
+    assert!(ben.url.is_empty());
+    assert_eq!(ben.properties, ["nothing handed in"]);
+    assert_ne!(anna.id, ben.id);
+    // It only reads: no download goes past the write guard as a write.
+    assert!(!crate::ilias::write::is_write(
+        &Url::parse(&anna.url).unwrap()
+    ));
+}

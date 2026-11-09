@@ -129,7 +129,9 @@ impl Browser {
                 refresh: false,
                 deep: false,
             }
-        } else if item.kind == Kind::File {
+        } else if item.kind == Kind::Participant && item.url.is_empty() {
+            Action::Error(format!("{} has handed nothing in", item.title))
+        } else if matches!(item.kind, Kind::File | Kind::Participant) {
             Action::Download {
                 item: item.clone(),
                 open: true,
@@ -288,7 +290,9 @@ impl Component for Browser {
             Action::Downloaded { item, .. } => {
                 self.saved.insert(item.key());
             }
-            Action::Synced { saved, .. } => self.saved.extend(saved),
+            Action::Synced { saved, .. } | Action::SubmissionsSaved { saved, .. } => {
+                self.saved.extend(saved)
+            }
             Action::NewItems(items) => self.new.extend(items),
             Action::NewCounts(counts) => self.new_counts.clone_from(counts),
             Action::Error(_) => self.pending = None,

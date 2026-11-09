@@ -19,6 +19,7 @@ impl App {
         let sends = match action {
             Action::Ask { then, .. } => !matches!(**then, Action::OpenLink(_)),
             Action::AskHandIn { .. }
+            | Action::DownloadSubmissions(_)
             | Action::AskUpload { .. }
             | Action::AskFolderName { .. }
             | Action::Compose(_)
@@ -89,6 +90,10 @@ impl App {
             Action::Compose(draft) => self.compose(draft.clone())?,
             Action::SendPost { draft, title, text } => {
                 self.send_post(draft.clone(), title.clone(), text.clone())
+            }
+            Action::DownloadSubmissions(items) => self.download_submissions(items.clone()),
+            Action::SubmissionsSaved { .. } => {
+                self.downloads = Downloads::load(&self.client.base);
             }
             Action::Sync(roots) => self.sync(roots.clone()),
             Action::Synced { .. } => self.synced()?,
@@ -323,6 +328,53 @@ impl App {
                 Draft::Reply { thread, post, .. } => client.reply(thread, *post, &text)?,
             };
             Ok(Action::Posted { draft, sent })
+        });
+    }
+
+    /// Saves each participant's submission into its own folder, one after the other. A copy
+    /// saved before is kept if the submission didn't change (same files and date) and the
+    /// copy is still there. The job writes the saved-files list itself, as sync does.
+    fn download_submissions(&self, items: Vec<Item>) {
+        let dir = self.download_dir.clone();
+        self.spawn(move |client, tx| {
+            let mut downloads = Downloads::load(&client.base);
+            let (mut saved, mut unchanged, mut failed) = (Vec::new(), 0, Vec::new());
+            for (n, item) in items.iter().enumerate() {
+                let _ = tx.send(Action::Progress(format!(
+                    "Downloading submissions… {}/{}",
+                    n + 1,
+                    items.len()
+                )));
+                let version = sync::version(item);
+                let kept = downloads.entry(item.key()).is_some_and(|s| {
+                    s.version == version && s.local() == crate::downloads::Local::Untouched
+                });
+                if kept {
+                    unchanged += 1;
+                    continue;
+                }
+                match client.download(item, &dir) {
+                    Ok(path) => {
+                        downloads.record(item.key(), path, version)?;
+                        saved.push(item.key());
+                    }
+                    Err(e) => failed.push(format!("{}: {e:#}", item.title)),
+                }
+            }
+            let folder = items
+                .first()
+                .map(|i| {
+                    i.path[..i.path.len().saturating_sub(1)]
+                        .iter()
+                        .fold(dir.clone(), |d, p| d.join(p))
+                })
+                .unwrap_or(dir);
+            Ok(Action::SubmissionsSaved {
+                folder,
+                saved,
+                unchanged,
+                failed,
+            })
         });
     }
 

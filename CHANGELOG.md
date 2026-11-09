@@ -21,6 +21,10 @@ features and changes in behaviour, the last one for fixes only. See
 - **Forum posts**: `n` in a forum starts a thread, `R` replies to the topmost post on screen
   in a thread. The text is written in `$VISUAL` / `$EDITOR` (or one-line prompts without
   one), and the question names subject, forum and how the text starts.
+- **Submissions of an assignment** (for those who grade): the "Submissions and Grades" tab
+  lists every participant with what they handed in, one tab per assignment; `a` saves them
+  all into `<course>/<exercise>/<assignment>/<participant>/`, and only what changed the
+  next time.
 
 ### Fixed
 

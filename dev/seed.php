@@ -71,6 +71,21 @@ function exercise($parent, $title, $instruction, $days, $student)
     return $assignment->getId();
 }
 
+/// One more assignment in the exercise of `$assignment`.
+function next_assignment($assignment, $title, $days)
+{
+    $next = new ilExAssignment();
+    $next->setExerciseId((new ilExAssignment($assignment))->getExerciseId());
+    $next->setTitle($title);
+    $next->setInstruction('Hand in two files.');
+    $next->setType(ilExAssignment::TYPE_UPLOAD);
+    $next->setDeadlineMode(ilExAssignment::DEADLINE_ABSOLUTE);
+    $next->setDeadline(time() + $days * 86400);
+    $next->setPeerReviewValid(ilExAssignment::PEER_REVIEW_VALID_NONE);
+    $next->save();
+    return $next->getId();
+}
+
 function temp_file($name, $content)
 {
     // ILIAS only imports from its own storage folders.
@@ -150,6 +165,11 @@ hand_in($past, $student, 'Loesung Blatt 0.pdf', PDF);
 $over = new ilExAssignment($past);
 $over->setDeadline(time() - 5 * 86400);
 $over->update();
+// A second assignment with two files handed in: root's submissions page has two assignments,
+// and downloading this one gives a zip.
+$second = next_assignment($past, 'Blatt 0b', 2);
+hand_in($second, $student, 'Teil 1.pdf', PDF);
+hand_in($second, $student, 'Teil 2.txt', "zwei\n");
 exercise($biology, 'Laborbericht', 'Hand in the lab report.', 10, $student);
 
 file_in($biology, 'Skript Zellbiologie.pdf', PDF);

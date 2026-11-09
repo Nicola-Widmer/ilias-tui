@@ -189,6 +189,28 @@ impl Component for StatusBar {
                 }
                 (_, false) => Status::Info("Dry run: would have posted".into()),
             },
+            Action::SubmissionsSaved {
+                folder,
+                saved,
+                unchanged,
+                failed,
+            } => {
+                let kept = match unchanged {
+                    0 => String::new(),
+                    n => format!(", {n} unchanged"),
+                };
+                let text = format!(
+                    "Saved {} submissions{kept} in {}",
+                    saved.len(),
+                    folder.display()
+                );
+                match failed.first() {
+                    None => Status::Done(text),
+                    Some(first) => {
+                        Status::Error(format!("{text}; {} failed, e.g. {first}", failed.len()))
+                    }
+                }
+            }
             // Everything else says nothing here.
             _ => return None,
         };

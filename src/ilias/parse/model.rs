@@ -24,6 +24,8 @@ pub enum Kind {
     Assignment,
     /// An assignment's "Handed-in files" entry (its Submission tab).
     Submission,
+    /// A participant on an assignment's submissions page, with what they handed in.
+    Participant,
     Test,
     Survey,
     Forum,
@@ -51,6 +53,7 @@ impl Kind {
         ("exc", Kind::Exercise),
         ("ass", Kind::Assignment),
         ("sub", Kind::Submission),
+        ("part", Kind::Participant),
         ("tst", Kind::Test),
         ("svy", Kind::Survey),
         ("frm", Kind::Forum),
@@ -257,6 +260,7 @@ impl Item {
             Kind::Exercise => "Exercise",
             Kind::Assignment => "Assignment",
             Kind::Submission => "Submission",
+            Kind::Participant => "Participant",
             Kind::Test => "Test",
             Kind::Survey => "Survey",
             Kind::Forum => "Forum",
