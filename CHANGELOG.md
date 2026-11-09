@@ -7,6 +7,8 @@ features and changes in behaviour, the last one for fixes only. See
 
 ## Unreleased
 
+## 0.3.0 - 2026-11-09
+
 ### Added
 
 - **Rights**: ilias-tui reads from each course and folder page what ILIAS lets you change
