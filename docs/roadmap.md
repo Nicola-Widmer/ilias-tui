@@ -152,6 +152,10 @@ write](#rules-for-features-that-write). Tried only on the local test ILIAS.
 - [ ] **Several accounts or ILIAS installations** side by side. Today: one at a time via
   `ILIAS_URL`.
 - [x] **CI** that runs tests and clippy on macOS and Linux (GitHub Actions).
+- [x] **Windows** 10+: opening without `cmd`, Mark of the Web on downloads, Windows-safe
+  file names, `clip`, Notepad for posts; CI runs the tests on Windows.
+- [ ] **Try Windows by hand**: the login window, a download, opening a link, posting in
+  Notepad. So far only CI checks it (written on macOS, without a Windows build here).
 - [ ] **Packaging.** Release binaries, a Homebrew formula.
 - [x] **Tests for the client's logic.** `FakeIlias` (`src/ilias/pages.rs`) serves small,
   anonymised HTML snippets. Real logged-in pages contain personal data and must not be

@@ -50,7 +50,8 @@ What it does:
   marked `● new`. Reading changes nothing on ILIAS; posts stay unread there.
 - **Writes forum posts**, where ILIAS lets you: `n` in a forum starts a thread, `R` in a
   thread replies to the topmost post on screen (marked `↩ R reply`). You write in your
-  editor (`$VISUAL` / `$EDITOR`; without one, in one-line prompts); before anything is sent
+  editor (`$VISUAL` / `$EDITOR`, on Windows Notepad if neither is set; give the editor by a
+  name on your `PATH`, e.g. `code -w`; without one, in one-line prompts); before anything is sent
   it shows the subject, the forum and how the text starts, and asks.
 - Shows courses, groups and folders **the way ILIAS does**:
   - the page text (welcome note, room, Zoom link, …), with its links as entries right
@@ -141,8 +142,9 @@ them a bit faster.)
 
 ## Requirements
 
+- macOS, Linux or Windows 10 or newer (in Windows Terminal or another modern terminal).
 - Rust 1.88 or newer (edition 2024). For example `brew install rust` or
-  [rustup](https://rustup.rs).
+  [rustup](https://rustup.rs) (on Windows, rustup with the MSVC build tools).
 - Google Chrome or Chromium, used only for the login window.
 - A [Nerd Font](https://www.nerdfonts.com) in your terminal (for example
   `brew install --cask font-jetbrains-mono-nerd-font`) for the icons. Without one, set
@@ -382,7 +384,7 @@ The cache lives in the system cache folder and cleans itself up after 30 days; s
 
 ## Security
 
-The same protections apply on macOS and Linux unless a point says otherwise.
+The same protections apply on macOS, Linux and Windows unless a point says otherwise.
 
 **Your password never touches ilias-tui.** You log in yourself, in a real Chrome window,
 on the normal HSLU / Switch edu-ID pages, 2FA included. Chrome runs with a fresh,
@@ -402,7 +404,9 @@ until the sessions expire. So:
 - It's stored in your data folder, which only your user can open:
   - macOS: `~/Library/Application Support/ch.ilias-tui.ilias-tui/`, mode `0700`
   - Linux: `~/.local/share/ilias-tui/`, mode `0700`
-- The session file itself is mode `0600`. It is **not encrypted** (yet; see
+  - Windows: `%APPDATA%\ilias-tui\ilias-tui\data\`, inside your user profile, which
+    Windows already keeps to your account (ilias-tui sets no extra permissions there)
+- The session file itself is mode `0600` (macOS, Linux). It is **not encrypted** (yet; see
   [docs/roadmap.md](docs/roadmap.md#security)), so treat it like a password. Don't commit,
   sync or share it, and remember that backups (e.g. Time Machine, Déjà Dup) include it.
 
@@ -420,7 +424,8 @@ until the sessions expire. So:
 
 - the **page cache**: course pages you've opened, for instant revisits.
   - It lives in the system cache folder, `~/Library/Caches/ch.ilias-tui.ilias-tui/` on
-    macOS or `~/.cache/ilias-tui/` on Linux (mode `0700`). Backup tools usually skip that
+    macOS, `~/.cache/ilias-tui/` on Linux (mode `0700`) or `%LOCALAPPDATA%\ilias-tui\ilias-tui\cache\`
+    on Windows. Backup tools usually skip that
     folder.
   - Entries older than 30 days are deleted automatically.
   - `ILIAS_CACHE=0` turns the cache off.
@@ -482,18 +487,24 @@ download.
 
 - **Files that can run code are never opened.** Anyone who can upload to a shared folder or
   forum could place a `notes.command`, `setup.sh`, `.desktop`, `.app`, `.jar`, `.AppImage`,
-  `.exe`, …. For these, `Enter` only shows the file in your file manager (Finder,
-  Files/Dolphin, …) and says why. All other files open with their default app.
+  `.exe`, `.bat`, `.lnk`, …. For these, `Enter` only shows the file in your file manager
+  (Finder, Files/Dolphin, Explorer) and says why. All other files open with their default app.
 - **Downloads are never executable.** On macOS they also get the same quarantine mark
-  browsers set, so Gatekeeper checks them before anything inside can run. Linux has no
-  equivalent mark; there, downloads simply aren't executable.
+  browsers set, so Gatekeeper checks them before anything inside can run. On Windows they
+  get the browsers' "Mark of the Web" (`Zone.Identifier`), so SmartScreen and Office's
+  protected view treat them as downloaded. Linux has no equivalent mark; there, downloads
+  simply aren't executable.
+- **No shell in between.** Files and links are handed to `open` (macOS), `xdg-open`
+  (Linux) or `rundll32 url.dll,FileProtocolHandler` (Windows) as one argument, never
+  through `cmd`, which would read the `&` in ILIAS links as a command separator.
 - **Only web links open in the browser, and other sites only after asking.** Before handing
   a link to `open` / `xdg-open`, ilias-tui checks that it is an `http(s)` link, never
   `file:` or app-specific URL schemes. Links to your ILIAS server open right away; a link
   in page text to any other site (a Zoom link, say) names the address and asks first.
   Links that would change something on ILIAS (the write guard's list) are not offered.
 - File names from ILIAS are sanitised before saving, so a crafted name can't write outside
-  the download folder.
+  the download folder, and every name is valid on Windows too (no `<>:"|?*`, no trailing
+  dots, no device names like `CON`).
 
 **AI-written code.** The code was written with an AI assistant and hasn't had a thorough
 human security review (see [Disclaimer](#disclaimer)). The parts that matter most are
@@ -509,7 +520,7 @@ tool with your account.
 | Can't select text with the mouse | Hold Option (iTerm2, Terminal.app) or Shift while dragging, or set `ILIAS_MOUSE=0`. |
 | Icons show up as `?` or boxes | Your terminal font has no Nerd Font glyphs. Install one and select it in your terminal, or set `ILIAS_NERD_FONT=0`. |
 | A list is empty that shouldn't be | Check with `ilias-tui show goto.php/fold/<id>`. If that's empty too, ILIAS changed its HTML. Run `ilias-tui dump goto.php/fold/<id> > page.html` and compare it with the selectors in `src/ilias/parse/`. |
-| Want to log out / reset | Run `ilias-tui logout`. It removes the session and the page cache. The session is stored in `~/Library/Application Support/ch.ilias-tui.ilias-tui/` (macOS) or `~/.local/share/ilias-tui/` (Linux), readable only by you. |
+| Want to log out / reset | Run `ilias-tui logout`. It removes the session and the page cache. The session is stored in `~/Library/Application Support/ch.ilias-tui.ilias-tui/` (macOS), `~/.local/share/ilias-tui/` (Linux) or `%APPDATA%\ilias-tui\ilias-tui\data\` (Windows), readable only by you. |
 | `ILIAS returned a page instead of the file` | You don't have access, or the object isn't a plain file. Press `o` to open it in the browser. |
 | Login window doesn't close | Make sure you end up on an ILIAS page (not an error page). The login times out after 5 minutes. |
 
@@ -527,7 +538,7 @@ cargo clippy --all-targets
 cargo fmt
 ```
 
-CI (GitHub Actions) runs the tests and clippy on macOS and Linux, and `cargo audit`.
+CI (GitHub Actions) runs the tests and clippy on macOS, Linux and Windows, and `cargo audit`.
 
 The parser tests run against real, public HSLU pages stored in `tests/fixtures/`.
 [docs/architecture.md](docs/architecture.md) explains the code layout, the component

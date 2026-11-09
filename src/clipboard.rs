@@ -1,5 +1,6 @@
-//! Copying text to the clipboard without a clipboard library: `pbcopy` on macOS, elsewhere
-//! the terminal's OSC 52 escape sequence (works in most terminals, also over SSH).
+//! Copying text to the clipboard without a clipboard library: `pbcopy` on macOS, `clip` on
+//! Windows (fine for links, which are ASCII), elsewhere the terminal's OSC 52 escape sequence
+//! (works in most terminals, also over SSH).
 
 use std::io::Write;
 use std::process::{Command, Stdio};
@@ -7,13 +8,18 @@ use std::process::{Command, Stdio};
 use color_eyre::Result;
 
 pub fn copy(text: &str) -> Result<()> {
-    if cfg!(target_os = "macos")
-        && let Ok(mut pbcopy) = Command::new("pbcopy").stdin(Stdio::piped()).spawn()
+    let tool = match () {
+        _ if cfg!(target_os = "macos") => Some("pbcopy"),
+        _ if cfg!(windows) && text.is_ascii() => Some("clip"),
+        _ => None,
+    };
+    if let Some(tool) = tool
+        && let Ok(mut child) = Command::new(tool).stdin(Stdio::piped()).spawn()
     {
-        if let Some(mut stdin) = pbcopy.stdin.take() {
+        if let Some(mut stdin) = child.stdin.take() {
             stdin.write_all(text.as_bytes())?;
         }
-        if pbcopy.wait()?.success() {
+        if child.wait()?.success() {
             return Ok(());
         }
     }

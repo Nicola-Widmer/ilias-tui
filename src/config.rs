@@ -187,9 +187,12 @@ fn home() -> Option<PathBuf> {
 pub fn parse_dir(input: &str) -> Result<PathBuf, String> {
     let input = input.trim();
     let path = match input.strip_prefix('~') {
-        Some(rest) if rest.is_empty() || rest.starts_with('/') => home()
-            .ok_or("no home folder")?
-            .join(rest.trim_start_matches('/')),
+        // `~/…`, and `~\…` on Windows.
+        Some(rest) if rest.is_empty() || rest.starts_with(['/', std::path::MAIN_SEPARATOR]) => {
+            home()
+                .ok_or("no home folder")?
+                .join(rest.trim_start_matches(['/', std::path::MAIN_SEPARATOR]))
+        }
         _ => PathBuf::from(input),
     };
     if input.is_empty() || !path.is_absolute() {
@@ -215,11 +218,16 @@ mod tests {
     fn parses_home_relative_and_absolute_folders() {
         let home = home().unwrap();
         assert_eq!(parse_dir("~/Uni/ILIAS"), Ok(home.join("Uni/ILIAS")));
-        assert_eq!(parse_dir(" /tmp/x "), Ok(PathBuf::from("/tmp/x")));
+        // An absolute path on this system (`/tmp/x`, `C:\…\x`).
+        let elsewhere = std::env::temp_dir().join("x");
+        let typed = format!(" {} ", elsewhere.display());
+        assert_eq!(parse_dir(&typed), Ok(elsewhere.clone()));
         assert!(parse_dir("Uni").is_err());
         assert!(parse_dir("").is_err());
         assert_eq!(display(&home.join("Uni/ILIAS")), "~/Uni/ILIAS");
-        assert_eq!(display(Path::new("/tmp/x")), "/tmp/x");
+        if !elsewhere.starts_with(&home) {
+            assert_eq!(display(&elsewhere), elsewhere.display().to_string());
+        }
     }
 
     #[test]

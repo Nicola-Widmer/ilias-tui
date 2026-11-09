@@ -10,7 +10,7 @@ src/
 ├── theme.rs             Dark and light palettes, custom colours and UI glyphs; the one place to restyle
 ├── auth.rs              Interactive login in Chrome → CookieStore
 ├── session.rs           Cookie jar ⇄ private JSON file
-├── clipboard.rs         `y`: copy a permalink (pbcopy on macOS, else the terminal's OSC 52)
+├── clipboard.rs         `y`: copy a permalink (pbcopy on macOS, clip on Windows, else the terminal's OSC 52)
 ├── downloads.rs         Saved files: path, ILIAS version, size + mtime when saved
 ├── sync.rs              Sync whole courses: plan per file, parallel downloads
 ├── cache.rs             Parsed pages on disk, for instant display (stale-while-revalidate)
@@ -597,6 +597,20 @@ pages.
 | `Report`    | the last sync's report lines, `scroll`   | Overlay after a sync that skipped, kept or failed files. `j`/`k` scroll, any other key closes. Keys it uses up return `Action::Handled`. |
 | `Confirm`   | `pending: Option<(question, Action)>`    | Yes/no dialog, first in the z-order. `Action::Ask { question, then }` opens it; `y` sends `then`, anything that cancels sends `Cancelled`. Every write goes through it, and opening a link to another site. |
 
+### Windows
+
+ilias-tui runs on Windows 10 or newer; what differs is kept to a few places:
+
+- `open.rs`: files and links go to `rundll32 url.dll,FileProtocolHandler` (not `cmd /C
+  start`, which splits ILIAS links at `&`), `reveal` to `explorer /select,`, and
+  `quarantine` writes the Mark of the Web (`<file>:Zone.Identifier`, zone 3).
+- `clipboard.rs`: `clip` for ASCII text (permalinks), else OSC 52.
+- `session.rs`: no Unix modes; the data folder in `%APPDATA%` is private to the account.
+- `ilias::sanitize`: names valid on Windows everywhere (no `<>:"|?*`, trailing dots or
+  spaces, device names), so a download folder can move between systems.
+- `config::parse_dir` takes `~\…` too; `pick_files` reads backslashes as folder separators
+  there, not as escapes; `compose::editor` falls back to Notepad.
+
 ### Look
 
 - **Colours and glyphs** all come from `theme.rs`. Components never hard-code colours, so
@@ -664,7 +678,7 @@ spawns the work like `App::fetch`, and route the action to it in `App::effect`.
   No terminal or network is needed.
 
 CI (`.github/workflows/ci.yml`, GitHub Actions) runs `cargo fmt --check`, `cargo test` and
-`cargo clippy --all-targets -- -D warnings` on macOS and Linux for every push to `main` and
+`cargo clippy --all-targets -- -D warnings` on macOS, Linux and Windows for every push to `main` and
 every pull request, and `cargo audit` against the RustSec advisories (also weekly, since new
 advisories appear without code changes). No test reaches the network, so CI needs no ILIAS.
 

@@ -25,6 +25,14 @@ features and changes in behaviour, the last one for fixes only. See
   lists every participant with what they handed in, one tab per assignment; `a` saves them
   all into `<course>/<exercise>/<assignment>/<participant>/`, and only what changed the
   next time.
+- **Windows support** (Windows 10 and newer; so far checked by CI only, not by hand).
+  Files and links open without going through `cmd`, downloads get the Mark of the Web,
+  `y` copies with `clip`, and posts are written in Notepad when no `$EDITOR` is set.
+
+### Changed
+
+- Saved file and folder names are valid on Windows too: `<>:"|?*` become `_`, trailing dots
+  and spaces are dropped, device names such as `CON` get a `_` in front.
 
 ### Fixed
 

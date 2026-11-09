@@ -479,8 +479,13 @@ mod tests {
         action
     }
 
+    /// An absolute folder on every system (`/tmp/old`, `C:\\…\\Temp\\old`).
+    fn old() -> PathBuf {
+        std::env::temp_dir().join("old")
+    }
+
     fn open() -> Settings {
-        let mut s = Settings::new(Config::default(), PathBuf::from("/old"));
+        let mut s = Settings::new(Config::default(), old());
         assert!(
             key(&mut s, KeyCode::Char('x')).is_none(),
             "closed: keys pass"
@@ -508,7 +513,7 @@ mod tests {
         );
 
         key(&mut s, KeyCode::Enter);
-        assert_eq!(s.input.as_deref(), Some("/old"));
+        assert_eq!(s.input, Some(config::display(&old())));
         for _ in 0..3 {
             key(&mut s, KeyCode::Backspace);
         }
@@ -519,7 +524,7 @@ mod tests {
         key(&mut s, KeyCode::Char('q'));
         let set = key(&mut s, KeyCode::Enter);
         assert!(
-            matches!(set, Some(Action::SetConfig(ref c)) if c.download_dir == Some(PathBuf::from("/newq")))
+            matches!(set, Some(Action::SetConfig(ref c)) if c.download_dir == Some(std::env::temp_dir().join("newq")))
         );
         assert!(s.input.is_none());
 

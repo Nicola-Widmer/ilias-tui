@@ -485,20 +485,34 @@ fn folder_for(dir: &Path, item: &Item) -> PathBuf {
         .fold(dir.to_path_buf(), |dir, folder| dir.join(sanitize(folder)))
 }
 
+/// A file or folder name that is safe on every system: no path separators or characters
+/// Windows refuses, no leading dots, no trailing dots or spaces (Windows drops them), and
+/// none of Windows' device names (`CON`, `NUL`, `COM1`, …).
 fn sanitize(name: &str) -> String {
     let name: String = name
         .chars()
         .map(|c| {
-            if matches!(c, '/' | '\\' | ':' | '\0') {
+            if matches!(c, '/' | '\\' | ':' | '*' | '?' | '"' | '<' | '>' | '|') || c.is_control() {
                 '_'
             } else {
                 c
             }
         })
         .collect();
-    match name.trim_start_matches('.') {
+    let name = name.trim_start_matches('.').trim_end_matches(['.', ' ']);
+    let stem = name.split('.').next().unwrap_or_default().trim_end();
+    let device = ["CON", "PRN", "AUX", "NUL"]
+        .iter()
+        .any(|d| stem.eq_ignore_ascii_case(d))
+        || (stem.len() == 4
+            && ["COM", "LPT"]
+                .iter()
+                .any(|d| stem.get(..3).is_some_and(|s| s.eq_ignore_ascii_case(d)))
+            && stem.as_bytes()[3].is_ascii_digit());
+    match name {
         "" => "download".into(),
-        trimmed => trimmed.into(),
+        name if device => format!("_{name}"),
+        name => name.into(),
     }
 }
 
@@ -593,7 +607,7 @@ mod tests {
         };
         assert_eq!(
             folder_for(Path::new("/dl"), &item),
-            Path::new("/dl/DEMO.101/Woche 1_ Intro/_..")
+            Path::new("/dl/DEMO.101/Woche 1_ Intro/_")
         );
         assert_eq!(
             folder_for(Path::new("/dl"), &Item::default()),
@@ -630,6 +644,20 @@ mod tests {
         assert_eq!(sanitize("../etc/passwd"), "_etc_passwd");
         assert_eq!(sanitize("..."), "download");
         assert_eq!(sanitize("Woche 1: Intro.pdf"), "Woche 1_ Intro.pdf");
+        // Also safe on Windows.
+        assert_eq!(
+            sanitize("Was <ist> \"das\"? | a*b.pdf"),
+            "Was _ist_ _das__ _ a_b.pdf"
+        );
+        assert_eq!(sanitize("Notizen. "), "Notizen");
+        assert_eq!(sanitize("con.txt"), "_con.txt");
+        assert_eq!(sanitize("COM1"), "_COM1");
+        assert_eq!(sanitize("Console.txt"), "Console.txt");
+        assert_eq!(sanitize("a€.pdf"), "a€.pdf", "4 bytes, not a device name");
+        assert_eq!(
+            sanitize("Blatt 0, Student (student)"),
+            "Blatt 0, Student (student)"
+        );
     }
 
     use super::pages::{FakeIlias, LOGGED_OUT, reply};

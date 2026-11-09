@@ -92,8 +92,9 @@ pub fn external(target: &OsStr) -> Result<()> {
     let mut command = if cfg!(target_os = "macos") {
         Command::new("open")
     } else if cfg!(windows) {
-        let mut c = Command::new("cmd");
-        c.args(["/C", "start", ""]);
+        // Not `cmd /C start`: cmd would read the `&` in every ILIAS link as "and then run".
+        let mut c = Command::new("rundll32");
+        c.arg("url.dll,FileProtocolHandler");
         c
     } else {
         Command::new("xdg-open")
@@ -115,10 +116,17 @@ pub fn reveal(path: &Path) -> Result<()> {
     Ok(())
 }
 
-/// Marks a downloaded file like browsers do, so macOS Gatekeeper checks it before anything
-/// in it runs. Other systems have no equivalent; there, downloads are simply never made
+/// Marks a downloaded file like browsers do, so the system checks it before anything in it
+/// runs: macOS' quarantine (Gatekeeper), Windows' "Mark of the Web" (SmartScreen, Office's
+/// protected view). Linux has no equivalent; there, downloads are simply never made
 /// executable. Best effort: a failure only means no extra check.
 pub fn quarantine(path: &Path) {
+    if cfg!(windows) {
+        // An NTFS stream next to the file: "from the internet" (zone 3).
+        let mut stream = path.as_os_str().to_owned();
+        stream.push(":Zone.Identifier");
+        let _ = std::fs::write(stream, "[ZoneTransfer]\r\nZoneId=3\r\n");
+    }
     if cfg!(target_os = "macos") {
         let now = std::time::SystemTime::now()
             .duration_since(std::time::UNIX_EPOCH)

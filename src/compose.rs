@@ -15,12 +15,14 @@ use ratatui::crossterm::terminal::{
 
 use crate::action::{Action, Draft};
 
-/// The editor to write posts in, from `$VISUAL` or `$EDITOR` (e.g. `vim`, `code -w`).
+/// The editor to write posts in, from `$VISUAL` or `$EDITOR` (e.g. `vim`, `code -w`); on
+/// Windows, where they are rarely set, Notepad.
 pub fn editor() -> Option<String> {
     ["VISUAL", "EDITOR"]
         .iter()
         .filter_map(|var| std::env::var(var).ok())
         .find(|e| !e.trim().is_empty())
+        .or_else(|| cfg!(windows).then(|| "notepad".to_string()))
 }
 
 /// What the editor starts with: room for the text, then how it works, as comments.
