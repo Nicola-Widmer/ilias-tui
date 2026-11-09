@@ -1365,6 +1365,52 @@ mod tests {
     }
 
     #[test]
+    fn links_in_page_text_can_be_selected_and_opened() {
+        let mut browser = Browser::default();
+        let zoom = Item {
+            description: "https://zoom.us/j/1".into(),
+            url: "https://zoom.us/j/1".into(),
+            ..item("link", 99, "Zoom-Meeting")
+        };
+        let page = Page {
+            blocks: vec![
+                Block::Text("Online: Zoom-Meeting".into()),
+                Block::Items {
+                    title: String::new(),
+                    items: vec![zoom.clone()],
+                },
+                Block::Items {
+                    title: "Inhalt".into(),
+                    items: vec![item("file", 2, "Skript")],
+                },
+            ],
+            ..Page::default()
+        };
+        load(&mut browser, Some(item("crs", 1, "DEMO")), page, false);
+        let shown = screen(&mut browser);
+        assert!(shown.contains("Zoom-Meeting"), "{shown}");
+        assert!(shown.contains("https://zoom.us/j/1"), "{shown}");
+
+        // The link is the first entry; j moves on to the file and k back.
+        let opens = |browser: &mut Browser, key: KeyCode| match browser.handle_key_event(key.into())
+        {
+            Some(Action::OpenInBrowser(item)) => item.url,
+            other => panic!("expected the browser, got {other:?}"),
+        };
+        assert_eq!(opens(&mut browser, KeyCode::Enter), "https://zoom.us/j/1");
+        browser.handle_key_event(KeyCode::Char('j').into());
+        assert!(matches!(
+            browser.handle_key_event(KeyCode::Enter.into()),
+            Some(Action::Download { .. })
+        ));
+        browser.handle_key_event(KeyCode::Char('k').into());
+        assert_eq!(
+            opens(&mut browser, KeyCode::Char('o')),
+            "https://zoom.us/j/1"
+        );
+    }
+
+    #[test]
     fn navigates_into_containers_and_back() {
         let course = item("crs", 1, "Informatik 1");
         let file = item("file", 2, "Skript.pdf");

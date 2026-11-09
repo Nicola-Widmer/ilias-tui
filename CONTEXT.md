@@ -56,6 +56,11 @@ The check every page request passes: a request that looks like a write (it carri
 `rtoken`, or its command is a known write such as `addToDesk`) is refused unless it comes
 through the write path. A parser bug can therefore never turn a link into a write.
 
+**Link** (in page text)
+A web link in a page's text, such as the Zoom link on a course page. ilias-tui lists it as an
+entry below its paragraph. ILIAS links open in the browser at once, others after asking.
+_Avoid_: weblink (that is the ILIAS object `webr`).
+
 **Show more list**
 A list ILIAS cuts short after a container's block limit, with a "Show more" button
 (`ilContainerShowMore`) that loads the next batch. ilias-tui loads every batch, so a page

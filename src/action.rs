@@ -49,7 +49,10 @@ pub enum Action {
     },
     /// Open a local file with its default app.
     OpenFile(PathBuf),
+    /// Open the item's link in the web browser: ILIAS links at once, others after asking.
     OpenInBrowser(Item),
+    /// Open a web link now: an ILIAS link, or another site after asking.
+    OpenLink(String),
     /// Ask which file to hand in for `assignment`; `url` is its submission page.
     AskHandIn {
         assignment: Item,

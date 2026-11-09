@@ -39,14 +39,14 @@ pub fn icon(item: &Item) -> (&'static str, Color) {
         "iass" => ("\u{f0ae}", "✓", c.orange),        // tasks
         "poll" => ("\u{f080}", "▤", c.orange),
         "chtr" => ("\u{f086}", "✉", c.green),
-        "frm" => ("\u{f086}", "✉", c.green), // comments
-        "thr" => ("\u{f0e5}", "›", c.green), // comment-o
-        "webr" => ("\u{f0c1}", "↗", c.blue), // link
+        "frm" => ("\u{f086}", "✉", c.green),          // comments
+        "thr" => ("\u{f0e5}", "›", c.green),          // comment-o
+        "webr" | "link" => ("\u{f0c1}", "↗", c.blue), // link
         "wiki" | "lm" | "htlm" | "sahs" | "copa" => ("\u{f02d}", "▤", c.magenta), // book
-        "blog" => ("\u{f09e}", "▤", c.magenta), // rss
+        "blog" => ("\u{f09e}", "▤", c.magenta),       // rss
         "mcst" | "xvid" | "xoct" => ("\u{f008}", "▶", c.magenta), // film
-        "book" => ("\u{f274}", "◷", c.purple), // calendar-check-o
-        "dcl" => ("\u{f1c0}", "▤", c.blue),  // database
+        "book" => ("\u{f274}", "◷", c.purple),        // calendar-check-o
+        "dcl" => ("\u{f1c0}", "▤", c.blue),           // database
         "file" => return file_icon(item.extension().as_deref().unwrap_or("")),
         _ => ("\u{f1b2}", "•", c.gray), // cube
     };

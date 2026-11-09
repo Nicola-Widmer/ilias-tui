@@ -76,6 +76,7 @@ impl Item {
             "chtr" => "Chat",
             "poll" => "Poll",
             "itgr" => "Item group",
+            "link" => "Link",
             other => other,
         }
     }
@@ -753,7 +754,11 @@ struct Walker<'a> {
     blocks: Vec<Block>,
     /// Text of the paragraph currently being collected.
     line: String,
+    /// Links in that paragraph; they follow it as `link` items.
+    links: Vec<Item>,
     seen: HashSet<u64>,
+    /// Ids of the text links so far, to list each one once.
+    seen_links: HashSet<u64>,
 }
 
 const SKIPPED_TAGS: &[&str] = &[
@@ -805,7 +810,9 @@ impl<'a> Walker<'a> {
             page_url,
             blocks: Vec::new(),
             line: String::new(),
+            links: Vec::new(),
             seen: HashSet::new(),
+            seen_links: HashSet::new(),
         }
     }
 
@@ -830,7 +837,13 @@ impl<'a> Walker<'a> {
         let hidden = e
             .attr("style")
             .is_some_and(|s| s.replace(' ', "").contains("display:none"));
-        if hidden || SKIPPED_TAGS.contains(&name) || SKIPPED_CLASSES.iter().any(|c| has_class(c)) {
+        // The tabs are read on their own (`parse_page`).
+        let tabs = e.id() == Some("ilTab");
+        if hidden
+            || tabs
+            || SKIPPED_TAGS.contains(&name)
+            || SKIPPED_CLASSES.iter().any(|c| has_class(c))
+        {
             return;
         }
         if has_class("ilContainerBlock") || has_class("il-item-group") {
@@ -941,6 +954,11 @@ impl<'a> Walker<'a> {
                 self.blocks.push(Block::Heading(text));
             }
             return;
+        }
+        if name == "a"
+            && let Some(link) = self.text_link(el)
+        {
+            self.links.push(link);
         }
         if BLOCK_TAGS.contains(&name) {
             self.flush();
@@ -1077,10 +1095,40 @@ impl<'a> Walker<'a> {
         })
     }
 
+    /// A link in page text (e.g. a Zoom link on a course page), as a `link` item. Only web
+    /// links, and none that would change something on ILIAS.
+    fn text_link(&mut self, a: ElementRef) -> Option<Item> {
+        let href = a.attr("href").filter(|h| !h.starts_with('#'))?;
+        let url = self.page_url.join(href).ok()?;
+        if !matches!(url.scheme(), "http" | "https") || super::write::is_write(&url) {
+            return None;
+        }
+        let ref_id = attachment_id(url.as_str());
+        if !self.seen_links.insert(ref_id) {
+            return None;
+        }
+        let text = visible_text(a);
+        Some(Item {
+            kind: "link".into(),
+            ref_id,
+            title: if text.is_empty() {
+                url.to_string()
+            } else {
+                text
+            },
+            description: url.to_string(),
+            url: url.into(),
+            ..Item::default()
+        })
+    }
+
     fn flush(&mut self) {
         let text = clean(&std::mem::take(&mut self.line));
         if !text.is_empty() && text != "•" {
             self.blocks.push(Block::Text(text));
+        }
+        for link in std::mem::take(&mut self.links) {
+            self.push_item(link);
         }
     }
 }
@@ -1469,6 +1517,48 @@ mod tests {
         let link = &items[2];
         assert_eq!((link.kind.as_str(), link.ref_id), ("webr", 10));
         assert!(link.properties.is_empty());
+    }
+
+    #[test]
+    fn links_in_page_text_follow_their_paragraph() {
+        // As the local ILIAS 10 renders a page-editor paragraph with links.
+        let html = r##"<ul id="ilTab"><li id="tab_view_content"><a href="ilias.php?cmd=view">Content</a></li></ul>
+            <div id="il_center_col">
+              <div class="ilc_Paragraph ilc_text_block_Standard">Lecture on Mondays. Online:
+                <a class="ilc_link_ExtLink" href="https://zoom.us/j/123456789" target="_blank">Zoom-Meeting</a>
+                and the <a class="ilc_link_ExtLink" href="goto.php/fold/89">Unterlagen</a>
+                (<a href="#top">top</a>, <a href="mailto:a@b.ch">mail</a>,
+                <a href="ilias.php?cmd=markPostRead&amp;pos_pk=1">read</a>,
+                <a href="https://zoom.us/j/123456789">again</a>).</div>
+              <div class="ilContainerBlock"><h2>Inhalt</h2>
+                <div class="ilContainerListItemOuter"><a class="il_ContainerItemTitle" href="goto.php/file/7">Skript</a></div></div>
+            </div>"##;
+        let page = parse_page(html, &url("https://ilias.example/ilias/goto.php/crs/1"));
+        assert!(
+            matches!(&page.blocks[0], Block::Text(t) if t.starts_with("Lecture on Mondays. Online: Zoom-Meeting and the Unterlagen"))
+        );
+        let Block::Items { title, items } = &page.blocks[1] else {
+            panic!("links after the paragraph: {:?}", page.blocks);
+        };
+        assert!(title.is_empty());
+        let links: Vec<(&str, &str, &str)> = items
+            .iter()
+            .map(|i| (i.kind.as_str(), i.title.as_str(), i.url.as_str()))
+            .collect();
+        // Only web links, each once, and none that would change something on ILIAS.
+        assert_eq!(
+            links,
+            [
+                ("link", "Zoom-Meeting", "https://zoom.us/j/123456789"),
+                (
+                    "link",
+                    "Unterlagen",
+                    "https://ilias.example/ilias/goto.php/fold/89"
+                ),
+            ]
+        );
+        assert_eq!(items[0].description, "https://zoom.us/j/123456789");
+        assert!(matches!(&page.blocks[2], Block::Items { title, .. } if title == "Inhalt"));
     }
 
     #[test]

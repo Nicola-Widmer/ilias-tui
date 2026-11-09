@@ -33,8 +33,8 @@ Read-only; safe to build and to try against ILIAS.
   browser).
 - [ ] **Structured Info / Members / Learning progress tabs.** Today they are shown as plain
   text.
-- [ ] **Links in page text.** Make them selectable and openable (e.g. the Zoom link). Today
-  they are only highlighted.
+- [x] **Links in page text.** Each link becomes an entry below its paragraph (`j`/`k`,
+  `Enter` / `o` open it; other sites than ILIAS ask first).
 - [ ] **Images and tables in page text.** Today they are skipped or flattened into text.
 - [ ] **Videos / Mediacast.** Hand off to a player such as `mpv` (today: open in the browser).
 - [ ] **ILIAS server-side search.** Today there is only the local `/` filter and the `s`

@@ -132,6 +132,15 @@ file_in($deep, 'Formelsammlung.pdf', PDF);
 file_in($deep, 'Beispiele.zip', 'A zip file, in spirit.');
 file_in($deep, 'notizen.md', "# Notes\n");
 create($algebra, 'frm', 'Fragen und Antworten', 'Course forum');
+// Page text with links, as on a real course page.
+$page = new ilContainerPage();
+$page->setId(ilObject::_lookupObjId($algebra));
+$page->setParentId(ilObject::_lookupObjId($algebra));
+$page->setXMLContent('<PageObject><PageContent PCID="1"><Paragraph Language="en" Characteristic="Standard">'
+    . 'Lecture on Mondays, 09:00. Online: <ExtLink Href="https://zoom.us/j/123456789">Zoom-Meeting</ExtLink>'
+    . ' and the <ExtLink Href="' . ILIAS_HTTP_PATH . '/goto.php/fold/' . $documents . '">Unterlagen</ExtLink>.'
+    . '</Paragraph></PageContent></PageObject>');
+$page->create(false);
 $sheet = exercise($algebra, 'Blatt 1', 'Solve the first sheet.', 3, $student);
 attach($sheet, 'Blatt 1.pdf', PDF);
 $past = exercise($algebra, 'Blatt 0', 'The warm-up, already over.', 1, $student);

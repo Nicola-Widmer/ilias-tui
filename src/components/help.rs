@@ -20,7 +20,7 @@ pub const KEYS: &[(&str, &[(&str, &str)])] = &[
             ("g  G", "First / last item"),
             (
                 "Enter  →  l",
-                "Open folder or file (downloads it first if needed)",
+                "Open folder, file (downloads it first) or link",
             ),
             ("Esc  ←  h", "Clear filter, then go back"),
             ("Tab  S-Tab", "Next / previous tab (Inhalt, Info, …)"),
@@ -38,7 +38,7 @@ pub const KEYS: &[(&str, &[(&str, &str)])] = &[
         "Items",
         &[
             ("d", "Download a fresh copy (no open)"),
-            ("o", "Open in your web browser"),
+            ("o", "Open item or link in your web browser"),
             ("f", "Add to / remove from ILIAS favourites (asks first)"),
             ("r", "Reload"),
             ("H", "Assignment: hand in a file (asks first)"),

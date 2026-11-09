@@ -31,7 +31,7 @@ The same logins work in a browser at <http://localhost:8080/>.
 
 `seed.php` creates three courses (`DEMO.101`, `DEMO.102`, `DEMO.100`), nested folders, files of
 several types, a forum without posts, and exercises: two due in 3 and 10 days, counted from when
-you seeded, and one past its deadline with a file handed in. `DEMO.102` also has a folder "Alte Prüfungen" with 14 files and a block limit of 5, so
+you seeded, and one past its deadline with a file handed in. `DEMO.101`'s page text has a Zoom link and a link to its folder "Unterlagen". `DEMO.102` also has a folder "Alte Prüfungen" with 14 files and a block limit of 5, so
 ILIAS shows its "Show more" button there. For anything else, such as forum posts or an edited file, log in as `root` and add
 it in the browser.
 

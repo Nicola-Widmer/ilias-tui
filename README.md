@@ -49,7 +49,8 @@ What it does:
   post), and in a thread all posts with author, date, replies indented and unread posts
   marked `● new`. Reading changes nothing on ILIAS; posts stay unread there.
 - Shows courses, groups and folders **the way ILIAS does**:
-  - the page text (welcome note, room, Zoom link, …),
+  - the page text (welcome note, room, Zoom link, …), with its links as entries right
+    below it: select one with `j`/`k` and press `Enter` or `o` to open it,
   - the named sections (item groups),
   - the tabs (Inhalt, Info, Mitglieder, …; switch with `Tab`),
   - each item's description and properties (file type, size, date, unread posts, …),
@@ -178,7 +179,7 @@ ilias-tui get goto.php/file/123456
 | --------------- | ----------------------------------------------- |
 | `↑ ↓` / `k j`   | Move selection; scroll in a forum thread        |
 | `g` / `G`       | First / last item                               |
-| `Enter` `→` `l` | Open folder, forum, thread or exercise; open file (downloads it the first time); open anything else in the browser |
+| `Enter` `→` `l` | Open folder, forum, thread or exercise; open file (downloads it the first time); open a link or anything else in the browser (asks first for links to other sites) |
 | `Esc` `←` `h`   | Clear filter, then go back                      |
 | `/`             | Filter the current list                         |
 | `s`             | Search everything below here                    |
@@ -186,7 +187,7 @@ ilias-tui get goto.php/file/123456
 | `Space`         | Mark a course or folder for sync                |
 | `S`             | Sync the marked courses (or the selected one)   |
 | `A`             | Sync all courses in My courses (asks first)     |
-| `o`             | Open selected item in your web browser          |
+| `o`             | Open selected item or link in your web browser (asks first for links to other sites) |
 | `f`             | Add to / remove from your ILIAS favourites (asks first) |
 | `Tab` / `Shift-Tab` | Next / previous tab (Inhalt, Info, …); on My courses, in and out of the To-Do panel |
 | `r`             | Reload current list                             |
@@ -428,9 +429,11 @@ download.
 - **Downloads are never executable.** On macOS they also get the same quarantine mark
   browsers set, so Gatekeeper checks them before anything inside can run. Linux has no
   equivalent mark; there, downloads simply aren't executable.
-- **Only ILIAS links open in the browser.** Before handing a link to `open` / `xdg-open`,
-  ilias-tui checks that it is an `http(s)` link to your ILIAS server, never `file:` or
-  app-specific URL schemes.
+- **Only web links open in the browser, and other sites only after asking.** Before handing
+  a link to `open` / `xdg-open`, ilias-tui checks that it is an `http(s)` link, never
+  `file:` or app-specific URL schemes. Links to your ILIAS server open right away; a link
+  in page text to any other site (a Zoom link, say) names the address and asks first.
+  Links that would change something on ILIAS (the write guard's list) are not offered.
 - File names from ILIAS are sanitised before saving, so a crafted name can't write outside
   the download folder.
 

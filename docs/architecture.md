@@ -133,6 +133,13 @@ pub struct Item {
   - Other block elements (`p`, `div`, `li`, …) become `Text` paragraphs.
   - It skips scripts, modals, action dropdowns, hidden elements and screen-reader text.
   - `form-group` rows (the Info tab) become `Label: value`.
+- **Links in page text**: an `<a>` in text (not an item title) becomes a `link` item
+  (`Walker::text_link`: title = link text, description = URL, id = a hash of the URL) and
+  follows its paragraph in an untitled `Items` block, so the list keys reach it. Only
+  `http(s)` links, each once per page, and none that `write::is_write` flags. `Enter` and `o`
+  send `OpenInBrowser`; `App` turns an ILIAS link into `OpenLink` at once, asks first (`Ask`
+  → `OpenLink`) for any other web link (also offline: it sends nothing to ILIAS), and
+  refuses everything else. Forum posts still show text only.
 - **Forum threads**: a page with `.ilFrmPostRow` rows is a thread; it becomes one `Post`
   block per row. The reply depth comes from the `ilFrmPost-level-N` class. A post is unread
   when its title links to `cmd=markPostRead`; that link is never followed. Viewing a thread
@@ -439,7 +446,7 @@ pages.
 | `StatusBar` | `Status` (idle/busy/done/info/error), start time | Spinner while busy, ✓ / ⚠ icons for results and errors; key hints on the right. |
 | `Help`      | `visible: bool`                          | Overlay drawn last, on top of everything. Keys come from `help::KEYS`, grouped into sections. |
 | `Report`    | the last sync's report lines, `scroll`   | Overlay after a sync that skipped, kept or failed files. `j`/`k` scroll, any other key closes. Keys it uses up return `Action::Handled`. |
-| `Confirm`   | `pending: Option<(question, Action)>`    | Yes/no dialog, first in the z-order. `Action::Ask { question, then }` opens it; `y` sends `then`, anything that cancels sends `Cancelled`. Every write goes through it. |
+| `Confirm`   | `pending: Option<(question, Action)>`    | Yes/no dialog, first in the z-order. `Action::Ask { question, then }` opens it; `y` sends `then`, anything that cancels sends `Cancelled`. Every write goes through it, and opening a link to another site. |
 
 ### Look
 

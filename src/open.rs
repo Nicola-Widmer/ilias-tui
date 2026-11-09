@@ -81,6 +81,12 @@ pub fn is_ilias_link(url: &str, base: &Url) -> bool {
     })
 }
 
+/// Whether `url` is a plain web link (`http(s)`), which is all the browser gets: never
+/// `file:` or app URL schemes.
+pub fn is_web_link(url: &str) -> bool {
+    Url::parse(url).is_ok_and(|url| matches!(url.scheme(), "https" | "http"))
+}
+
 /// Opens a URL in the web browser, or a file with its default app.
 pub fn external(target: &OsStr) -> Result<()> {
     let mut command = if cfg!(target_os = "macos") {
@@ -169,5 +175,14 @@ mod tests {
         assert!(!is_ilias_link("file:///etc/passwd", &base));
         assert!(!is_ilias_link("vscode://some/command", &base));
         assert!(!is_ilias_link("not a url", &base));
+    }
+
+    #[test]
+    fn web_links_are_only_http() {
+        assert!(is_web_link("https://zoom.us/j/123"));
+        assert!(is_web_link("http://example.com/"));
+        assert!(!is_web_link("file:///etc/passwd"));
+        assert!(!is_web_link("zoommtg://zoom.us/join?confno=1"));
+        assert!(!is_web_link("javascript:alert(1)"));
     }
 }

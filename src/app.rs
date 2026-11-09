@@ -145,13 +145,14 @@ impl App {
     }
 
     fn dispatch(&mut self, action: Action) -> Result<()> {
-        // Offline nothing can be changed on ILIAS; say so before asking the question.
-        if self.client.is_offline()
-            && matches!(
-                action,
-                Action::Ask { .. } | Action::AskHandIn { .. } | Action::Sync(_)
-            )
-        {
+        // Offline nothing can be changed on ILIAS; say so before asking the question. (Other
+        // sites can still be opened.)
+        let sends = match &action {
+            Action::Ask { then, .. } => !matches!(**then, Action::OpenLink(_)),
+            Action::AskHandIn { .. } | Action::Sync(_) => true,
+            _ => false,
+        };
+        if self.client.is_offline() && sends {
             self.tx.send(Action::Error(
                 "Offline: nothing can be sent to or fetched from ILIAS. Press L to go online."
                     .into(),
@@ -260,14 +261,22 @@ impl App {
             Action::OpenFile(path) if open::is_risky(path) => open::reveal(path)?,
             Action::OpenFile(path) => open::external(path.as_os_str())?,
             Action::OpenInBrowser(item) if open::is_ilias_link(&item.url, &self.client.base) => {
-                open::external(item.url.as_ref())?
+                self.tx.send(Action::OpenLink(item.url.clone()))?;
+            }
+            // Another site: only after asking (it could be anything someone put on a page).
+            Action::OpenInBrowser(item) if open::is_web_link(&item.url) => {
+                self.tx.send(Action::Ask {
+                    question: format!("Open {} in your browser? It is not on ILIAS.", item.url),
+                    then: Box::new(Action::OpenLink(item.url.clone())),
+                })?;
             }
             Action::OpenInBrowser(item) => {
                 self.tx.send(Action::Error(format!(
-                    "Not opening {}: not an ILIAS link",
+                    "Not opening {}: not a web link",
                     item.url
                 )))?;
             }
+            Action::OpenLink(url) if open::is_web_link(url) => open::external(url.as_ref())?,
             Action::ToggleFavorite(item) => {
                 let item = item.clone();
                 self.spawn(move |client, _| {
@@ -676,6 +685,47 @@ mod tests {
             }
         }
         assert!(!app.searching.load(Ordering::SeqCst));
+        let _ = std::fs::remove_dir_all(dir);
+    }
+
+    #[test]
+    fn asks_before_opening_a_link_to_another_site() {
+        let dir = std::env::temp_dir().join(format!("ilias-tui-links-{}", std::process::id()));
+        let mut app = app(&dir);
+        let link = |url: &str| Item {
+            kind: "link".into(),
+            url: url.into(),
+            ..Item::default()
+        };
+        app.dispatch(Action::OpenInBrowser(link("https://zoom.us/j/1")))
+            .unwrap();
+        match app.rx.try_recv() {
+            Ok(Action::Ask { question, then }) => {
+                assert!(question.contains("https://zoom.us/j/1"), "{question}");
+                assert!(matches!(*then, Action::OpenLink(ref u) if u == "https://zoom.us/j/1"));
+            }
+            other => panic!("expected a question, got {other:?}"),
+        }
+        // Also offline: opening another site sends nothing to ILIAS.
+        app.client.set_offline(true);
+        app.dispatch(Action::Ask {
+            question: "Open?".into(),
+            then: Box::new(Action::OpenLink("https://zoom.us/j/1".into())),
+        })
+        .unwrap();
+        assert!(app.rx.try_recv().is_err(), "not refused");
+        app.client.set_offline(false);
+
+        // ILIAS links open at once.
+        app.dispatch(Action::OpenInBrowser(link(
+            "https://ilias.example/ilias/goto.php/fold/2",
+        )))
+        .unwrap();
+        assert!(matches!(app.rx.try_recv(), Ok(Action::OpenLink(_))));
+        // Anything but a web link is refused.
+        app.dispatch(Action::OpenInBrowser(link("file:///etc/passwd")))
+            .unwrap();
+        assert!(matches!(app.rx.try_recv(), Ok(Action::Error(e)) if e.contains("not a web link")));
         let _ = std::fs::remove_dir_all(dir);
     }
 
