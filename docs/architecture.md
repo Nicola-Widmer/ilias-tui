@@ -32,7 +32,10 @@ src/
 │   └── write.rs         Every write (favourites, handing in, logout) and the write guard
 ├── action.rs            Action enum (the app's messages)
 ├── keymap.rs            Keys of the main view → Command, with their help text
-├── app.rs               Event loop, side effects, action routing
+├── app/
+│   ├── mod.rs           Event loop, startup, key routing, dispatch (refuse → effect → broadcast)
+│   ├── effects.rs       What each action does: one method per effect (load, sync, …)
+│   └── tests.rs
 └── components/
     ├── mod.rs           Component trait
     ├── browser/         Course/folder list with navigation stack
@@ -325,7 +328,7 @@ Components never touch the network and never call each other. They only:
 - update their own state from actions,
 - draw that state.
 
-### The loop (`app.rs`)
+### The loop (`app/`)
 
 ```
           key event
@@ -361,7 +364,11 @@ Components never touch the network and never call each other. They only:
     swallows every key while it's open, and how the search bar gets the letters you type.
   - `q` quits only if no component handled it, so you can still type "q" into the search.
 - **Side effects:**
-  - `App::dispatch` runs actions that need I/O in `App::spawn`, which uses a thread plus a
+  - `App::dispatch` first asks `App::refusal` whether the action can run now (offline, a
+    sync or search already running), then `App::effect` routes it to its method in
+    `app/effects.rs`, then every component gets it (unless the effect replaced it, e.g.
+    opening a saved file becomes `OpenFile`).
+  - Effects that need I/O run in `App::spawn`, which uses a thread plus a
     shared `Arc<Client>`.
   - The job also gets the action sender, so it can report progress, e.g. the deep search
     sends `Progress("Searching… 12 folders")`.
@@ -532,7 +539,8 @@ and how `Browser` reacts to `Action::Filter`. To add your own:
    too: a test fails while the table and the keymap name different keys.
 
 If the feature needs ILIAS data, add a method to `ilias::Client`, then a matching
-`Action::Xxx` / `Action::XxxLoaded` pair. Spawn it from `App::dispatch` like `Load`.
+`Action::Xxx` / `Action::XxxLoaded` pair. Add a method for it in `app/effects.rs` that
+spawns the work like `App::fetch`, and route the action to it in `App::effect`.
 
 ## 4. Testing
 
