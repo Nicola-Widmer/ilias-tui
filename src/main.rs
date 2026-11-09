@@ -4,6 +4,7 @@ mod auth;
 mod cache;
 mod clipboard;
 mod components;
+mod compose;
 mod config;
 mod downloads;
 mod icons;

@@ -311,7 +311,8 @@ impl Component for Browser {
             | Action::SubmissionDeleted { deleted: true, .. }
             | Action::Uploaded { files: Some(_), .. }
             | Action::FolderCreated { created: true, .. }
-            | Action::Deleted { deleted: true, .. } => {
+            | Action::Deleted { deleted: true, .. }
+            | Action::Posted { sent: true, .. } => {
                 let (top, hidden) = self.stack.split_last_mut()?;
                 for level in hidden {
                     level.out_of_date = true;

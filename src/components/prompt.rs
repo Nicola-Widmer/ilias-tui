@@ -1,4 +1,5 @@
-//! A one-line question for a bit of text, such as a new folder's name. Like the file dialog,
+//! A one-line question for a bit of text: a new folder's name, or a forum post's title and
+//! text when there is no `$EDITOR`. Like the file dialog,
 //! it only leads to the usual question ([`Action::Ask`]), so nothing is sent before a clear
 //! "yes".
 
@@ -10,7 +11,7 @@ use ratatui::text::{Line, Span};
 use ratatui::widgets::{Block, BorderType, Clear, Padding, Paragraph, Wrap};
 
 use super::Component;
-use crate::action::Action;
+use crate::action::{Action, Draft};
 use crate::ilias::Item;
 use crate::theme;
 
@@ -18,6 +19,10 @@ use crate::theme;
 enum Purpose {
     /// The name of a new folder in `container`, which is at `place`.
     FolderName { container: Item, place: String },
+    /// The title of a new thread.
+    PostTitle { draft: Draft },
+    /// The text of a post (`title` is empty for a reply).
+    PostText { draft: Draft, title: String },
 }
 
 struct Open {
@@ -56,6 +61,16 @@ impl Open {
                     }),
                 })
             }
+            _ if text.is_empty() => Err("Type something, or Esc to cancel".into()),
+            Purpose::PostTitle { draft } => Ok(Action::AskPostText {
+                draft: draft.clone(),
+                title: Some(text.to_string()),
+            }),
+            Purpose::PostText { draft, title } => Ok(crate::compose::question(
+                draft.clone(),
+                title.clone(),
+                text.to_string(),
+            )),
         }
     }
 
@@ -63,6 +78,24 @@ impl Open {
     fn labels(&self) -> (String, &'static str) {
         match &self.purpose {
             Purpose::FolderName { place, .. } => (format!(" New folder in {place} "), "Name:"),
+            Purpose::PostTitle {
+                draft: Draft::Thread { place, .. },
+            } => (
+                format!(" New thread in {place} "),
+                "Title (set $EDITOR to write in your editor):",
+            ),
+            Purpose::PostTitle { .. } => (" New post ".into(), "Title:"),
+            Purpose::PostText {
+                draft: Draft::Reply { author, .. },
+                ..
+            } => (
+                format!(" Reply to {author} "),
+                "Text, one line (set $EDITOR to write more):",
+            ),
+            Purpose::PostText { title, .. } => (
+                format!(" {title} "),
+                "Text, one line (set $EDITOR to write more):",
+            ),
         }
     }
 }
@@ -97,6 +130,16 @@ impl Component for Prompt {
             Action::AskFolderName { container, place } => Purpose::FolderName {
                 container: container.clone(),
                 place: place.clone(),
+            },
+            // A reply has no title of its own; a new thread asks for it first.
+            Action::AskPostText { draft, title } => match (draft, title) {
+                (Draft::Thread { .. }, None) => Purpose::PostTitle {
+                    draft: draft.clone(),
+                },
+                (_, title) => Purpose::PostText {
+                    draft: draft.clone(),
+                    title: title.clone().unwrap_or_default(),
+                },
             },
             _ => return None,
         };
@@ -196,5 +239,32 @@ mod tests {
             Some(Action::Cancelled)
         ));
         assert!(prompt.handle_key_event(KeyCode::Esc.into()).is_none());
+    }
+
+    #[test]
+    fn without_an_editor_a_thread_asks_for_title_then_text() {
+        use crate::action::Draft;
+        let draft = Draft::Thread {
+            forum: Item::default(),
+            place: "DEMO › Fragen".into(),
+        };
+        let mut prompt = Prompt::default();
+        prompt.update(&Action::AskPostText {
+            draft: draft.clone(),
+            title: None,
+        });
+        let next = typed(&mut prompt, "Termin").unwrap();
+        assert!(matches!(next, Action::AskPostText { title: Some(ref t), .. } if t == "Termin"));
+        prompt.update(&next);
+        let Some(Action::Ask { question, then }) = typed(&mut prompt, "Wann?") else {
+            panic!("expected the question");
+        };
+        assert!(
+            question.starts_with("Start the thread “Termin” in DEMO › Fragen: “Wann?”"),
+            "{question}"
+        );
+        assert!(
+            matches!(*then, Action::SendPost { ref title, ref text, .. } if title == "Termin" && text == "Wann?")
+        );
     }
 }

@@ -17,6 +17,7 @@ mod walker;
 pub use container::{confirm_delete, create_form, create_link, delete_link, files_form};
 pub use dashboard::{Dashboard, course_title, parse_dashboard, parse_date};
 pub use exercise::{delete_form, lists_delivered, parse_upload_form};
+pub use forum::{PostForm, forum_link, message_html, post_form};
 pub use model::{Block, Id, Item, Kind, Page, Post, Tab, Todo, Urgency};
 pub use rights::{Rights, param};
 pub use show_more::{ShowMore, has_show_more, show_more};

@@ -70,7 +70,8 @@ Read-only; safe to build.
       test ILIAS)
 - [x] Upload files to courses, folders and shared folders (`u`; asks first, tested only on
       the local test ILIAS)
-- [ ] Write forum posts and replies
+- [x] Write forum posts and replies (`n`, `R`; asks first, tested only on the local test
+      ILIAS)
 - [ ] Send ILIAS mail
 - [ ] Join or leave courses and groups
 - [x] Add or remove favourites (`f`; asks first, `ILIAS_DRY_RUN`, `src/ilias/write.rs`)
@@ -123,7 +124,8 @@ write](#rules-for-features-that-write). Tried only on the local test ILIAS.
   the question, checked against ILIAS' limit, listed afterwards).
 - [x] **New folder** in the course or folder on screen (`n`).
 - [x] **Delete** an item into the ILIAS trash (`D`; refuses where ILIAS has no trash).
-- [ ] **Forum posts**: start a thread, reply to a post.
+- [x] **Forum posts**: start a thread (`n` in a forum), reply to a post (`R`), written in
+  `$EDITOR`.
 - [ ] **Submissions of an assignment**: list and download all participants' submissions.
 
 ## App and quality of life

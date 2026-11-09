@@ -114,6 +114,28 @@ impl Browser {
             );
             return;
         }
+        // A thread scrolls; the topmost post on screen is the one `R` replies to.
+        let offset = level
+            .list
+            .offset()
+            .min(rows.len().saturating_sub(inner.height as usize));
+        let headers = || {
+            rows.iter().enumerate().filter_map(|(at, row)| match row {
+                Row::PostHeader(post, _) => Some((at, *post)),
+                _ => None,
+            })
+        };
+        // The first post whose header is on screen; inside a long post, that post.
+        let bottom = offset + inner.height as usize;
+        level.top_post = headers()
+            .find(|(at, _)| (offset..bottom).contains(at))
+            .or_else(|| headers().take_while(|(at, _)| *at < offset).last())
+            .map(|(_, post)| post);
+        let reply_to = level
+            .top_post
+            .and_then(|n| level.posts().nth(n))
+            .filter(|post| level.page.rights.reply.contains(&post.id))
+            .and(level.top_post);
         let selected = level.cursor.and_then(|c| level.visible.get(c));
         let selected_row = rows
             .iter()
@@ -134,6 +156,12 @@ impl Browser {
                 Row::Heading(text) => heading_row(text),
                 Row::Text(text) => text_row(text),
                 Row::Styled(line) => ListItem::new(line),
+                Row::PostHeader(post, mut line) => {
+                    if Some(post) == reply_to {
+                        line.push_span(Span::styled("  ↩ R reply", theme::accent_bold()));
+                    }
+                    ListItem::new(line)
+                }
                 Row::Item(i) => {
                     let item = &level.items[i];
                     // Kinds of news switched off in the settings are neither marked nor counted.
@@ -157,9 +185,9 @@ impl Browser {
         let heights: Vec<u16> = list_items.iter().map(|i| i.height() as u16).collect();
         level.list.select(selected_row);
         if selected_row.is_none() {
-            // Scrolled with j/k on a page without items: stop at the end of the page.
-            let last = row_count.saturating_sub(inner.height as usize);
-            *level.list.offset_mut() = level.list.offset().min(last);
+            // Scrolled with j/k on a page without items (`select(None)` just reset the
+            // offset to the top): stop at the end of the page.
+            *level.list.offset_mut() = offset;
         }
         let list = List::new(list_items)
             .highlight_style(Style::new().bg(theme::colors().selected_bg))
@@ -367,6 +395,12 @@ pub(super) fn edit_hints(rights: &crate::ilias::Rights) -> Option<Line<'static>>
     }
     if !rights.delete.is_empty() {
         hint("D", "delete");
+    }
+    if rights.new_thread {
+        hint("n", "new thread");
+    }
+    if !rights.reply.is_empty() {
+        hint("R", "reply to the post at the top");
     }
     (!spans.is_empty()).then(|| Line::from(spans))
 }

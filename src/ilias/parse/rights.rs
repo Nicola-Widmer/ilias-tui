@@ -20,6 +20,12 @@ pub struct Rights {
     /// Items (by reference id) whose action menu offers Delete.
     #[serde(default)]
     pub delete: Vec<u64>,
+    /// A forum that offers "New Thread".
+    #[serde(default)]
+    pub new_thread: bool,
+    /// Posts of a thread (by their number) that offer Reply.
+    #[serde(default)]
+    pub reply: Vec<u64>,
 }
 
 impl Rights {
@@ -49,6 +55,12 @@ impl std::fmt::Display for Rights {
         }
         if !self.delete.is_empty() {
             parts.push(format!("delete: {} items", self.delete.len()));
+        }
+        if self.new_thread {
+            parts.push("new thread".to_string());
+        }
+        if !self.reply.is_empty() {
+            parts.push(format!("reply: {} posts", self.reply.len()));
         }
         f.write_str(&parts.join(" · "))
     }
@@ -111,6 +123,20 @@ pub(super) fn rights(doc: &Html, page_url: &Url) -> Rights {
             && !rights.delete.contains(&item)
         {
             rights.delete.push(item);
+        }
+    }
+    let threads = links(r#"button[data-action*="cmd=createThread"]"#, "data-action");
+    rights.new_thread = threads
+        .iter()
+        .chain(&links(r#"a[href*="cmd=createThread"]"#, "href"))
+        .any(|url| param(url, "cmd").as_deref() == Some("createThread"));
+    for url in links(r#"button[data-action*="action=showreply"]"#, "data-action") {
+        if param(&url, "cmd").as_deref() == Some("viewThread")
+            && param(&url, "action").as_deref() == Some("showreply")
+            && let Some(post) = param(&url, "pos_pk").and_then(|n| n.parse().ok())
+            && !rights.reply.contains(&post)
+        {
+            rights.reply.push(post);
         }
     }
     rights

@@ -911,3 +911,67 @@ fn d_deletes_only_what_ilias_offers_to_delete_and_says_it_goes_to_the_trash() {
     });
     assert!(matches!(deleted, Some(Action::Load { refresh: true, .. })));
 }
+
+#[test]
+fn n_in_a_forum_starts_a_thread_and_r_replies_to_the_post_at_the_top() {
+    use crate::action::Draft;
+    let key = |browser: &mut Browser, c| browser.handle_key_event(KeyCode::Char(c).into());
+    let mut browser = Browser::default();
+    let mut threads = Page::from_items(vec![item("thr", 3, "Termin")]);
+    load(
+        &mut browser,
+        Some(item("frm", 101, "Fragen")),
+        threads.clone(),
+        false,
+    );
+    assert!(matches!(key(&mut browser, 'n'), Some(Action::Error(_))));
+    threads.rights.new_thread = true;
+    load(
+        &mut browser,
+        Some(item("frm", 101, "Fragen")),
+        threads,
+        false,
+    );
+    assert!(screen(&mut browser).contains("n new thread"));
+    assert!(matches!(
+        key(&mut browser, 'n'),
+        Some(Action::Compose(Draft::Thread { ref forum, .. })) if forum.title == "Fragen"
+    ));
+
+    let post = |id, author: &str| {
+        Block::Post(crate::ilias::Post {
+            id,
+            author: format!("{author} · {}", author.to_lowercase()),
+            title: "Termin".into(),
+            body: vec!["Wann ist die Prüfung?".into(); 6],
+            ..Default::default()
+        })
+    };
+    let mut thread = Page {
+        blocks: vec![post(6, "Ada"), post(7, "Bob")],
+        ..Page::default()
+    };
+    thread.rights.reply = vec![7];
+    let mut thr = item("thr", 3, "Termin");
+    thr.id = Id::Thread(3);
+    load(&mut browser, Some(thr), thread, false);
+    // Ada's post is at the top, and has no Reply.
+    assert!(!screen(&mut browser).contains("↩ R reply"));
+    assert!(matches!(key(&mut browser, 'R'), Some(Action::Error(_))));
+    // Scroll Bob's post to the top.
+    for _ in 0..8 {
+        key(&mut browser, 'j');
+    }
+    let shown = screen(&mut browser);
+    assert!(
+        shown
+            .lines()
+            .any(|line| line.contains("Bob · bob") && line.contains("↩ R reply")),
+        "{shown}"
+    );
+    assert!(!shown.contains("Ada · ada"), "scrolled: {shown}");
+    assert!(matches!(
+        key(&mut browser, 'R'),
+        Some(Action::Compose(Draft::Reply { post: 7, ref author, .. })) if author == "Bob"
+    ));
+}

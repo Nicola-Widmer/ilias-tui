@@ -23,7 +23,7 @@ src/
 │   │   ├── mod.rs       parse_page, links → (Kind, Id), breadcrumb
 │   │   ├── model.rs     Item, Tab, Post, Block, Page
 │   │   ├── walker.rs    The content column → headings, text, items, text links
-│   │   ├── forum.rs     Thread posts
+│   │   ├── forum.rs     Thread posts; New Thread and Reply forms
 │   │   ├── exercise.rs  Submission item, handed-in files, upload and delete forms
 │   │   ├── container.rs Forms of courses and folders (upload, Add New Item, Delete)
 │   │   ├── dashboard.rs Favourites, To-Do, course in a breadcrumb, dates
@@ -34,8 +34,10 @@ src/
 │   ├── write.rs         The write guard, favourites, logout; every other write is in write/
 │   └── write/
 │       ├── exercise.rs  Handing in, deleting a handed-in file
-│       └── container.rs Courses and folders: uploading files, new folders, into the trash
+│       ├── container.rs Courses and folders: uploading files, new folders, into the trash
+│       └── forum.rs     New threads and replies
 ├── action.rs            Action enum (the app's messages)
+├── compose.rs           Forum posts: text from $EDITOR (TUI suspended), the question before sending
 ├── keymap.rs            Keys of the main view → Command, with their help text
 ├── app/
 │   ├── mod.rs           Event loop, startup, key routing, dispatch (refuse → effect → broadcast)
@@ -54,7 +56,7 @@ src/
     ├── status_bar.rs    Footer messages
     ├── confirm.rs       Yes/no dialog in front of every write
     ├── pick_files.rs    Asks for the files to hand in (`H`) or upload (`u`)
-    ├── prompt.rs        Asks for a line of text (a new folder's name)
+    ├── prompt.rs        Asks for a line of text (a new folder's name; posts without $EDITOR)
     └── help.rs          Key binding overlay
 ```
 
@@ -268,6 +270,26 @@ pub struct Todo { assignment: Item, course, deadline, due, urgency }   // My cou
   field. Without a trash ILIAS adds "(WARNING: … irretrievably deleted …)" to the question,
   which then no longer ends in `?`; `to_trash` is false and nothing is sent. Otherwise it
   posts the form and checks that the page no longer lists the item.
+- **Forum posts** (`n` in a forum, `R` in a thread): the rights carry `new_thread` (a
+  `cmd=createThread` button for the forum's ref id) and `reply` (the post numbers whose Reply
+  button, `cmd=viewThread&action=showreply&pos_pk=<n>`, is on the page); each `Post` has its
+  number (`pos_pk`, from the row's `<a id>`). `Browser` sends `Compose(Draft)`. With
+  `$VISUAL`/`$EDITOR`, `App::run` leaves the alternate screen, runs the editor on a
+  template (lines starting with `#` are left out; for a thread the first line is the
+  title), and comes back with a full redraw (`Terminal::resize`; `clear` would ask the
+  terminal for its cursor). Without one, the `prompt` dialog asks for title and text.
+  `compose::question` then names subject, forum and the start of the text. The client
+  (`write/forum.rs`) reads the forum (or thread) page again, follows its own New Thread (or
+  that post's Reply) link, and reads ILIAS' form (`parse::post_form`): it must post to
+  `ilObjForumGUI` with `fallbackCmd=addThread` for that forum (or `savePost` for that
+  forum, thread and post). It sends the hidden fields, the subject (a reply keeps ILIAS'),
+  the message (as HTML paragraphs when the rich text editor is on), each file input empty
+  (`Form::EmptyFile`; without it ILIAS says the attachment is too big) and the form's
+  button, then checks that the thread is listed or the reply shown.
+- **The post on top**: `Browser::render` notes the first post whose header is on screen
+  (inside a long post, that post) in `Level::top_post` and marks it `↩ R reply` if it
+  offers Reply. A thread keeps its scroll offset across frames (`ListState::select(None)`
+  would reset it).
 - **Handed-in files**: `parse_page` turns an assignment's Submission tab into a `sub` item
   (in place of the overview's heading of the same name), so it opens as a level like any
   container. `H` and `X` there act for the nearest level above that isn't a `sub`.

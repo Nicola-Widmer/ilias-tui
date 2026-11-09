@@ -12,7 +12,13 @@ use crate::theme;
 use super::*;
 
 /// A forum post: author line, then title and text behind a bar, indented by reply depth.
-pub(super) fn post_rows(rows: &mut Vec<Row>, post: &Post, show_title: bool, width: usize) {
+pub(super) fn post_rows(
+    rows: &mut Vec<Row>,
+    index: usize,
+    post: &Post,
+    show_title: bool,
+    width: usize,
+) {
     let indent = "  ".repeat(post.depth.min(6));
     let bar = || {
         Span::styled(
@@ -33,7 +39,7 @@ pub(super) fn post_rows(rows: &mut Vec<Row>, post: &Post, show_title: bool, widt
                 .add_modifier(Modifier::BOLD),
         ));
     }
-    rows.push(Row::Styled(Line::from(header)));
+    rows.push(Row::PostHeader(index, Line::from(header)));
     if show_title && !post.title.is_empty() {
         rows.push(Row::Styled(Line::from(vec![
             bar(),

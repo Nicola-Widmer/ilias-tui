@@ -30,6 +30,7 @@ pub enum Command {
     Upload,
     NewFolder,
     Delete,
+    Reply,
     MarkForSync,
     Sync,
     SyncAll,
@@ -137,12 +138,17 @@ pub const SECTIONS: &[(&str, &[Binding])] = &[
             bind(
                 NewFolder,
                 &[Char('n')],
-                "New folder in this course or folder (where ILIAS lets you; asks first)",
+                "New folder here; in a forum, new thread (where ILIAS lets you; asks first)",
             ),
             bind(
                 Delete,
                 &[Char('D')],
                 "Move the selected item to the ILIAS trash (where ILIAS lets you; asks first)",
+            ),
+            bind(
+                Reply,
+                &[Char('R')],
+                "Forum thread: reply to the post at the top (marked ↩; asks first)",
             ),
             bind(MarkForSync, &[Char(' ')], "Mark a course / folder for sync"),
             bind(

@@ -323,6 +323,9 @@ pub struct Tab {
 /// A forum post.
 #[derive(Debug, Clone, Default, PartialEq, Eq, Serialize, Deserialize)]
 pub struct Post {
+    /// ILIAS' number for the post (`pos_pk`); 0 if unknown (pages cached by older versions).
+    #[serde(default)]
+    pub id: u64,
     /// Name and login, e.g. `Ada Lovelace · alovelace (Moderator)`.
     pub author: String,
     pub date: String,

@@ -21,6 +21,7 @@ impl App {
             Action::AskHandIn { .. }
             | Action::AskUpload { .. }
             | Action::AskFolderName { .. }
+            | Action::Compose(_)
             | Action::Sync(_) => true,
             _ => false,
         };
@@ -85,6 +86,10 @@ impl App {
                 self.new_folder(container.clone(), name.clone())
             }
             Action::Delete { container, item } => self.delete(container.clone(), item.clone()),
+            Action::Compose(draft) => self.compose(draft.clone())?,
+            Action::SendPost { draft, title, text } => {
+                self.send_post(draft.clone(), title.clone(), text.clone())
+            }
             Action::Sync(roots) => self.sync(roots.clone()),
             Action::Synced { .. } => self.synced()?,
             Action::SetConfig(config) => self.set_config(config.clone())?,
@@ -298,6 +303,26 @@ impl App {
                 item,
                 deleted,
             })
+        });
+    }
+
+    /// In the editor if there is one (`run` starts it, as it needs the terminal), else in
+    /// one-line prompts.
+    fn compose(&mut self, draft: Draft) -> Result<()> {
+        match crate::compose::editor() {
+            Some(editor) => self.composing = Some((editor, draft)),
+            None => self.tx.send(Action::AskPostText { draft, title: None })?,
+        }
+        Ok(())
+    }
+
+    fn send_post(&self, draft: Draft, title: String, text: String) {
+        self.spawn(move |client, _| {
+            let sent = match &draft {
+                Draft::Thread { forum, .. } => client.start_thread(forum, &title, &text)?,
+                Draft::Reply { thread, post, .. } => client.reply(thread, *post, &text)?,
+            };
+            Ok(Action::Posted { draft, sent })
         });
     }
 

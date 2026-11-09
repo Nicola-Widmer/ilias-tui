@@ -14,6 +14,7 @@ use super::{Client, Item, MEMBERSHIPS, parse};
 
 mod container;
 mod exercise;
+mod forum;
 
 pub use container::megabytes;
 

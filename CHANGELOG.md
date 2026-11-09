@@ -18,6 +18,13 @@ features and changes in behaviour, the last one for fixes only. See
 - **New folder** (`n`) in the course or folder on screen, where ILIAS offers it.
 - **Delete into the trash** (`D`): moves the selected item to the ILIAS trash, where its menu
   offers Delete. Refuses where ILIAS has no trash.
+- **Forum posts**: `n` in a forum starts a thread, `R` replies to the topmost post on screen
+  in a thread. The text is written in `$VISUAL` / `$EDITOR` (or one-line prompts without
+  one), and the question names subject, forum and how the text starts.
+
+### Fixed
+
+- Forum threads scroll again with `j` / `k`; each frame put them back at the top.
 
 ## 0.2.0 - 2026-11-09
 

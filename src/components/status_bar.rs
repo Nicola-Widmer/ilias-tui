@@ -9,7 +9,7 @@ use ratatui::text::{Line, Span};
 use ratatui::widgets::Paragraph;
 
 use super::Component;
-use crate::action::Action;
+use crate::action::{Action, Draft};
 use crate::{open, theme};
 
 enum Status {
@@ -176,6 +176,19 @@ impl Component for StatusBar {
                 )),
                 false => Status::Info(format!("Dry run: would have deleted {}", item.title)),
             },
+            Action::SendPost { draft, .. } => Status::Busy(match draft {
+                Draft::Thread { forum, .. } => format!("Starting the thread in {}…", forum.title),
+                Draft::Reply { thread, .. } => format!("Replying in {}…", thread.title),
+            }),
+            Action::Posted { draft, sent } => match (draft, sent) {
+                (Draft::Thread { forum, .. }, true) => {
+                    Status::Done(format!("Started the thread in {}", forum.title))
+                }
+                (Draft::Reply { thread, author, .. }, true) => {
+                    Status::Done(format!("Replied to {author} in {}", thread.title))
+                }
+                (_, false) => Status::Info("Dry run: would have posted".into()),
+            },
             // Everything else says nothing here.
             _ => return None,
         };
@@ -186,6 +199,7 @@ impl Component for StatusBar {
                 | Action::Uploaded { files: Some(_), .. }
                 | Action::FolderCreated { created: true, .. }
                 | Action::Deleted { deleted: true, .. }
+                | Action::Posted { sent: true, .. }
         );
         None
     }

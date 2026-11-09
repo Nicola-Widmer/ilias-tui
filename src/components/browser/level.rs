@@ -28,6 +28,9 @@ pub(super) struct Level {
     /// Something (a favourites change) made the page wrong while it was hidden under
     /// other levels; it reloads once it is on screen again.
     pub(super) out_of_date: bool,
+    /// In a forum thread, the post at the top of the view (an index into its posts), as
+    /// last drawn: `R` replies to it.
+    pub(super) top_post: Option<usize>,
 }
 
 /// One rendered row; only `Item` rows can be selected.
@@ -37,6 +40,8 @@ pub(super) enum Row {
     Text(String),
     /// Already styled, e.g. a line of a forum post.
     Styled(Line<'static>),
+    /// The first line of the page's `n`-th post.
+    PostHeader(usize, Line<'static>),
     Item(usize),
 }
 
@@ -52,6 +57,7 @@ impl Level {
             cursor: None,
             list: ListState::default(),
             out_of_date: false,
+            top_post: None,
         };
         level.set_page(page);
         level
@@ -103,6 +109,14 @@ impl Level {
         }
     }
 
+    /// The posts of a forum thread, in order.
+    pub(super) fn posts(&self) -> impl Iterator<Item = &crate::ilias::Post> {
+        self.page.blocks.iter().filter_map(|b| match b {
+            Block::Post(post) => Some(post),
+            _ => None,
+        })
+    }
+
     pub(super) fn selected(&self) -> Option<&Item> {
         self.items.get(*self.visible.get(self.cursor?)?)
     }
@@ -132,6 +146,7 @@ impl Level {
     pub(super) fn rows(&self, filtering: bool, width: usize) -> Vec<Row> {
         let mut rows = Vec::new();
         let mut index = 0;
+        let mut posts = 0;
         // Replies usually repeat the thread title; only show titles that say something new.
         let mut last_title = self
             .item
@@ -151,7 +166,8 @@ impl Level {
                     blank_line(&mut rows);
                     let title = post.title.trim_start_matches("Re: ").to_string();
                     let new_title = title != last_title;
-                    post_rows(&mut rows, post, new_title, width);
+                    post_rows(&mut rows, posts, post, new_title, width);
+                    posts += 1;
                     last_title = title;
                 }
                 Block::Items { title, items } => {

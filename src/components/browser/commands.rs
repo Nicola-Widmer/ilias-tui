@@ -1,6 +1,7 @@
 //! What each [`Command`] does in the browser (keys come in through [`crate::keymap`]).
 
 use super::*;
+use crate::action::Draft;
 use crate::ilias::Kind;
 
 impl Browser {
@@ -69,6 +70,7 @@ impl Browser {
             Command::Upload => return Some(self.upload()),
             Command::NewFolder => return Some(self.new_folder()),
             Command::Delete => return Some(self.delete()),
+            Command::Reply => return Some(self.reply()),
             Command::Login => return Some(Action::Login),
             // Other components' keys, and search inside search results.
             Command::Search
@@ -238,6 +240,18 @@ impl Browser {
     /// `n`: a folder in the course or folder on screen, if ILIAS offers one under "Add New
     /// Item".
     fn new_folder(&self) -> Action {
+        // In a forum, `n` starts a thread.
+        if let Some(level) = self.current()
+            && let Some(forum) = level.item.as_ref().filter(|i| i.kind == Kind::Forum)
+        {
+            return match level.page.rights.new_thread {
+                true => Action::Compose(Draft::Thread {
+                    forum: forum.clone(),
+                    place: self.place(),
+                }),
+                false => Action::Error("ILIAS doesn't let you start a thread here".into()),
+            };
+        }
         let container = self
             .current()
             .filter(|level| !level.deep && level.page.rights.may_create(&Kind::Folder))
@@ -253,6 +267,35 @@ impl Browser {
 }
 
 impl Browser {
+    /// `R`: a reply to the topmost post on screen in a thread, if it offers Reply.
+    fn reply(&self) -> Action {
+        let chosen = self.current().and_then(|level| {
+            let thread = level.item.clone().filter(|i| i.kind == Kind::Thread)?;
+            let post = level.posts().nth(level.top_post?)?;
+            level
+                .page
+                .rights
+                .reply
+                .contains(&post.id)
+                .then_some((thread, post))
+        });
+        match chosen {
+            Some((thread, post)) => Action::Compose(Draft::Reply {
+                thread,
+                post: post.id,
+                author: post
+                    .author
+                    .split(" · ")
+                    .next()
+                    .unwrap_or_default()
+                    .to_string(),
+            }),
+            None => Action::Error(
+                "Scroll a post you may reply to to the top of the thread (marked ↩ R reply)".into(),
+            ),
+        }
+    }
+
     /// `D`: asks before moving the selected item to the trash, if its menu offers Delete.
     fn delete(&self) -> Action {
         let chosen = self

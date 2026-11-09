@@ -48,6 +48,10 @@ What it does:
 - **Reads forums**: the threads of a forum (author, number of posts, unread posts, last
   post), and in a thread all posts with author, date, replies indented and unread posts
   marked `● new`. Reading changes nothing on ILIAS; posts stay unread there.
+- **Writes forum posts**, where ILIAS lets you: `n` in a forum starts a thread, `R` in a
+  thread replies to the topmost post on screen (marked `↩ R reply`). You write in your
+  editor (`$VISUAL` / `$EDITOR`; without one, in one-line prompts); before anything is sent
+  it shows the subject, the forum and how the text starts, and asks.
 - Shows courses, groups and folders **the way ILIAS does**:
   - the page text (welcome note, room, Zoom link, …), with its links as entries right
     below it: select one with `j`/`k` and press `Enter` or `o` to open it,
@@ -215,7 +219,8 @@ ilias-tui get goto.php/file/123456
 | `H`             | On an assignment: hand in a file (asks first)   |
 | `X`             | Handed-in files: delete the selected file (asks first) |
 | `u`             | Upload files into the course or folder on screen (where ILIAS lets you; asks first) |
-| `n`             | New folder in the course or folder on screen (where ILIAS lets you; asks first) |
+| `n`             | New folder in the course or folder on screen; in a forum, a new thread (where ILIAS lets you; asks first) |
+| `R`             | In a forum thread: reply to the post at the top of the view, marked `↩ R reply` (asks first) |
 | `D`             | Move the selected item to the ILIAS trash (where ILIAS lets you; asks first) |
 | `L`             | Log in again / go online (opens Chrome if needed) |
 | `c`             | Settings (download folder, sync, icons, theme, …) |
@@ -450,6 +455,11 @@ download.
     only if it is for that item in that place, on your ILIAS. If ILIAS warns that the item
     would be deleted for good (no trash), nothing is sent. Nothing is sent with
     `ILIAS_DRY_RUN=1`, and the trash is never emptied.
+  - `n` in a forum and `R` in a thread post to the forum. They show the subject, the forum
+    and the start of the text and ask first, and only use that forum's own "New Thread"
+    form or that post's own Reply form (checked to be for that forum, thread and post, on
+    your ILIAS). Everyone who can read the forum sees the post. Nothing is sent with
+    `ILIAS_DRY_RUN=1`.
   - `f` adds or removes a favourite. It asks first, only sends the favourites link from
     that item's own ILIAS menu (checked to be for that item, on your ILIAS), and does
     nothing with `ILIAS_DRY_RUN=1`.

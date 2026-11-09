@@ -20,8 +20,18 @@ pub struct Fetched {
 /// A multipart form: what a browser sends for a form with a file input.
 #[derive(Debug, Clone, Copy)]
 pub enum Form<'a> {
-    Field { name: &'a str, value: &'a str },
-    File { name: &'a str, path: &'a Path },
+    Field {
+        name: &'a str,
+        value: &'a str,
+    },
+    File {
+        name: &'a str,
+        path: &'a Path,
+    },
+    /// A file input left empty: browsers still send it, and some ILIAS forms want it.
+    EmptyFile {
+        name: &'a str,
+    },
 }
 
 pub trait Pages: Send + Sync {
@@ -53,6 +63,12 @@ impl Pages for Https {
             multipart = match *field {
                 Form::Field { name, value } => multipart.text(name.to_string(), value.to_string()),
                 Form::File { name, path } => multipart.file(name.to_string(), path)?,
+                Form::EmptyFile { name } => multipart.part(
+                    name.to_string(),
+                    multipart::Part::bytes(Vec::new())
+                        .file_name("")
+                        .mime_str("application/octet-stream")?,
+                ),
             };
         }
         let response = self
@@ -149,6 +165,7 @@ mod fake {
                         let file = path.file_name().unwrap_or_default().to_string_lossy();
                         format!("{name}=@{file}")
                     }
+                    Form::EmptyFile { name } => format!("{name}=@"),
                 })
                 .collect();
             let sent = sent.join("&");

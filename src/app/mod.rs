@@ -13,7 +13,7 @@ use ratatui::crossterm::event::{self, Event, KeyCode, KeyEventKind, KeyModifiers
 use ratatui::layout::{Constraint, Layout};
 use ratatui::{DefaultTerminal, Frame};
 
-use crate::action::Action;
+use crate::action::{Action, Draft};
 use crate::cache::Cache;
 use crate::components::{
     Browser, Component, Confirm, Filter, Help, PickFiles, Prompt, Report, Settings, StatusBar,
@@ -50,6 +50,8 @@ pub struct App {
     /// The session check at startup is still running: pages show from the cache, and
     /// nothing is refreshed until it says whether the session works.
     checking: bool,
+    /// A forum post to write in the editor, which needs the terminal (see `run`).
+    composing: Option<(String, crate::action::Draft)>,
     tx: Sender<Action>,
     rx: Receiver<Action>,
     should_quit: bool,
@@ -85,6 +87,7 @@ impl App {
             syncing: Arc::default(),
             searching: Arc::default(),
             checking: false,
+            composing: None,
             tx,
             rx,
             should_quit: false,
@@ -116,6 +119,14 @@ impl App {
             }
             if self.should_quit {
                 break;
+            }
+            if let Some((editor, draft)) = self.composing.take() {
+                let next = match crate::compose::in_editor(terminal, &editor, &draft) {
+                    Ok(Some((title, text))) => crate::compose::question(draft, title, text),
+                    Ok(None) => Action::Cancelled,
+                    Err(e) => Action::Error(format!("{e:#}")),
+                };
+                self.tx.send(next)?;
             }
             terminal.draw(|frame| self.draw(frame))?;
             if event::poll(Duration::from_millis(50))? {

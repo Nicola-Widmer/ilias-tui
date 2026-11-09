@@ -3,6 +3,19 @@ use std::path::PathBuf;
 use crate::config::Config;
 use crate::ilias::{Item, Page};
 
+/// A forum post being written.
+#[derive(Debug, Clone)]
+pub enum Draft {
+    /// A new thread in `forum`, which is at `place`.
+    Thread { forum: Item, place: String },
+    /// A reply in `thread` to its post `post`, written by `author`.
+    Reply {
+        thread: Item,
+        post: u64,
+        author: String,
+    },
+}
+
 /// Everything that can happen in the app. Components emit actions from key events,
 /// the [`App`](crate::app::App) runs the side effects, and every action is then broadcast
 /// to all components via [`Component::update`](crate::components::Component::update).
@@ -122,6 +135,25 @@ pub enum Action {
         container: Item,
         item: Item,
         deleted: bool,
+    },
+    /// Write a forum post: in `$EDITOR` if there is one, else in one-line prompts.
+    Compose(Draft),
+    /// Ask for a line of the post: its title if `title` is `None` (a new thread), else its
+    /// text.
+    AskPostText {
+        draft: Draft,
+        title: Option<String>,
+    },
+    /// `title` is empty for a reply (ILIAS keeps its subject).
+    SendPost {
+        draft: Draft,
+        title: String,
+        text: String,
+    },
+    /// `sent` is `false` after a dry run.
+    Posted {
+        draft: Draft,
+        sent: bool,
     },
     /// Ask the user first; `then` only runs on "yes". Everything that changes data on ILIAS
     /// goes through this.

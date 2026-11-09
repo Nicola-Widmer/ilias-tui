@@ -504,17 +504,25 @@ fn parses_forum_threads_without_rating_buttons() {
 #[test]
 fn parses_forum_posts() {
     let html = r##"<div id="il_center_col"><ul>
-        <li class="ilFrmPostRow ilModeratorPosting ilFrmPost-level-1"><div class="ilFrmPostContentContainer">
+        <li class="ilFrmPostRow ilModeratorPosting ilFrmPost-level-1"><a id="2"></a><div class="ilFrmPostContentContainer">
           <div class="ilFrmPostHeader"><span class="small">Ada Lovelace | <a href="#">alovelace</a> (Moderator) | 19. Feb 2026, 07:12</span>
             <div class="ilFrmPostTitle">Willkommen</div></div>
           <div class="ilFrmPostContent"><p>Hallo zusammen!</p><p>Fragen bitte hier.</p></div></div>
-          <div class="il-item-actions"><button>Antworten</button></div></li>
+          <div class="il-item-actions"><button class="btn btn-default" data-action="ilias.php?baseClass=ilrepositorygui&amp;cmdClass=ilObjForumGUI&amp;cmd=viewThread&amp;ref_id=101&amp;action=showreply&amp;pos_pk=2&amp;page=0&amp;thr_pk=3#reply_2">Antworten</button></div></li>
         <li class="ilFrmPostRow tblrow2 ilFrmPost-level-2"><div class="ilFrmPostContentContainer">
           <div class="ilFrmPostHeader"><span class="small">Alan Turing | <a href="#">aturing</a> | 20. Feb 2026, 10:00</span>
             <div class="ilFrmPostTitle"><a href="ilias.php?cmd=markPostRead&amp;pos_pk=2"><b>Re: Willkommen</b></a></div></div>
           <div class="ilFrmPostContent"><span>Danke!<br />Bis bald</span></div></div></li>
         </ul></div>"##;
-    let page = parse_page(html, &url("https://ilias.example/ilias/ilias.php"));
+    let page = parse_page(
+        html,
+        &url(
+            "https://ilias.example/ilias/ilias.php?cmdClass=ilObjForumGUI&cmd=viewThread&ref_id=101&thr_pk=3",
+        ),
+    );
+    // Only Ada's post offers Reply here.
+    assert_eq!(page.rights.reply, [2]);
+    assert_eq!(page.rights.to_string(), "reply: 1 posts");
     let posts: Vec<&Post> = page
         .blocks
         .iter()
@@ -527,6 +535,7 @@ fn parses_forum_posts() {
     assert_eq!(
         *posts[0],
         Post {
+            id: 2,
             author: "Ada Lovelace · alovelace (Moderator)".into(),
             date: "19. Feb 2026, 07:12".into(),
             title: "Willkommen".into(),
@@ -723,6 +732,7 @@ fn reads_the_rights_ilias_offers_on_a_page() {
             upload: true,
             create: vec![Kind::Folder, Kind::File],
             delete: vec![90, 91],
+            ..Rights::default()
         }
     );
     assert_eq!(
@@ -750,4 +760,31 @@ fn a_student_has_no_rights_and_old_cached_pages_have_none_either() {
     assert!(page.rights.is_empty());
     let cached: Page = serde_json::from_str(r#"{"tabs":[],"blocks":[]}"#).unwrap();
     assert!(cached.rights.is_empty());
+}
+
+#[test]
+fn a_forum_offers_new_threads_and_its_form_is_read() {
+    let forum = url("https://ilias.example/ilias/goto.php/frm/101");
+    let html = r#"<button class="btn btn-default" data-action="ilias.php?baseClass=ilrepositorygui&amp;cmdClass=ilObjForumGUI&amp;cmd=createThread&amp;ref_id=101">New Thread</button>"#;
+    assert!(parse_page(html, &forum).rights.new_thread);
+    let other = url("https://ilias.example/ilias/goto.php/frm/102");
+    assert!(!parse_page(html, &other).rights.new_thread);
+
+    // The form with text has a file field and its own button; the empty-thread one doesn't.
+    let html = r#"<form action="ilias.php?cmdClass=ilObjForumGUI&amp;cmd=post&amp;fallbackCmd=addThread&amp;ref_id=101">
+          <input type="hidden" name="alias" value="ada" /><input type="text" name="subject" />
+          <textarea class="form-control RTEditor" name="message"></textarea>
+          <input type="file" name="userfile[0]" /><input type="SUBMIT" name="cmd[addThread]" value="Create" /></form>
+        <form action="ilias.php?cmdClass=ilObjForumGUI&amp;cmd=post&amp;fallbackCmd=addThread&amp;ref_id=101">
+          <input type="text" name="subject" /><input type="submit" name="cmd[addEmptyThread]" value="Create" /></form>"#;
+    let form = post_form(html, &forum, "addThread", |_| true).unwrap();
+    assert_eq!(form.hidden, [("alias".to_string(), "ada".to_string())]);
+    assert_eq!(form.files, ["userfile[0]"]);
+    assert!(form.rich);
+    assert_eq!(form.button, ("cmd[addThread]".into(), "Create".into()));
+    assert!(post_form(html, &forum, "addThread", |_| false).is_none());
+    assert_eq!(
+        message_html("a\nb & <c>\n\n\nd"),
+        "<p>a<br />b &amp; &lt;c&gt;</p>\n<p>d</p>"
+    );
 }
