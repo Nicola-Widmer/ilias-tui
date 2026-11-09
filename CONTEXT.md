@@ -40,7 +40,9 @@ time it is on screen, not while it is hidden under other pages.
 
 **Session check**
 Checking at startup that the saved ILIAS session still works, renewing it silently if
-possible. It only checks; it does not provide a page.
+possible. In the TUI it runs in the background while My courses shows from the cache. It
+reads the course list to check, and the next My courses uses that page instead of asking
+again.
 
 **Write**
 A request that changes something on ILIAS: your account, your favourites, read marks,

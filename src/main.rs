@@ -60,7 +60,9 @@ fn main() -> Result<()> {
     {
         [] | ["--offline"] => {
             let offline = args.first().is_some_and(|a| a == "--offline") || config.offline();
-            let client = connect_or_offline(&base, offline)?;
+            // The session check runs in the TUI, which starts at once with cached pages.
+            let client = Client::new(base.clone(), session::load(&base))?;
+            client.set_offline(offline);
             let mut terminal = ratatui::init();
             let mouse = config.mouse();
             if mouse {
@@ -216,32 +218,6 @@ fn item_from_url(base: &Url, url: &str) -> Result<ilias::Item> {
         url: url.into(),
         ..Default::default()
     })
-}
-
-/// For the TUI: like [`connect`], but if ILIAS can't be reached (or `offline` is asked
-/// for), returns a client in offline mode that sends nothing; the TUI then shows cached
-/// pages only.
-fn connect_or_offline(base: &Url, offline: bool) -> Result<Client> {
-    let client = Client::new(base.clone(), session::load(base))?;
-    if offline {
-        client.set_offline(true);
-        return Ok(client);
-    }
-    match client.check_session() {
-        Ok(true) => {
-            session::save(base, &client.cookies())?;
-            Ok(client)
-        }
-        Ok(false) => connect(base, true),
-        Err(e) => {
-            eprintln!(
-                "Can't reach ILIAS ({}). Starting offline with your cached pages.",
-                e.root_cause()
-            );
-            client.set_offline(true);
-            Ok(client)
-        }
-    }
 }
 
 /// Restores the saved session, refreshing it silently via Keycloak, and falls back to

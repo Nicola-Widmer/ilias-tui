@@ -142,7 +142,8 @@ ilias-tui
 
 On the first start, a Chrome window opens on the HSLU login. Log in with Switch edu-ID as
 usual. When the window lands back on ILIAS, the login is done: the window closes and the
-TUI starts.
+page loads. Later starts show your cached courses at once while the session is checked in
+the background; Chrome only opens again when the session has expired.
 
 | Command               | What it does                                             |
 | --------------------- | -------------------------------------------------------- |
@@ -298,7 +299,8 @@ Sync only reads from ILIAS. It doesn't work offline.
 Without a connection (train, plane, ILIAS down), ilias-tui still works with what it has
 seen before:
 
-- **Starting:** if ILIAS can't be reached, it says so and starts offline. `--offline` (or
+- **Starting:** if ILIAS can't be reached, it goes offline after a few seconds (your cached
+  courses show meanwhile). `--offline` (or
   `ILIAS_OFFLINE=1`) starts offline on purpose. The status bar shows an `OFFLINE` badge.
 - **Pages** you opened before, and every course and folder of a synced course, show from
   the cache as they were then, and are not refreshed. Other pages say "Not available
@@ -335,8 +337,10 @@ the way:
   cached copy shows immediately while the current version loads in the background
   ("Refreshing…" in the status bar). It is swapped in only if something changed.
 - **Compressed transfers.** Pages come gzip/brotli-compressed, about 7× smaller.
-- **No duplicate requests at startup.** The login check fetches "My courses", and that page
-  is what you see first.
+- **Instant start.** My courses shows from the cache right away; the session check runs in
+  the background, and the course list it reads is the one the refresh shows, so a start
+  costs two requests (course list and dashboard). The To-Do remembers each exercise's
+  course, so exercise pages are only read for new exercises.
 - **Parallel deep search.** `s` fetches up to 6 folders at once, so whole courses (or all
   of them) are searched several times faster.
 

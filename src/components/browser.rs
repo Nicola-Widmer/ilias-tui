@@ -889,8 +889,14 @@ impl Component for Browser {
                 }
                 return Some(top.reload());
             }
-            // Reload whatever is on screen with the fresh session.
-            Action::LoggedIn => {
+            // Reload whatever is on screen with the fresh session (or from the cache, offline);
+            // the levels below reload once they are on screen again.
+            Action::LoggedIn | Action::Offline => {
+                if let Some((_, hidden)) = self.stack.split_last_mut() {
+                    for level in hidden {
+                        level.out_of_date = true;
+                    }
+                }
                 let level = self.current();
                 return Some(Action::Load {
                     item: level.and_then(|l| l.item.clone()),

@@ -19,8 +19,19 @@ impl Client {
     /// time; if the dashboard fails, the course list is still shown (without favourites and
     /// To-Do).
     pub fn my_courses(&self) -> Result<Page> {
+        self.my_courses_after(None)
+    }
+
+    /// Like [`Client::my_courses`], taking the To-Do's courses from `previous` (an earlier
+    /// My courses, e.g. the cached one) where it has them, so only new exercises are read.
+    pub fn my_courses_after(&self, previous: Option<&Page>) -> Result<Page> {
+        let known: HashMap<u64, String> = previous
+            .into_iter()
+            .flat_map(|page| &page.todo)
+            .filter_map(|item| Some((item.ref_id, item.path.first()?.clone())))
+            .collect();
         thread::scope(|scope| {
-            let dashboard = scope.spawn(|| self.dashboard());
+            let dashboard = scope.spawn(|| self.dashboard(&known));
             let courses = self.course_list_page()?;
             let dashboard = dashboard.join().ok().and_then(Result::ok);
             Ok(assemble(courses, dashboard, jiff::Zoned::now().datetime()))
@@ -37,20 +48,29 @@ impl Client {
     }
 
     fn course_list_page(&self) -> Result<Page> {
-        let fetched = self.get_authed(&self.url(MEMBERSHIPS)?)?;
+        let fetched = match self.take_checked_courses() {
+            Some(fetched) => fetched,
+            None => self.get_authed(&self.url(MEMBERSHIPS)?)?,
+        };
         Ok(parse_page(&fetched.html, &fetched.url))
     }
 
     /// Favourites and To-Do from the dashboard. The To-Do block only names the exercise, so
-    /// each exercise's page is fetched (in parallel) for its course, which becomes the
-    /// entry's first property.
-    fn dashboard(&self) -> Result<Dashboard> {
+    /// each exercise's page is fetched (in parallel) for its course, unless `known` has it
+    /// (an exercise stays in its course). The course becomes the entry's first property and
+    /// its `path`.
+    fn dashboard(&self, known: &HashMap<u64, String>) -> Result<Dashboard> {
         let fetched = self.get_authed(&self.url(DASHBOARD)?)?;
         let mut dashboard = parse::parse_dashboard(&fetched.html, &fetched.url);
-        let mut exercises: Vec<u64> = dashboard.todo.iter().map(|i| i.ref_id).collect();
+        let mut exercises: Vec<u64> = dashboard
+            .todo
+            .iter()
+            .map(|i| i.ref_id)
+            .filter(|id| !known.contains_key(id))
+            .collect();
         exercises.sort_unstable();
         exercises.dedup();
-        let courses: HashMap<u64, String> = thread::scope(|scope| {
+        let mut courses: HashMap<u64, String> = thread::scope(|scope| {
             let jobs: Vec<_> = exercises
                 .iter()
                 .map(|&id| {
@@ -67,9 +87,11 @@ impl Client {
                 })
                 .collect()
         });
+        courses.extend(known.iter().map(|(id, course)| (*id, course.clone())));
         for item in &mut dashboard.todo {
             if let Some(course) = courses.get(&item.ref_id) {
                 item.properties.insert(0, course.clone());
+                item.path = vec![course.clone()];
             }
         }
         Ok(dashboard)
@@ -305,6 +327,23 @@ mod tests {
                 "ilias.php?baseClass=ilmembershipoverviewgui"
             ],
             "one request per exercise, however many assignments"
+        );
+
+        // Right after the session check, with the previous My courses: the check's course
+        // list and the known courses are used, so only the dashboard is read.
+        assert!(client.check_session().unwrap());
+        let before = ilias.requests(&base).len();
+        let again = client.my_courses_after(Some(&page)).unwrap();
+        assert_eq!(again.todo, page.todo);
+        assert_eq!(
+            ilias.requests(&base)[before..],
+            ["ilias.php?baseClass=ilDashboardGUI"]
+        );
+        // The check's page is used once; later refreshes read the course list again.
+        client.my_courses_after(Some(&page)).unwrap();
+        assert!(
+            ilias.requests(&base)[before + 1..]
+                .contains(&"ilias.php?baseClass=ilmembershipoverviewgui".to_string())
         );
     }
 

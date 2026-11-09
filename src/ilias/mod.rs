@@ -53,6 +53,9 @@ pub struct Client {
     dry_run: AtomicBool,
     /// Offline mode: nothing at all is sent; every request fails with [`OFFLINE`].
     offline: AtomicBool,
+    /// The course list page the session check fetched; the next course list uses it
+    /// instead of fetching it again (at startup, right after).
+    checked_courses: Mutex<Option<Fetched>>,
 }
 
 /// The error of every request in offline mode.
@@ -75,6 +78,7 @@ impl Client {
             jar,
             dry_run: AtomicBool::new(crate::config::Config::load().dry_run()),
             offline: AtomicBool::new(false),
+            checked_courses: Mutex::new(None),
         })
     }
 
@@ -172,12 +176,33 @@ impl Client {
     }
 
     /// The session check: whether the saved session works, renewing it silently if needed.
+    /// It reads the course list, which the next [`Client::course_list`] or
+    /// [`Client::my_courses`] then uses instead of asking again.
     pub fn check_session(&self) -> Result<bool> {
         let url = self.url(MEMBERSHIPS)?;
-        if self.is_logged_in(&self.get(&url)?) {
-            return Ok(true);
+        let mut page = self.get(&url)?;
+        if !self.is_logged_in(&page) {
+            if !self.silent_login()? {
+                return Ok(false);
+            }
+            page = self.get(&url)?;
         }
-        Ok(self.silent_login()? && self.is_logged_in(&self.get(&url)?))
+        let logged_in = self.is_logged_in(&page);
+        if logged_in {
+            *self
+                .checked_courses
+                .lock()
+                .unwrap_or_else(PoisonError::into_inner) = Some(page);
+        }
+        Ok(logged_in)
+    }
+
+    /// The course list page the session check just read, once.
+    fn take_checked_courses(&self) -> Option<Fetched> {
+        self.checked_courses
+            .lock()
+            .unwrap_or_else(PoisonError::into_inner)
+            .take()
     }
 
     /// GETs a page that requires a login, refreshing the session once if it expired.

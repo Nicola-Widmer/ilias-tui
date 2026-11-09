@@ -46,6 +46,9 @@ pub struct App {
     /// A deep search is reading ILIAS. Only one at a time: each reads every folder below,
     /// and a second one would double the load on the server for a result nobody sees.
     searching: Arc<AtomicBool>,
+    /// The session check at startup is still running: pages show from the cache, and
+    /// nothing is refreshed until it says whether the session works.
+    checking: bool,
     tx: Sender<Action>,
     rx: Receiver<Action>,
     should_quit: bool,
@@ -79,6 +82,7 @@ impl App {
             settings,
             syncing: Arc::default(),
             searching: Arc::default(),
+            checking: false,
             tx,
             rx,
             should_quit: false,
@@ -100,16 +104,7 @@ impl App {
     }
 
     pub fn run(mut self, terminal: &mut DefaultTerminal) -> Result<()> {
-        if self.client.is_offline() {
-            self.tx.send(Action::Offline)?;
-        }
-        self.tx.send(Action::NewCounts(self.seen.counts()))?;
-        self.tx.send(Action::Load {
-            item: None,
-            url: None,
-            refresh: false,
-            deep: false,
-        })?;
+        self.start()?;
         while !self.should_quit {
             terminal.draw(|frame| self.draw(frame))?;
             if event::poll(Duration::from_millis(50))? {
@@ -130,6 +125,37 @@ impl App {
             }
         }
         session::save(&self.client.base, &self.client.cookies())
+    }
+
+    /// Shows My courses at once (from the cache) and checks the session in the background,
+    /// renewing it silently if possible. Then the page on screen is refreshed (`LoggedIn`),
+    /// or Chrome opens for the login (`Login`), or the app goes offline (`Offline`).
+    fn start(&mut self) -> Result<()> {
+        self.tx.send(Action::NewCounts(self.seen.counts()))?;
+        if self.client.is_offline() {
+            // Started offline on purpose: the browser then shows My courses from the cache.
+            self.tx.send(Action::Offline)?;
+            return Ok(());
+        }
+        self.checking = true;
+        self.tx.send(Action::Load {
+            item: None,
+            url: None,
+            refresh: false,
+            deep: false,
+        })?;
+        self.spawn(|client, _| {
+            Ok(match client.check_session() {
+                Ok(true) => Action::LoggedIn,
+                Ok(false) => Action::Login,
+                // Can't reach ILIAS: work with what is cached.
+                Err(_) => {
+                    client.set_offline(true);
+                    Action::Offline
+                }
+            })
+        });
+        Ok(())
     }
 
     fn handle_key(&mut self, key: event::KeyEvent) -> Option<Action> {
@@ -179,6 +205,10 @@ impl App {
             ))?;
             return Ok(());
         }
+        // The session check (or a login) has answered.
+        if matches!(action, Action::LoggedIn | Action::Login | Action::Offline) {
+            self.checking = false;
+        }
         match &action {
             Action::Quit => self.should_quit = true,
             Action::Load {
@@ -220,19 +250,25 @@ impl App {
                         )),
                     })?;
                 } else if let Some(page) = (!refresh).then(|| self.cache.get(&key)).flatten() {
-                    // Show the cached copy now and fetch the current one in the background.
+                    // Show the cached copy now and fetch the current one in the background
+                    // (after the session check, which refreshes the page on screen).
                     self.tx.send(Action::Loaded {
                         item: item.clone(),
                         page,
                         refresh: false,
                         deep,
                     })?;
-                    self.tx.send(Action::Load {
-                        item,
-                        url,
-                        refresh: true,
-                        deep,
-                    })?;
+                    if !self.checking {
+                        self.tx.send(Action::Load {
+                            item,
+                            url,
+                            refresh: true,
+                            deep,
+                        })?;
+                    }
+                } else if self.checking && item.is_none() {
+                    // My courses for the first time: the session check reads the course list
+                    // anyway, so wait for it.
                 } else {
                     self.fetch(item, url, refresh, deep, key);
                 }
@@ -410,7 +446,8 @@ impl App {
                     let _ = tx.send(Action::Progress(format!("Searching… {n} folders")));
                 })?),
                 (Some(item), false) => client.page(item, url.as_deref())?,
-                (None, false) => client.my_courses()?,
+                // The cached copy knows the To-Do's courses.
+                (None, false) => client.my_courses_after(cache.get(&key).as_ref())?,
             };
             // A page on screen: what's new on it is seen now, so only mark it.
             let new = match deep {
@@ -487,12 +524,16 @@ mod tests {
     use url::Url;
 
     fn app(cache_dir: &std::path::Path) -> App {
-        let base = Url::parse("https://ilias.example/ilias/").unwrap();
         // No test reaches the network: every page request fails.
         let offline = crate::ilias::pages::FakeIlias::new(|url| {
             Err(color_eyre::eyre::eyre!("offline: {url}"))
         });
-        let client = Client::with_pages(base, std::sync::Arc::new(offline));
+        app_with(cache_dir, Arc::new(offline))
+    }
+
+    fn app_with(cache_dir: &std::path::Path, ilias: Arc<crate::ilias::pages::FakeIlias>) -> App {
+        let base = Url::parse("https://ilias.example/ilias/").unwrap();
+        let client = Client::with_pages(base, ilias);
         let mut app = App::new(client, Config::default());
         app.cache = Cache::in_dir(cache_dir.to_path_buf());
         app.seen = Seen::default();
@@ -741,6 +782,85 @@ mod tests {
         app.dispatch(Action::OpenInBrowser(link("file:///etc/passwd")))
             .unwrap();
         assert!(matches!(app.rx.try_recv(), Ok(Action::Error(e)) if e.contains("not a web link")));
+        let _ = std::fs::remove_dir_all(dir);
+    }
+
+    /// Runs the app's actions until `done` says so; returns them in order.
+    fn pump(app: &mut App, done: impl Fn(&Action) -> bool) -> Vec<Action> {
+        let mut seen = Vec::new();
+        loop {
+            let action = app
+                .rx
+                .recv_timeout(Duration::from_secs(5))
+                .unwrap_or_else(|e| panic!("stuck after {seen:?}: {e}"));
+            seen.push(action.clone());
+            app.dispatch(action).unwrap();
+            if done(seen.last().unwrap()) {
+                return seen;
+            }
+        }
+    }
+
+    fn cached_my_courses(app: &App) {
+        let courses = Page::from_items(vec![Item {
+            kind: "crs".into(),
+            ref_id: 1,
+            title: "DEMO".into(),
+            url: "https://ilias.example/ilias/goto.php/crs/1".into(),
+            ..Default::default()
+        }]);
+        app.cache.put(&Cache::key(None, false), &courses);
+    }
+
+    #[test]
+    fn starts_from_the_cache_and_reads_the_course_list_once() {
+        use crate::ilias::pages::{FakeIlias, reply};
+        let dir = std::env::temp_dir().join(format!("ilias-tui-start-{}", std::process::id()));
+        // ILIAS answers once the gate opens (its sender is dropped), like a slow server.
+        let (open_gate, gate) = mpsc::channel::<()>();
+        let gate = std::sync::Mutex::new(gate);
+        let ilias = Arc::new(FakeIlias::new(move |url| {
+            let _ = gate.lock().unwrap().recv();
+            reply(url, r#"<div id="il_center_col"><p>Kurse</p></div>"#)
+        }));
+        let mut app = app_with(&dir, ilias.clone());
+        cached_my_courses(&app);
+        app.start().unwrap();
+        // The cached copy shows while the session check still waits for ILIAS (its request
+        // may or may not have left yet); nothing else was asked for.
+        pump(&mut app, |a| matches!(a, Action::Loaded { .. }));
+        let base = Url::parse("https://ilias.example/ilias/").unwrap();
+        let courses = "ilias.php?baseClass=ilmembershipoverviewgui";
+        assert!(ilias.requests(&base).iter().all(|r| r == courses));
+
+        drop(open_gate);
+        pump(&mut app, |a| {
+            matches!(a, Action::Loaded { refresh: true, .. })
+        });
+        let mut requests = ilias.requests(&base);
+        requests.sort();
+        assert_eq!(
+            requests,
+            [
+                "ilias.php?baseClass=ilDashboardGUI",
+                "ilias.php?baseClass=ilmembershipoverviewgui"
+            ],
+            "the session check's course list is the one shown"
+        );
+        let _ = std::fs::remove_dir_all(dir);
+    }
+
+    #[test]
+    fn starts_offline_when_ilias_cannot_be_reached() {
+        let dir = std::env::temp_dir().join(format!("ilias-tui-start-off-{}", std::process::id()));
+        let mut app = app(&dir);
+        cached_my_courses(&app);
+        app.start().unwrap();
+        pump(&mut app, |a| matches!(a, Action::Offline));
+        assert!(app.client.is_offline());
+        assert!(!app.checking);
+        // My courses from the cache, with nothing sent.
+        pump(&mut app, |a| matches!(a, Action::Loaded { .. }));
         let _ = std::fs::remove_dir_all(dir);
     }
 

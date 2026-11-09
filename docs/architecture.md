@@ -103,9 +103,16 @@ sequenceDiagram
 - `get_authed(url)`: fetch the page. If we're logged out, run `silent_login` and try once
   more. If that fails too, return `session expired: press L to log in again`.
 
-At startup, `main::connect` runs `check_session` (the session check: logged in or not,
-renewing silently if possible) and falls back to the browser login if that fails. The
-check only checks; it provides no page.
+`check_session` is the session check: logged in or not, renewing silently if possible. It
+reads the course list to find out, and keeps that page (`checked_courses`); the next
+`Client::course_list` / `my_courses` takes it once instead of fetching it again.
+
+- **TUI** (`App::start`): the TUI comes up at once with My courses from the cache and runs
+  the check on a worker. While it runs (`App::checking`), cached pages show without their
+  background refresh, and My courses without a cached copy waits for it. Then the check
+  sends `LoggedIn` (the browser reloads the page on screen and marks the levels below out
+  of date), `Login` (session expired: Chrome opens) or `Offline` (ILIAS unreachable).
+- **CLI** (`main::connect`): runs the check first and falls back to the browser login.
 
 ## 2. Reading ILIAS (`ilias/parse.rs`)
 
@@ -340,9 +347,9 @@ Components never touch the network and never call each other. They only:
 `App::dispatch(Load { item, url, refresh, deep })` decides where a page comes from:
 
 **Offline mode** (`Client::set_offline`): every request (`request`, `download`, the
-Keycloak probe) fails with `OFFLINE` before anything is sent. `main::connect_or_offline`
-turns it on for `--offline` / `ILIAS_OFFLINE=1`, or when the session check can't reach ILIAS
-(an 8 s connect timeout keeps that quick). `App` then answers every `Load` from the cache,
+Keycloak probe) fails with `OFFLINE` before anything is sent. `main` turns it on
+for `--offline` / `ILIAS_OFFLINE=1`, and `App::start` when the session check can't reach
+ILIAS (an 8 s connect timeout keeps that quick; cached pages show meanwhile). `App` then answers every `Load` from the cache,
 also `refresh: true` ones, with no background refresh, and an `Error` if the page was never
 cached. A deep search walks the cached pages instead (`Cache::descendants`, sharing
 `ilias::walk` with `Client::descendants`), so it finds everything below a synced course; it refuses `Ask` (writes) up front. `Login` first turns offline off and tries the
@@ -382,7 +389,10 @@ that didn't change gives nothing. No cached copy, no diff.
   browse it.
 
 My courses has no special case: on the first start with an empty cache it takes ~2–3 s
-(course list, dashboard and the To-Do exercises), later starts show the cached copy.
+(course list, dashboard and the To-Do exercises), later starts show the cached copy. Its
+refresh reads the course list (or takes the session check's) and the dashboard; the To-Do's
+courses come from the cached copy (`my_courses_after`, kept in each entry's `path`), so an
+exercise page is only read for a new exercise.
 
 1. **Cache hit** (only when `refresh` is false): send `Loaded` with the cached page right
    away, then queue `Load { refresh: true }`. The browser shows the cached page.
