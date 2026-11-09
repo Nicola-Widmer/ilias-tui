@@ -162,7 +162,7 @@ pub struct FoundNew {
     /// The folders between `root` and `container`, from the top.
     pub path: Vec<u64>,
     pub container: u64,
-    pub items: Vec<u64>,
+    pub new: crate::seen::New,
 }
 
 impl Summary {
@@ -255,12 +255,12 @@ pub fn sync(
             &keep,
         )?;
         let parents = parents.into_inner().unwrap_or_else(PoisonError::into_inner);
-        for (container, items) in found.into_inner().unwrap_or_else(PoisonError::into_inner) {
+        for (container, new) in found.into_inner().unwrap_or_else(PoisonError::into_inner) {
             unseen.push(FoundNew {
                 root: root.key(),
                 path: path_below(root.key(), container, &parents),
                 container,
-                items,
+                new,
             });
         }
         read.extend(items.iter().filter(|i| i.kind != Kind::File).map(|i| i.id));
@@ -664,7 +664,10 @@ mod tests {
                 root: 1,
                 path: vec![2],
                 container: 3,
-                items: vec![10],
+                new: crate::seen::New {
+                    items: vec![10],
+                    posts: Vec::new(),
+                },
             }]
         );
         let _ = std::fs::remove_dir_all(dir);

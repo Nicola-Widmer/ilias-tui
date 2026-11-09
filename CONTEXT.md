@@ -83,7 +83,9 @@ _Avoid_: pagination (ILIAS pages forums differently).
 **New** (what's new since your last visit)
 An item of a course or folder that appeared, or whose properties (size, date, …) changed,
 since the cached copy of that page. Countdowns ("5 Hours, 8 Minutes") don't count. Marked
-`● new` while ilias-tui runs.
+`● new` while ilias-tui runs. Forums and threads are kept apart as **new posts**: they
+count only when one of their numbers went up (posts, unread, the last post's date), so
+reading posts is no news.
 
 **Unseen**
 New items a sync found on a page (a course or folder) you haven't opened since. Kept per

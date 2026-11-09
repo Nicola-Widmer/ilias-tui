@@ -78,7 +78,7 @@ impl Cache {
 
     /// Stores `page` and returns its items that are new or changed compared to the copy it
     /// replaces (see [`crate::seen::diff`]); none if there was no copy.
-    pub fn update(&self, key: &str, page: &Page) -> Vec<u64> {
+    pub fn update(&self, key: &str, page: &Page) -> seen::New {
         let old = self.file(key).and_then(|file| {
             let fetched = fs::metadata(&file).ok()?.modified().ok()?;
             Some((self.get(key)?, day(fetched)?))
@@ -86,7 +86,7 @@ impl Cache {
         self.put(key, page);
         match old {
             Some((old, old_day)) => seen::diff(&old, old_day, page, jiff::Zoned::now().date()),
-            None => Vec::new(),
+            None => seen::New::default(),
         }
     }
 
@@ -172,7 +172,7 @@ mod tests {
             "nothing to compare with"
         );
         let new = Page::from_items(vec![file(1, "1. Nov 2026, 10:00"), file(2, "Today, 09:00")]);
-        assert_eq!(cache.update("page", &new), [2]);
+        assert_eq!(cache.update("page", &new).items, [2]);
         assert_eq!(cache.get("page"), Some(new.clone()));
         assert!(cache.update("page", &new).is_empty());
         cache.clear();

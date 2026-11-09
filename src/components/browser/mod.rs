@@ -33,7 +33,7 @@ pub struct Browser {
     /// Ref ids of items that are new since your last visit (marked for this run).
     new: HashSet<u64>,
     /// New items per course you haven't opened since (from `Seen`).
-    new_counts: HashMap<u64, usize>,
+    new_counts: HashMap<u64, crate::seen::Counts>,
     /// Clickable areas from the last draw.
     hits: Vec<(Rect, Hit)>,
     /// What was clicked last and when, to detect double-clicks.

@@ -33,8 +33,8 @@ pub enum Action {
     },
     /// These items are new since your last visit (by ref id): mark them.
     NewItems(Vec<u64>),
-    /// How many items are new in each course (by ref id) that you haven't opened since.
-    NewCounts(std::collections::HashMap<u64, usize>),
+    /// How much is new below each course and folder (by key) that you haven't opened since.
+    NewCounts(std::collections::HashMap<u64, crate::seen::Counts>),
     /// Show only items whose title or description matches the query (empty = show all).
     Filter(String),
     /// Save a file; with `open`, open it afterwards (reusing an earlier copy if there is one).

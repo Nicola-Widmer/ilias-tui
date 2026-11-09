@@ -181,7 +181,7 @@ impl App {
                     cache.put(&key, &page);
                     Vec::new()
                 }
-                false => cache.update(&key, &page),
+                false => cache.update(&key, &page).all(),
             };
             if !new.is_empty() {
                 let _ = tx.send(Action::NewItems(new));
@@ -280,7 +280,7 @@ impl App {
             })?;
             let mut seen = Seen::load(&client.base);
             for new in &summary.unseen {
-                seen.record(new.root, &new.path, new.container, &new.items);
+                seen.record(new.root, &new.path, new.container, &new.new);
             }
             Ok(Action::Synced {
                 summary: summary.text(rules.max_mb),

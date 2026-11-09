@@ -5,7 +5,8 @@ use ratatui::text::{Line, Span, Text};
 use ratatui::widgets::ListItem;
 
 use crate::icons::icon;
-use crate::ilias::{Item, Post, Todo, Urgency};
+use crate::ilias::{Item, Kind, Post, Todo, Urgency};
+use crate::seen::Counts;
 use crate::theme;
 
 use super::*;
@@ -124,10 +125,10 @@ pub(super) struct Marks {
     pub(super) saved: bool,
     /// Marked for sync.
     pub(super) marked: bool,
-    /// New or changed since your last visit.
+    /// New or changed since your last visit (a forum or thread: new posts).
     pub(super) new: bool,
-    /// A course: how many items in it are new since you last opened it.
-    pub(super) new_inside: usize,
+    /// A course or folder: how much below it is new since you last opened it.
+    pub(super) new_inside: Counts,
 }
 
 pub(super) fn item_row(item: &Item, query: &str, marks: Marks) -> ListItem<'static> {
@@ -147,11 +148,28 @@ pub(super) fn item_row(item: &Item, query: &str, marks: Marks) -> ListItem<'stat
     let new = Style::new()
         .fg(theme::colors().green)
         .add_modifier(Modifier::BOLD);
+    // New posts in a forum read differently from new files and folders.
+    let posts = Style::new()
+        .fg(theme::colors().cyan)
+        .add_modifier(Modifier::BOLD);
     if marks.new {
-        title.push(Span::styled("  ● new", new));
+        title.push(match item.kind {
+            Kind::Forum | Kind::Thread => Span::styled("  ● new posts", posts),
+            _ => Span::styled("  ● new", new),
+        });
     }
-    if marks.new_inside > 0 {
-        title.push(Span::styled(format!("  ● {} new", marks.new_inside), new));
+    let Counts {
+        items,
+        posts: post_count,
+    } = marks.new_inside;
+    if items > 0 {
+        title.push(Span::styled(format!("  ● {items} new"), new));
+    }
+    // It counts forums and threads, not posts.
+    match post_count {
+        0 => {}
+        1 => title.push(Span::styled("  ● new posts in 1 forum", posts)),
+        n => title.push(Span::styled(format!("  ● new posts in {n} forums"), posts)),
     }
     if marks.saved {
         title.push(Span::styled(

@@ -38,9 +38,12 @@ fn marks_what_is_new_since_the_last_visit() {
     let mut browser = Browser::new(HashSet::new(), Default::default());
     let courses = vec![item("crs", 1, "Algebra"), item("crs", 2, "Biologie")];
     load(&mut browser, None, Page::from_items(courses), false);
-    browser.update(&Action::NewCounts(HashMap::from([(1, 3)])));
+    browser.update(&Action::NewCounts(HashMap::from([(
+        1,
+        crate::seen::Counts { items: 3, posts: 2 },
+    )])));
     let shown = screen(&mut browser);
-    assert!(shown.contains("Algebra  ● 3 new"), "{shown}");
+    assert!(shown.contains("Algebra  ● 3 new  ● new posts in 2 forums"), "{shown}");
     assert!(!shown.contains("Biologie  ●"), "{shown}");
 
     let files = vec![item("file", 10, "Folien"), item("file", 11, "Skript")];

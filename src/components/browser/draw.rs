@@ -135,7 +135,11 @@ impl Browser {
                         saved: self.saved.contains(&item.key()),
                         marked: self.marked.iter().any(|m| m.id == item.id),
                         new: self.new.contains(&item.key()),
-                        new_inside: self.new_counts.get(&item.key()).copied().unwrap_or(0),
+                        new_inside: self
+                            .new_counts
+                            .get(&item.key())
+                            .copied()
+                            .unwrap_or_default(),
                     };
                     item_row(item, &query, marks)
                 }

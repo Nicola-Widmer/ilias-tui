@@ -56,9 +56,10 @@ What it does:
   - each item's description and properties (file type, size, date, unread posts, …),
   - every item of long lists, also the ones ILIAS hides behind its "Show more" button.
 - **Shows what's new since your last visit**: files and other items that appeared or changed
-  since you last opened the page are marked `● new`. After a sync, each course on My courses
-  and each folder on the way to new files shows how many new items are below it
-  (`● 3 new`), so you can follow the counts down to them.
+  since you last opened the page are marked `● new`; forums and threads with new posts are
+  marked `● new posts`, in another colour (reading posts elsewhere doesn't count). After a
+  sync, each course on My courses and each folder on the way shows how much is new below
+  it (`● 3 new  ● new posts in 1 forum`), so you can follow the counts down.
 - **Nerd Font icons** per object type and file type: PDF, Word, Excel, PowerPoint,
   images, archives, code, …
 - **Filters** any list as you type (`/`).
