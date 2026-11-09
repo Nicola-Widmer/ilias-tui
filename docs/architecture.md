@@ -34,7 +34,12 @@ src/
 ├── app.rs               Event loop, side effects, action routing
 └── components/
     ├── mod.rs           Component trait
-    ├── browser.rs       Course/folder list with navigation stack
+    ├── browser/         Course/folder list with navigation stack
+    │   ├── mod.rs       State, keys, mouse, reactions to actions
+    │   ├── level.rs     One opened page: items, filter, selection, laid out as rows
+    │   ├── rows.rs      How rows look (items, text, headings, posts, To-Do)
+    │   ├── draw.rs      Header, tabs, page and To-Do panel; click areas
+    │   └── tests.rs
     ├── filter.rs        `/` search bar + matching
     ├── status_bar.rs    Footer messages
     ├── confirm.rs       Yes/no dialog in front of every write
@@ -524,7 +529,7 @@ If the feature needs ILIAS data, add a method to `ilias::Client`, then a matchin
   downloads and the Keycloak probe bypass the seam.
 - **Download helpers** (`ilias/mod.rs`): `Content-Disposition` parsing and filename
   sanitising.
-- **Component tests** (`components/browser.rs`, `components/filter.rs`): they drive the
+- **Component tests** (`components/browser/tests.rs`, `components/filter.rs`): they drive the
   components with key events and actions, and render them into ratatui's `TestBackend` to
   check the output. This covers navigation, stale responses, filtering and deep search.
   No terminal or network is needed.
