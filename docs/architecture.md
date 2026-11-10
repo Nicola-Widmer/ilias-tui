@@ -539,16 +539,18 @@ folder (`local::scan`: one level, no links, without `local::ignored`) and builds
 `Replace` (where `rights.versions` has the file), `Trash` (where `rights.delete` has
 it), `NewFolder` for folders no item of the place is called (where `rights.create` has
 `fold`), with what is in them all the way down (`local::walk`, ignore list and size limit
-applied; a name sync would save differently, `sanitize`, is a conflict); renames (a new file with the hash of a missing saved one) drop that
-file's proposal; same names on ILIAS, copies of saved files and folders shared by two ILIAS
+applied; a name sync would save differently, `sanitize`, is a conflict); a new file with the hash of exactly one missing saved file in the same folder, where
+`rights.versions` has it, is a `Rename` (and drops that file's proposal); in another
+folder, or among several with that hash, it is an `Upload` and the missing ones stay
+proposed; same names on ILIAS, copies of saved files and folders shared by two ILIAS
 places become conflicts; saved files in a place that ILIAS no longer lists are `gone`. The
 report lists all of it.
 
 `Synced` carries the `Review`, and `Report` shows it as the **review**: the report's
-sections, with the proposals (`sync::PROPOSALS`) as `[ ]` rows, its own keys
-(`keymap::REVIEW`: move, `Space` ticks, `Enter`, `Esc`), the cursor kept on screen with
+sections, with the proposals (`sync::PROPOSALS`) as `[x]` rows, ticked by default, its own
+keys (`keymap::REVIEW`: move, `Space` unticks or ticks, `Enter`, `Esc`), the cursor kept on screen with
 `Paragraph::line_count`. `Enter` sends `AskPush` with `Review::sendable` (uploads, new
-folders, replaced files) plus the ticked proposals; `Esc` or a click sends `Cancelled`. In a dry run the
+folders, replaced and renamed files) plus the ticked proposals; `Esc` or a click sends `Cancelled`. In a dry run the
 review is a plain report. The review is the question: `App::ask_push` sends `Push` at
 once, unless `ask::brake` finds more than usual (over `MAX_FILES` = 20 files to upload,
 those in new folders included, or to trash; or over `MAX_IN_FOLDER` = 5 files of one
@@ -556,8 +558,9 @@ place replaced or trashed), which asks once more (`Ask`). `Push(changes)` runs `
 per place it reads the page again (the re-check: a file of that name now is a conflict,
 a file gone from disk a failure), sends the rest with `Client::upload_files`, reads the
 page once more and records each file in the saved-files list under its new ref id with
-ILIAS' version, so the next sync finds it in sync; for a rename it marks the missing
-files with that content `moved_to`, which keeps them out of the trash proposals for good.
+ILIAS' version, so the next sync finds it in sync. A `Rename` goes like a `Replace`
+(below), with the new file name as the title (`Client::replace_file`'s `title`), and only
+while the old name is still gone from your disk.
 New folders come next: `push::new_folder` reads the place again (anything of that name now
 is a conflict), creates the folder with `Client::create_folder`, takes it from the
 listing, creates the folders below it in order, then uploads each one's planned files

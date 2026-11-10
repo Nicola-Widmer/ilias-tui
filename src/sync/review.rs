@@ -6,6 +6,8 @@
 //! | ----------------- | ------------- | ------------------------------------------- |
 //! | new               | –             | [`Change::Upload`], where ILIAS lets you    |
 //! | edited            | unchanged     | [`Change::Replace`]                      |
+//! | renamed (same folder) | unchanged | [`Change::Rename`]                       |
+//! | moved (other folder)  | unchanged | [`Change::Upload`] + [`Change::Trash`]   |
 //! | deleted           | unchanged     | [`Change::Trash`], a proposal (unticked)    |
 //! | any               | gone          | kept, listed in [`Review::gone`]            |
 //!
@@ -34,9 +36,9 @@ pub struct Place {
 /// One write two-way sync proposes.
 #[derive(Debug, Clone, PartialEq)]
 pub enum Change {
-    /// A file only on your disk: upload it into `place`. `renamed_from`: the saved file
-    /// with the same content that is gone from your disk (so it is not proposed for the
-    /// trash).
+    /// A file only on your disk: upload it into `place`. `renamed_from`: a saved file with
+    /// the same content that is gone from your disk (shown in the review; it is still
+    /// proposed for the trash).
     Upload {
         place: Item,
         path: PathBuf,
@@ -47,6 +49,15 @@ pub enum Change {
     Replace {
         place: Item,
         file: Item,
+        path: PathBuf,
+        base: String,
+    },
+    /// You renamed `from` to `path` in the same folder, and ILIAS still has the version
+    /// saved (`base`): give `file` the new name (through Replace File, with the new title).
+    Rename {
+        place: Item,
+        file: Item,
+        from: PathBuf,
         path: PathBuf,
         base: String,
     },
@@ -73,6 +84,7 @@ impl Change {
         match self {
             Change::Upload { path, .. }
             | Change::Replace { path, .. }
+            | Change::Rename { path, .. }
             | Change::Trash { path, .. } => path,
             Change::NewFolder { dir, .. } => dir,
         }
@@ -100,11 +112,13 @@ pub struct Review {
 
 impl Review {
     /// What sync sends after the review (besides the ticked proposals): uploads of new
-    /// files, new folders with what is in them, your edited files in place of ILIAS' ones.
+    /// files, new folders with what is in them, your edited files in place of ILIAS' ones,
+    /// renames.
     pub fn sendable(&self) -> Vec<Change> {
         self.uploads()
             .chain(self.new_folders())
             .chain(self.replacements())
+            .chain(self.renames())
             .cloned()
             .collect()
     }
@@ -119,6 +133,12 @@ impl Review {
         self.changes
             .iter()
             .filter(|c| matches!(c, Change::Replace { .. }))
+    }
+
+    pub fn renames(&self) -> impl Iterator<Item = &Change> {
+        self.changes
+            .iter()
+            .filter(|c| matches!(c, Change::Rename { .. }))
     }
 
     pub fn proposals(&self) -> impl Iterator<Item = &Change> {
@@ -180,6 +200,11 @@ pub fn decide(
     }
     // Proposals for the trash, until a renamed copy turns up below.
     let mut trash: Vec<(Item, Item, PathBuf)> = Vec::new();
+    let deleted: HashMap<PathBuf, Item> = candidates
+        .deleted
+        .iter()
+        .map(|(file, path)| (path.clone(), file.clone()))
+        .collect();
     for (file, path) in candidates.deleted {
         if let Some(place) = place_of(&file).filter(|p| p.rights.delete.contains(&file.key())) {
             trash.push((place.item.clone(), file, path));
@@ -244,15 +269,47 @@ pub fn decide(
             let same = by_hash.get(hash.as_str()).map_or(&[][..], Vec::as_slice);
             // Renamed or moved: a saved file with this content is gone from its place (and
             // not taken by another rename yet).
-            let gone = same
+            let gones: Vec<&&Path> = same
                 .iter()
-                .find(|saved| !saved.exists() && !renamed.contains(**saved));
+                .filter(|saved| !saved.exists() && !renamed.contains(**saved))
+                .collect();
+            // Exactly one, still on ILIAS as saved: a rename in this folder renames the
+            // ILIAS file; a move from another folder is an upload here, and the old file
+            // stays proposed for the trash.
+            if let [old] = gones.as_slice()
+                && let Some(file) = deleted.get(**old)
+            {
+                renamed.insert(old);
+                let here = old.parent() == path.parent();
+                match place_of(file) {
+                    Some(home) if here && may_change(home, file) => {
+                        trash.retain(|(_, _, missing)| missing != *old);
+                        review.changes.push(Change::Rename {
+                            place: home.item.clone(),
+                            file: file.clone(),
+                            from: old.to_path_buf(),
+                            base: base(file.key())
+                                .map(super::saved_version)
+                                .unwrap_or_default(),
+                            path,
+                        });
+                    }
+                    _ if here => review.local_only.push(path),
+                    _ if place.rights.upload => review.changes.push(Change::Upload {
+                        place: place.item.clone(),
+                        path,
+                        renamed_from: None,
+                    }),
+                    _ => review.local_only.push(path),
+                }
+                continue;
+            }
+            let gone = gones.first();
             let renamed_from = match (gone, same.first()) {
+                // Several gone with this content: which one was renamed can't be told, so
+                // this is an upload, and the gone ones stay proposed for the trash.
                 (Some(saved), _) => {
                     renamed.insert(saved);
-                    // The old name is not proposed for the trash, nor any other missing file
-                    // with this content: which one was renamed can't be told.
-                    trash.retain(|(_, _, missing)| !same.contains(&missing.as_path()));
                     Some(saved.to_path_buf())
                 }
                 (None, Some(saved)) => {
@@ -508,7 +565,7 @@ mod tests {
     }
 
     #[test]
-    fn a_renamed_file_is_uploaded_and_its_old_name_not_proposed_for_the_trash() {
+    fn a_renamed_file_is_renamed_on_ilias_and_a_moved_one_uploaded_with_the_old_trashed() {
         let (dir, mut downloads) = setup("rename");
         let folder = dir.join("Unterlagen");
         fs::write(folder.join("Blatt 4.pdf"), "sheet four").unwrap();
@@ -531,17 +588,54 @@ mod tests {
         );
         assert_eq!(
             review.changes,
-            [Change::Upload {
+            [Change::Rename {
                 place: places[0].item.clone(),
+                file: item("file", 10, "Blatt 4"),
+                from: folder.join("Blatt 4.pdf"),
                 path: folder.join("Sheet 4.pdf"),
-                renamed_from: Some(folder.join("Blatt 4.pdf")),
+                base: "v1".into(),
             }]
+        );
+
+        // Moved into another folder: uploaded there, and the old one goes to the trash.
+        let other = dir.join("Unterlagen/Woche 1");
+        fs::create_dir_all(&other).unwrap();
+        fs::rename(folder.join("Sheet 4.pdf"), other.join("Sheet 4.pdf")).unwrap();
+        let mut week = place(&other, Vec::new(), Vec::new());
+        week.item = item("fold", 5, "Woche 1");
+        let places = [places[0].clone(), week];
+        let candidates = Candidates {
+            deleted: vec![(item("file", 10, "Blatt 4"), folder.join("Blatt 4.pdf"))],
+            ..Candidates::default()
+        };
+        let review = decide(
+            &places,
+            &HashSet::from([10]),
+            candidates,
+            &downloads,
+            1 << 20,
+        );
+        assert_eq!(
+            review.changes,
+            [
+                Change::Upload {
+                    place: places[1].item.clone(),
+                    path: other.join("Sheet 4.pdf"),
+                    renamed_from: None,
+                },
+                Change::Trash {
+                    place: places[0].item.clone(),
+                    file: item("file", 10, "Blatt 4"),
+                    path: folder.join("Blatt 4.pdf"),
+                    base: "v1".into(),
+                },
+            ]
         );
         let _ = fs::remove_dir_all(dir);
     }
 
     #[test]
-    fn a_rename_is_found_among_files_with_the_same_content() {
+    fn an_unclear_rename_is_an_upload_and_the_gone_files_go_to_the_trash() {
         let (dir, mut downloads) = setup("same");
         let folder = dir.join("Unterlagen");
         for (key, name) in [
@@ -577,11 +671,9 @@ mod tests {
             &downloads,
             1 << 20,
         );
-        let [
-            Change::Upload {
-                path, renamed_from, ..
-            },
-        ] = review.changes.as_slice()
+        let Some(Change::Upload {
+            path, renamed_from, ..
+        }) = review.uploads().next()
         else {
             panic!("{review:?}");
         };
@@ -592,6 +684,8 @@ mod tests {
             "{old:?}"
         );
         assert!(review.conflicts.is_empty(), "{review:?}");
+        // Both gone files are proposed: ILIAS ends up as your folder is.
+        assert_eq!(review.proposals().count(), 2, "{review:?}");
         let _ = fs::remove_dir_all(dir);
     }
 

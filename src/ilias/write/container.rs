@@ -137,9 +137,16 @@ impl Client {
     /// Replaces `file` in `container` with the one at `path`, through the file's own
     /// "Replace File" form (ILIAS drops its earlier versions). The way there is read from
     /// the pages: the file's Versions entry in the container's menu, then that tab's
-    /// "Replace File". Returns the version number the tab lists afterwards, or `None` in
-    /// dry-run mode, where nothing is sent.
-    pub fn replace_file(&self, container: &Item, file: &Item, path: &Path) -> Result<Option<u32>> {
+    /// "Replace File". With `title`, the file is renamed too (the form's Title); without,
+    /// it keeps ILIAS' title. Returns the version number the tab lists afterwards, or
+    /// `None` in dry-run mode, where nothing is sent.
+    pub fn replace_file(
+        &self,
+        container: &Item,
+        file: &Item,
+        path: &Path,
+        title: Option<&str>,
+    ) -> Result<Option<u32>> {
         let (Id::Ref(_), Id::Ref(file_ref)) = (container.id, file.id) else {
             bail!("ILIAS keeps no versions of {}", file.title);
         };
@@ -175,7 +182,7 @@ impl Client {
             Some(&[
                 Form::Field {
                     name: &form.title.0,
-                    value: &form.title.1,
+                    value: title.unwrap_or(&form.title.1),
                 },
                 Form::Field {
                     name: &form.description,
@@ -561,7 +568,9 @@ mod tests {
         let client = Client::with_pages(base(), ilias.clone());
         let path = &files(&["Skript.pdf"])[0];
         assert_eq!(
-            client.replace_file(&folder(), &skript(), path).unwrap(),
+            client
+                .replace_file(&folder(), &skript(), path, None)
+                .unwrap(),
             Some(2)
         );
         assert_eq!(
@@ -580,7 +589,9 @@ mod tests {
         // Sent, but no new row: an error, not a silent success.
         let ilias = versions_ilias(VERSIONS, REPLACE, SAVE_REPLACE, REPLACE_UPLOAD, false);
         let client = Client::with_pages(base(), ilias);
-        let error = client.replace_file(&folder(), &skript(), path).unwrap_err();
+        let error = client
+            .replace_file(&folder(), &skript(), path, None)
+            .unwrap_err();
         assert!(error.to_string().contains("no new version"), "{error}");
     }
 
@@ -591,7 +602,9 @@ mod tests {
         client.set_dry_run(true);
         let path = &files(&["Skript.pdf"])[0];
         assert_eq!(
-            client.replace_file(&folder(), &skript(), path).unwrap(),
+            client
+                .replace_file(&folder(), &skript(), path, None)
+                .unwrap(),
             None
         );
         assert!(ilias.posts(&base()).is_empty());
@@ -644,7 +657,9 @@ mod tests {
             let ilias = versions_ilias(versions, new_version, save, upload, true);
             let client = Client::with_pages(base(), ilias.clone());
             assert!(
-                client.replace_file(&folder(), &skript(), path).is_err(),
+                client
+                    .replace_file(&folder(), &skript(), path, None)
+                    .is_err(),
                 "{versions} {new_version} {save} {upload}"
             );
             assert!(

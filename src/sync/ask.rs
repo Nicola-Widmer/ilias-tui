@@ -23,8 +23,12 @@ pub fn brake(changes: &[Change]) -> Option<String> {
         })
         .sum();
     let count = |f: fn(&Change) -> bool| changes.iter().filter(|c| f(c)).count();
-    let uploads =
-        count(|c| matches!(c, Change::Upload { .. } | Change::Replace { .. })) + in_folders;
+    let uploads = count(|c| {
+        matches!(
+            c,
+            Change::Upload { .. } | Change::Replace { .. } | Change::Rename { .. }
+        )
+    }) + in_folders;
     let trash = count(|c| matches!(c, Change::Trash { .. }));
     if uploads > MAX_FILES || trash > MAX_FILES {
         return Some(format!(
@@ -34,7 +38,10 @@ pub fn brake(changes: &[Change]) -> Option<String> {
     }
     let mut touched: HashMap<u64, (&Item, usize)> = HashMap::new();
     for change in changes {
-        if let Change::Replace { place, .. } | Change::Trash { place, .. } = change {
+        if let Change::Replace { place, .. }
+        | Change::Rename { place, .. }
+        | Change::Trash { place, .. } = change
+        {
             touched.entry(place.key()).or_insert((place, 0)).1 += 1;
         }
     }

@@ -141,26 +141,112 @@ fn uploads_new_files_records_them_as_in_sync_and_journals_it() {
     let _ = std::fs::remove_dir_all(&s.dir);
 }
 
+/// Folder 89 listing file 120 as `title` ("Notes" until renamed), with Versions in its
+/// menu, the Versions tab with "Replace File", and that form (markup of the local ILIAS 10,
+/// shortened). Saving the form renames the file to the title sent; the fake can't read it,
+/// so it takes `renamed`.
+fn rename_ilias(renamed: &'static str) -> Arc<FakeIlias> {
+    let saved = AtomicBool::new(false);
+    Arc::new(FakeIlias::new(move |url| {
+        let query = url.query().unwrap_or_default();
+        if query.contains("cmd=upload&") {
+            return reply(url, r#"{"status":1,"file_id":"r-1"}"#);
+        }
+        if query.contains("fallbackCmd=createReplacingVersion") {
+            saved.store(true, Ordering::SeqCst);
+            return reply(url, "<p>saved</p>");
+        }
+        if query.contains("cmd=addReplacingVersion") {
+            return reply(
+                url,
+                r#"<form class="c-form" enctype="multipart/form-data" action="ilias.php?baseClass=ilrepositorygui&amp;cmdClass=ilFileVersionsGUI&amp;cmd=post&amp;fallbackCmd=createReplacingVersion&amp;ref_id=120&amp;rtoken=t" method="post">
+                <input type="text" value="Notes.md" name="form/input_0/input_1" /><textarea name="form/input_0/input_2"></textarea>
+                <template><input type="hidden" name="form/input_0/input_3[input_0][]" value="" /></template></form>
+                <script>il.UI.Input.File.init('il_ui_fw_1', 'ilias.php?baseClass=ilrepositorygui&cmdClass=ilFileVersionsUploadHandlerGUI&cmd=upload&ref_id=120&upload_mode=replace&cmdMode=asynch', 'x', 'file_id', 0, 1, 1000, '', false);</script>"#,
+            );
+        }
+        let done = saved.load(Ordering::SeqCst);
+        if query.contains("cmdClass=ilFileVersionsGUI") {
+            let version = if done { 2 } else { 1 };
+            return reply(
+                url,
+                &format!(
+                    r#"<button class="btn btn-default" data-action="ilias.php?baseClass=ilrepositorygui&amp;cmdClass=ilFileVersionsGUI&amp;cmd=addReplacingVersion&amp;ref_id=120">Replace File</button>
+                    <table id="ilFileVersionsTableGUI"><tbody><tr><td><input type="checkbox" name="hist_id[]" value="{version}" /></td><td> {version} </td></tr></tbody></table>"#
+                ),
+            );
+        }
+        let title = if done { renamed } else { "Notes" };
+        reply(
+            url,
+            &format!(
+                r#"<div id="il_center_col"><div class="ilContainerListItemOuter"><a class="il_ContainerItemTitle" href="ilias.php?cmdClass=ilObjFileGUI&amp;cmd=sendfile&amp;ref_id=120">{title}</a>
+                <div class="il_ItemProperties"><span class="il_ItemProperty">md</span><span class="il_ItemProperty">4 Bytes</span></div>
+                <ul><li><button class="btn btn-link" data-action="ilias.php?baseClass=ilrepositorygui&amp;cmdClass=ilFileVersionsGUI&amp;ref_id=120">Versions</button></li></ul></div></div>"#
+            ),
+        )
+    }))
+}
+
 #[test]
-fn an_uploaded_rename_keeps_the_old_name_out_of_the_trash_for_good() {
+fn a_rename_renames_the_file_on_ilias_through_replace_file() {
     let mut s = setup("rename");
     // Saved as "Notes.md" (file 120), renamed by you to "Notizen.md".
     let old = s.dir.join("Notes.md");
     std::fs::write(&old, "mine").unwrap();
-    s.downloads.record(120, old.clone(), "v1".into()).unwrap();
+    s.downloads
+        .record(120, old.clone(), "4 Bytes".into())
+        .unwrap();
     std::fs::remove_file(&old).unwrap();
-    let client = Client::with_pages(base(), ilias(UPLOAD, &[("Notes", 120)]));
-    let rename = vec![Change::Upload {
+    let fake = rename_ilias("Notizen");
+    let client = Client::with_pages(base(), fake.clone());
+    let notes = Item {
+        kind: Kind::File,
+        id: Id::Ref(120),
+        title: "Notes".into(),
+        ..Item::default()
+    };
+    let rename = vec![Change::Rename {
         place: folder(),
+        file: notes.clone(),
+        from: old.clone(),
         path: s.file.clone(),
-        renamed_from: Some(old),
+        base: "4 Bytes".into(),
     }];
     let pushed = push(&client, &rename, &mut s.downloads, &mut s.journal, |_| {});
-    assert_eq!(pushed.uploaded, [s.file.clone()], "{pushed:?}");
-    assert_eq!(
-        s.downloads.entry(120).unwrap().moved_to,
-        Some(s.file.clone())
+    assert_eq!(pushed.renamed, [s.file.clone()], "{pushed:?}");
+    let posts = fake.posts(&base());
+    assert_eq!(posts.len(), 2, "{posts:?}");
+    assert!(posts[0].ends_with("upload_mode=replace&cmdMode=asynch <- file[0]=@Notizen.md"));
+    // The new name as the title, not ILIAS' old one.
+    assert!(
+        posts[1].ends_with("<- form/input_0/input_1=Notizen.md&form/input_0/input_2=&form/input_0/input_3[input_0][]=r-1"),
+        "{}",
+        posts[1]
     );
+    // In sync under the new name.
+    assert_eq!(s.downloads.entry(120).unwrap().path, s.file);
+    assert_eq!(journal(&s)[0]["action"], "rename");
+
+    // The old name back on your disk: not renamed.
+    let mut s = setup("rename-back");
+    std::fs::write(&old, "mine").unwrap();
+    let fake = rename_ilias("Notizen");
+    let client = Client::with_pages(base(), fake.clone());
+    let rename = vec![Change::Rename {
+        place: folder(),
+        file: notes,
+        from: old.clone(),
+        path: s.file.clone(),
+        base: "4 Bytes".into(),
+    }];
+    let pushed = push(&client, &rename, &mut s.downloads, &mut s.journal, |_| {});
+    assert!(
+        pushed.conflicts[0].contains("old name is back"),
+        "{pushed:?}"
+    );
+    assert!(fake.posts(&base()).is_empty());
+    let _ = std::fs::remove_file(&old);
     let _ = std::fs::remove_dir_all(&s.dir);
 }
 

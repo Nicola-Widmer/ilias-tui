@@ -151,11 +151,11 @@ _Avoid_: clash, collision.
 
 **Proposal**:
 A deletion two-way sync suggests because you deleted a file it saved and ILIAS still has
-it as saved: moving that file to the ILIAS trash, unticked until you tick it.
+it as saved: moving that file to the ILIAS trash. Ticked in the review; `Space` unticks it.
 
 **Review**:
 What a two-way sync shows before it sends anything: grouped, what `Enter` sends (uploads,
-replaced files), the proposals to tick, and what stays as it is (conflicts, files gone on
+replaced and renamed files), the proposals (ticked), and what stays as it is (conflicts, files gone on
 ILIAS, files ILIAS doesn't let you upload). In a dry run it is a plain report.
 _Avoid_: preview, diff.
 

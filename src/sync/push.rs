@@ -17,6 +17,8 @@ pub struct Pushed {
     pub uploaded: Vec<PathBuf>,
     /// Edited files that replaced ILIAS' ones.
     pub replacements: Vec<PathBuf>,
+    /// Files renamed on ILIAS, as you renamed them.
+    pub renamed: Vec<PathBuf>,
     /// Files you deleted, now in the ILIAS trash.
     pub trashed: Vec<PathBuf>,
     /// Local folders now also on ILIAS.
@@ -37,6 +39,9 @@ impl Pushed {
         let mut parts = vec![format!("{} uploaded", self.uploaded.len())];
         if !self.replacements.is_empty() {
             parts.push(format!("{} replaced", self.replacements.len()));
+        }
+        if !self.renamed.is_empty() {
+            parts.push(format!("{} renamed", self.renamed.len()));
         }
         if !self.folders.is_empty() {
             parts.push(format!("{} new folders", self.folders.len()));
@@ -108,20 +113,11 @@ pub fn push(
     let mut pushed = Pushed::default();
     // Uploads by place, in the order planned.
     let mut places: Vec<(&Item, Vec<&PathBuf>)> = Vec::new();
-    let mut renames = Vec::new();
     for change in changes {
-        if let Change::Upload {
-            place,
-            path,
-            renamed_from,
-        } = change
-        {
+        if let Change::Upload { place, path, .. } = change {
             match places.iter_mut().find(|(p, _)| p.id == place.id) {
                 Some((_, paths)) => paths.push(path),
                 None => places.push((place, vec![path])),
-            }
-            if renamed_from.is_some() {
-                renames.push(path);
             }
         }
     }
@@ -130,15 +126,7 @@ pub fn push(
     for (place, paths) in places {
         progress(format!("Two-way sync: uploading {done}/{total} files"));
         done += paths.len();
-        upload_into(
-            client,
-            place,
-            paths,
-            &renames,
-            downloads,
-            journal,
-            &mut pushed,
-        );
+        upload_into(client, place, paths, downloads, journal, &mut pushed);
     }
     for change in changes {
         if let Change::NewFolder {
@@ -174,6 +162,30 @@ pub fn push(
                 file,
                 path,
                 base,
+                None,
+                downloads,
+                journal,
+                &mut pushed,
+            );
+        }
+    }
+    for change in changes {
+        if let Change::Rename {
+            place,
+            file,
+            from,
+            path,
+            base,
+        } = change
+        {
+            progress(format!("Two-way sync: renaming {}", file.title));
+            replace(
+                client,
+                place,
+                file,
+                path,
+                base,
+                Some(from),
                 downloads,
                 journal,
                 &mut pushed,
@@ -253,7 +265,6 @@ fn upload_into(
     client: &Client,
     place: &Item,
     paths: Vec<&PathBuf>,
-    renames: &[&PathBuf],
     downloads: &mut Downloads,
     journal: &mut Journal,
     pushed: &mut Pushed,
@@ -322,11 +333,6 @@ fn upload_into(
                     },
                     None => "ok, not recorded: not found in the listing".into(),
                 };
-                // A rename: the old name is never proposed for the trash.
-                if renames.contains(&&path) {
-                    let hash = crate::downloads::hash_file(&path).unwrap_or_default();
-                    let _ = downloads.mark_moved(&hash, &path);
-                }
                 let _ = journal.write("upload", &path, &object(place), &result);
                 pushed.uploaded.push(path);
             }
@@ -417,7 +423,7 @@ fn new_folder(
             .filter(|p| p.parent() == Some(folder.as_path()) && !p.is_dir())
             .collect();
         if !files.is_empty() {
-            upload_into(client, item, files, &[], downloads, journal, pushed);
+            upload_into(client, item, files, downloads, journal, pushed);
         }
     }
 }
@@ -440,7 +446,8 @@ fn make_folder(client: &Client, parent: &Item, dir: &Path) -> color_eyre::Result
 }
 
 /// Puts one edited file in place of ILIAS' one, if ILIAS still has the version it was
-/// edited from (`base`); records it as in sync.
+/// edited from (`base`); records it as in sync. For a rename (`renamed_from`, the old
+/// name, still gone from your disk) the file also gets its new name as title.
 #[allow(clippy::too_many_arguments)]
 fn replace(
     client: &Client,
@@ -448,12 +455,18 @@ fn replace(
     file: &Item,
     path: &Path,
     base: &str,
+    renamed_from: Option<&PathBuf>,
     downloads: &mut Downloads,
     journal: &mut Journal,
     pushed: &mut Pushed,
 ) {
+    let action = if renamed_from.is_some() {
+        "rename"
+    } else {
+        "replace"
+    };
     let fail = |journal: &mut Journal, pushed: &mut Pushed, why: String| {
-        fail_as("replace", journal, pushed, place, path, why);
+        fail_as(action, journal, pushed, place, path, why);
     };
     // The re-check: the file as ILIAS lists it now.
     let now = match client.page(place, None) {
@@ -474,9 +487,17 @@ fn replace(
         Some(_) if !path.is_file() => {
             return fail(journal, pushed, "no longer on your disk".into());
         }
+        Some(_) if renamed_from.is_some_and(|old| old.exists()) => {
+            pushed.conflicts.push(format!(
+                "{}: the old name is back on your disk; not renamed",
+                path.display()
+            ));
+            return;
+        }
         Some(_) => {}
     }
-    match client.replace_file(place, file, path) {
+    let title = renamed_from.and(path.file_name()).and_then(|n| n.to_str());
+    match client.replace_file(place, file, path, title) {
         Ok(None) => pushed.dry_run = true,
         Ok(Some(number)) => {
             // In sync again: ILIAS' file is your copy now.
@@ -491,8 +512,11 @@ fn replace(
                 Some(Err(e)) => format!("ok: version {number}, not recorded: {e:#}"),
                 None => format!("ok: version {number}, not recorded: not in the listing"),
             };
-            let _ = journal.write("replace", path, &object(place), &result);
-            pushed.replacements.push(path.to_path_buf());
+            let _ = journal.write(action, path, &object(place), &result);
+            match renamed_from {
+                Some(_) => pushed.renamed.push(path.to_path_buf()),
+                None => pushed.replacements.push(path.to_path_buf()),
+            }
         }
         Err(e) => fail(journal, pushed, format!("{e:#}")),
     }

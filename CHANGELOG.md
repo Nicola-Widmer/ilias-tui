@@ -9,6 +9,11 @@ features and changes in behaviour, the last one for fixes only. See
 
 ### Changed
 
+- **Two-way sync mirrors your folder**: a file renamed in the same folder is renamed on
+  ILIAS (through "Replace File" with the new name) instead of uploaded again; a file
+  moved to another folder is uploaded there and the old one goes to the trash; files you
+  deleted are ticked for the ILIAS trash in the review (`Space` unticks). The status line
+  says "to the ILIAS trash" instead of "(left out)".
 - **The sync review is the question**: `Enter` sends what it lists and the ticked
   deletions at once; it asks again only for a lot at once.
 - **The mass-change brake counts files, not percent**: it asks again for more than 20

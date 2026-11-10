@@ -26,9 +26,9 @@ with any ILIAS 10 that logs in through OpenID Connect. Runs on macOS, Linux and 
   the saved copy opens at once.
 - **Sync** whole courses (`S`, `A`): every file up to 50 MB, later only what changed, and
   never over files you edited. **Two-way sync** (settings, off by default) also uploads
-  your new files and folders and your edits (in place of ILIAS' file), and moves files you
-  deleted to the ILIAS trash if you tick them; it shows everything first and asks. See
-  [Sync](#sync).
+  your new files and folders and your edits (in place of ILIAS' file), renames files you
+  renamed, and moves files you deleted to the ILIAS trash; it shows everything first and
+  you send it with `Enter`. See [Sync](#sync).
 - Works **offline** with what it has seen before. See [Offline](#offline).
 
 **Exercises and forums**
@@ -202,15 +202,19 @@ is a plain report and nothing is sent.
 | unchanged         | changed       | downloads it, as always                                    |
 | edited            | unchanged     | replaces ILIAS' file with yours (ILIAS keeps no earlier version) |
 | edited            | changed       | a **conflict**: saves ILIAS' copy beside yours, sends nothing |
-| deleted           | unchanged     | a **proposal**: moves it to the ILIAS trash if you tick it (`Space`) |
+| renamed (same folder) | unchanged | renames ILIAS' file (through "Replace File" with the new name) |
+| moved (other folder)  | unchanged | uploads it there and moves the old one to the ILIAS trash |
+| deleted           | unchanged     | a **proposal**: moves it to the ILIAS trash; ticked, `Space` unticks it |
 | deleted           | changed       | downloads it again                                         |
 | any               | gone on ILIAS | keeps yours and lists it                                   |
 
 - **Edited means edited:** a file whose date changed but whose content didn't counts as
   untouched. Files saved by an older version have no hash yet; sync adds it while they are
   as saved, and lists changed ones as "can't tell" instead of sending them.
-- **Renames:** a new file with the content of a file you no longer have is uploaded, and
-  the old one isn't proposed for deletion.
+- **Renames:** a new file with the content of exactly one saved file you no longer have,
+  in the same folder, is that file renamed: ILIAS' file gets the new name. Anywhere else,
+  or if several gone files have that content, it is uploaded and the gone ones go to the
+  trash, so ILIAS ends up as your folder is.
 - **Anything unclear is a conflict**, and nothing is sent for it: a new file named like an
   ILIAS file sync didn't save, a copy of another saved file, two ILIAS folders saved into
   one folder.
@@ -226,7 +230,7 @@ is a plain report and nothing is sent.
 - **More than usual, asked again:** more than 20 files at once, or more than 5 files of
   one folder replaced or moved to the trash, and sync asks once more after `Enter`.
 - **In sync afterwards:** each uploaded file is recorded like a download, so the next sync
-  sees it as unchanged; a renamed file's old name is never proposed for the trash.
+  sees it as unchanged.
 - **A journal** of every write (time, action, file, ILIAS object, result) is kept next to
   the session, as `<ilias host>.journal.jsonl`.
 - **Nothing is deleted for good** besides the earlier versions of a file you replace:

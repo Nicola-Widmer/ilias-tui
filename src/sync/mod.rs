@@ -43,7 +43,7 @@ use review::{Candidates, Place};
 pub use review::{Change, Review};
 
 /// The report's section of proposed deletions, which the review shows as checkboxes.
-pub const PROPOSALS: &str = "Deleted by you: tick to move to the ILIAS trash";
+pub const PROPOSALS: &str = "Deleted by you: to the ILIAS trash (Space unticks)";
 
 /// Downloads running at the same time; polite to the server, still much faster than one.
 const PARALLEL: usize = 3;
@@ -193,7 +193,7 @@ pub fn plan(item: &Item, saved: Option<(&Saved, Local)>, rules: Rules) -> Plan {
         Local::Edited if rules.two_way && !changed => Plan::Replace(path()),
         _ if rules.missing_only => Plan::Unchanged,
         Local::Missing if changed => fetch(Plan::New),
-        Local::Missing if rules.two_way && saved.moved_to.is_none() => Plan::Trash(path()),
+        Local::Missing if rules.two_way => Plan::Trash(path()),
         Local::Missing => Plan::Deleted,
         _ if !changed => Plan::Unchanged,
         Local::Untouched => fetch(Plan::Update(saved.path.clone())),
@@ -220,6 +220,7 @@ pub struct Summary {
     pub unseen: Vec<FoundNew>,
     /// Two-way: what to send to ILIAS, once you agree.
     pub review: Review,
+    pub two_way: bool,
 }
 
 /// New items a sync found on one page.
@@ -247,8 +248,18 @@ impl Summary {
             ));
         }
         parts.push(format!("{} unchanged", self.unchanged));
-        if self.deleted > 0 {
-            parts.push(format!("{} deleted by you (left out)", self.deleted));
+        let review = &self.review;
+        let (trash, renamed) = (review.proposals().count(), review.renames().count());
+        let kept = self.deleted.saturating_sub(trash + renamed);
+        if trash > 0 {
+            parts.push(format!("{trash} deleted by you (to the ILIAS trash)"));
+        }
+        if kept > 0 && self.two_way {
+            parts.push(format!(
+                "{kept} deleted by you (ILIAS doesn't let you delete them there)"
+            ));
+        } else if kept > 0 {
+            parts.push(format!("{kept} deleted by you (not downloaded again)"));
         }
         let to_send = self.review.changes.len();
         if to_send > 0 {
@@ -279,6 +290,9 @@ impl Summary {
                         path,
                         ..
                     } => format!("{} (renamed from {})", shorten(path), shorten(old)),
+                    Change::Rename { from, path, .. } => {
+                        format!("{} (was {})", shorten(path), shorten(from))
+                    }
                     Change::NewFolder { dir, contents, .. } => {
                         let files = contents.iter().filter(|p| !p.is_dir()).count();
                         format!("{}/ ({files} files in it)", shorten(dir))
@@ -307,6 +321,10 @@ impl Summary {
             (
                 "Edited by you: to replace on ILIAS (its earlier versions are deleted)".to_string(),
                 changes(&mut review.replacements()),
+            ),
+            (
+                "Renamed by you: to rename on ILIAS (its earlier versions are deleted)".to_string(),
+                changes(&mut review.renames()),
             ),
             (PROPOSALS.to_string(), changes(&mut review.proposals())),
             (
@@ -358,7 +376,10 @@ pub fn sync(
     rules: Rules,
     progress: impl Fn(String) + Sync,
 ) -> Result<Summary> {
-    let mut summary = Summary::default();
+    let mut summary = Summary {
+        two_way: rules.two_way,
+        ..Summary::default()
+    };
     let mut work: Vec<(Item, Plan)> = Vec::new();
     let mut unseen = Vec::new();
     // Ref ids of the containers read and the files planned so far.

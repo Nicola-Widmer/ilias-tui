@@ -57,7 +57,10 @@ Read-only; safe to build.
     plan, shown in the sync report.
   - [x] Upload new files (asks first, re-checks each folder, mass-change brake, journal).
   - [x] Edited files replace ILIAS' ones ("Replace File", tested on the local ILIAS).
-  - [x] A review screen with the proposed deletions to tick (unticked by default).
+  - [x] A review screen with the proposed deletions (ticked by default, `Space` unticks).
+  - [x] Renames in the same folder rename the file on ILIAS; moves upload and trash the old.
+- [ ] **Two-way moves on ILIAS**: a file moved into another folder could be moved there with
+  ILIAS' Move (cut and paste) instead of an upload and the trash.
   - [x] New local folders become ILIAS folders, with what is in them.
 - [ ] **Two-way sync from the review straight away**: today a run downloads first and
   then shows the review; downloads could wait for it too.

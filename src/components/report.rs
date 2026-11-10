@@ -2,8 +2,9 @@
 //! edited copies or had failures, it lists them. Scrolls with j/k; any other key closes it.
 //!
 //! After a two-way sync with something to send it is the **review**: what Enter sends
-//! (uploads, replaced files), the proposed deletions as checkboxes, unticked until you tick
-//! them (Space), and everything else that stays as it is. It is the question before
+//! (uploads, replaced and renamed files), the files you deleted as checkboxes, ticked
+//! for the ILIAS trash unless you untick them (Space), and everything else that stays as
+//! it is. It is the question before
 //! sending: Enter sends ([`Action::AskPush`], which asks once more only for a lot at once);
 //! Esc closes it and nothing is sent. In a dry run
 //! it is a plain report.
@@ -103,7 +104,7 @@ impl Report {
         let colors = theme::colors();
         if self.reviewing() {
             lines.push(Line::styled(
-                "Enter sends what is listed to upload or replace and the ticked deletions; Esc sends nothing.",
+                "Enter sends all of it; files you deleted go to the ILIAS trash unless you untick them (Space). Esc sends nothing.",
                 theme::muted(),
             ));
         }
@@ -176,7 +177,7 @@ impl Component for Report {
                 };
                 if !review.dry_run {
                     self.send = review.sendable();
-                    self.proposals = review.proposals().map(|c| (c.clone(), false)).collect();
+                    self.proposals = review.proposals().map(|c| (c.clone(), true)).collect();
                 }
             }
             Action::Pushed { report, .. } if !report.is_empty() => {
@@ -223,7 +224,7 @@ impl Component for Report {
         let (title, hint) = if self.reviewing() {
             (
                 " Sync review ",
-                " j/k move · Space tick for the trash · Enter send · Esc send nothing ",
+                " j/k move · Space untick / tick for the trash · Enter send · Esc send nothing ",
             )
         } else {
             (" Sync report ", " j/k scroll · any other key closes ")
@@ -372,18 +373,18 @@ mod tests {
     }
 
     #[test]
-    fn the_review_sends_uploads_and_only_the_ticked_deletions() {
+    fn the_review_sends_everything_but_the_unticked_deletions() {
         let mut report = Report::default();
         report.update(&review(false));
         let shown = screen(&mut report);
         assert!(shown.contains("Sync review"), "{shown}");
-        assert!(shown.contains("[ ] Unterlagen/Blatt 1.pdf"), "{shown}");
-        assert!(shown.contains("[ ] Unterlagen/Blatt 2.pdf"), "{shown}");
+        assert!(shown.contains("[x] Unterlagen/Blatt 1.pdf"), "{shown}");
+        assert!(shown.contains("[x] Unterlagen/Blatt 2.pdf"), "{shown}");
         assert!(shown.contains("Unterlagen/Alt.pdf"), "{shown}");
-        // Nothing ticked by default; the second ticked.
+        // Every deletion ticked by default; the second unticked.
         key(&mut report, KeyCode::Char('j'));
         key(&mut report, KeyCode::Char(' '));
-        assert!(screen(&mut report).contains("[x] Unterlagen/Blatt 2.pdf"));
+        assert!(screen(&mut report).contains("[ ] Unterlagen/Blatt 2.pdf"));
         // Other keys don't close it.
         assert!(matches!(
             key(&mut report, KeyCode::Char('x')),
@@ -394,24 +395,30 @@ mod tests {
         };
         assert_eq!(changes.len(), 2);
         assert!(matches!(changes[0], Change::Upload { .. }));
-        assert_eq!(changes[1], trash(2));
+        assert_eq!(changes[1], trash(1));
         assert!(key(&mut report, KeyCode::Char('j')).is_none(), "closed");
     }
 
     #[test]
-    fn closing_the_review_sends_nothing_and_ticks_nothing_by_default() {
+    fn closing_the_review_sends_nothing_and_enter_sends_the_deletions_too() {
         let mut report = Report::default();
         report.update(&review(false));
         assert!(matches!(
             key(&mut report, KeyCode::Esc),
             Some(Action::Cancelled)
         ));
-        // Enter without ticks sends the uploads, never a deletion.
+        // Enter right away sends the deletions too.
         report.update(&review(false));
         let Some(Action::AskPush(changes)) = key(&mut report, KeyCode::Enter) else {
             panic!("Enter goes on to the question");
         };
-        assert!(!changes.iter().any(|c| matches!(c, Change::Trash { .. })));
+        assert_eq!(
+            changes
+                .iter()
+                .filter(|c| matches!(c, Change::Trash { .. }))
+                .count(),
+            2
+        );
         // A click is not a yes.
         report.update(&review(false));
         let click = MouseEvent {

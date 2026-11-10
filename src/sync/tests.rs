@@ -18,7 +18,6 @@ fn saved(version: &str) -> Saved {
         len: 1,
         modified_ms: 1,
         hash: String::new(),
-        moved_to: None,
     }
 }
 
@@ -471,15 +470,6 @@ fn two_way_decides_every_row_from_base_disk_and_ilias() {
         super::plan(&same, Some((&hashed(V1), Local::Missing)), RULES),
         Plan::Deleted
     );
-    // Renamed by you and uploaded under the new name: not proposed for the trash.
-    let moved = Saved {
-        moved_to: Some(PathBuf::from("/dl/DEMO.101/Sheet 3.pdf")),
-        ..hashed(V1)
-    };
-    assert_eq!(
-        super::plan(&same, Some((&moved, Local::Missing)), TWO_WAY),
-        Plan::Deleted
-    );
 }
 
 #[test]
@@ -712,4 +702,42 @@ fn copies_saved_outside_the_download_folder_are_left_alone() {
         summary.review
     );
     let _ = std::fs::remove_dir_all(root);
+}
+
+#[test]
+fn says_what_becomes_of_the_files_you_deleted() {
+    let trash = Change::Trash {
+        place: Item::default(),
+        file: Item::default(),
+        path: PathBuf::from("/dl/a.pdf"),
+        base: "v1".into(),
+    };
+    let two_way = Summary {
+        deleted: 2,
+        two_way: true,
+        review: Review {
+            changes: vec![trash],
+            ..Review::default()
+        },
+        ..Summary::default()
+    };
+    let text = two_way.text(50.0);
+    assert!(
+        text.contains("1 deleted by you (to the ILIAS trash)"),
+        "{text}"
+    );
+    assert!(
+        text.contains("1 deleted by you (ILIAS doesn't let you delete them there)"),
+        "{text}"
+    );
+    assert!(!text.contains("left out"), "{text}");
+    let one_way = Summary {
+        deleted: 2,
+        ..Summary::default()
+    };
+    assert!(
+        one_way
+            .text(50.0)
+            .contains("2 deleted by you (not downloaded again)")
+    );
 }
