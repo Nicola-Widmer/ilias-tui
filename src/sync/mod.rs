@@ -8,6 +8,8 @@
 //! - Files you edited (size or modification time differ from right after the download) are
 //!   never overwritten; a newer ILIAS version is saved beside them instead.
 //! - Files you deleted stay deleted until they change on ILIAS.
+//! - Only copies in the download folder count: after it changed, files are saved again
+//!   there, and the old copies are left alone.
 //! - With "missing files only" (settings), it's simpler: every file that isn't on disk is
 //!   downloaded (also the ones you deleted), and every file that is stays as it is.
 //! - Each file is saved once per sync, even if ILIAS lists it in several places: "My
@@ -419,7 +421,7 @@ pub fn sync(
         for mut item in files {
             // Titles are paths below the root; name the course too.
             item.title = format!("{} › {}", root.title, item.title);
-            let saved = downloads.entry(item.key()).map(|s| (s, s.local()));
+            let saved = base(downloads, item.key(), dir).map(|s| (s, s.local()));
             let has_hash = saved.is_some_and(|(s, _)| s.has_hash());
             match plan(&item, saved, rules) {
                 Plan::Unchanged => {
@@ -493,6 +495,15 @@ pub fn sync(
         summary.review.dry_run = client.is_dry_run();
     }
     Ok(summary)
+}
+
+/// What sync saved of file `key` in the download folder `dir`, if anything. A copy saved
+/// elsewhere (before the download folder changed) is left as it is: it is neither updated
+/// nor taken as deleted, and the file is saved again in `dir`.
+fn base<'a>(downloads: &'a Downloads, key: u64, dir: &Path) -> Option<&'a Saved> {
+    downloads
+        .entry(key)
+        .filter(|saved| saved.path.starts_with(dir))
 }
 
 /// The folders between `root` and `container`, from the top, following each folder's

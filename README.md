@@ -180,6 +180,8 @@ files skipped for their size, saved beside your copy, or failed.
 - **Your edits are safe:** a file you changed is never overwritten. When it changes on
   ILIAS too, the new version is saved beside yours, e.g. `Blatt 3 (ILIAS 2026-11-02).pdf`.
 - **Deleted is deleted:** a file you removed comes back only if it changes on ILIAS.
+- **A new download folder starts fresh:** after you change it, sync saves the files there
+  again and leaves the copies in the old folder alone.
   "Sync missing files only" (settings) instead fetches everything missing and touches
   nothing else.
 - **Browsable offline:** every page sync reads is cached, so a synced course can be walked

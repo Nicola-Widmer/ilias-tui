@@ -649,3 +649,67 @@ fn a_relative_date_is_the_same_version_the_next_day() {
     };
     assert_eq!(saved_version(&old), V1);
 }
+
+#[test]
+fn copies_saved_outside_the_download_folder_are_left_alone() {
+    use crate::ilias::pages::{FakeIlias, reply};
+    use std::sync::Arc;
+    // Course 1 lists file 9 (too big to download, so nothing goes to the network), with
+    // Delete and Versions in its menu.
+    let ilias = Arc::new(FakeIlias::new(|url| match url.path() {
+        "/ilias/goto.php/crs/1" => reply(
+            url,
+            r#"<ol class="breadcrumb"><li><a href="goto.php/crs/1">DEMO.101</a></li></ol>
+            <div id="il_center_col"><div class="ilContainerListItemOuter">
+            <a class="il_ContainerItemTitle" href="https://ilias.example/ilias/ilias.php?cmdClass=ilObjFileGUI&amp;cmd=sendfile&amp;ref_id=9">Blatt 3</a>
+            <div class="il_ItemProperties"><span class="il_ItemProperty">pdf</span>
+            <span class="il_ItemProperty">900 MB</span></div>
+            <ul><li><button class="btn btn-link" data-action="ilias.php?cmdClass=ilObjCourseGUI&amp;cmd=delete&amp;ref_id=1&amp;item_ref_id=9">Delete</button></li></ul></div></div>"#,
+        ),
+        other => Err(color_eyre::eyre::eyre!("unexpected {other}")),
+    }));
+    let base = url::Url::parse("https://ilias.example/ilias/").unwrap();
+    let client = Client::with_pages(base, ilias.clone());
+    let root = std::env::temp_dir().join(format!("ilias-tui-moved-{}", std::process::id()));
+    let _ = std::fs::remove_dir_all(&root);
+    // Saved into the old download folder, since deleted there; the folder is new now.
+    let (old, dir) = (root.join("old"), root.join("new"));
+    std::fs::create_dir_all(old.join("DEMO.101")).unwrap();
+    let copy = old.join("DEMO.101/Blatt 3.pdf");
+    std::fs::write(&copy, "x").unwrap();
+    let mut downloads = Downloads::in_file(root.join("index.json"));
+    downloads.record(9, copy.clone(), "900 MB".into()).unwrap();
+    std::fs::remove_file(&copy).unwrap();
+    let course = Item {
+        kind: "crs".into(),
+        id: Id::Ref(1),
+        title: "DEMO.101".into(),
+        url: "https://ilias.example/ilias/goto.php/crs/1".into(),
+        ..Item::default()
+    };
+    let cache = Cache::in_dir(root.join("cache"));
+    let rules = Rules {
+        max_mb: 50.0,
+        ..TWO_WAY
+    };
+    let summary = sync(
+        &client,
+        &[course],
+        &dir,
+        &mut downloads,
+        &cache,
+        rules,
+        |_| {},
+    )
+    .unwrap();
+    // Not "deleted by you" (and so not proposed for the trash): a file to save in the
+    // new folder, here skipped for its size.
+    assert_eq!(summary.deleted, 0, "{summary:?}");
+    assert_eq!(summary.too_big.len(), 1, "{summary:?}");
+    assert!(
+        summary.review.proposals().next().is_none(),
+        "{:?}",
+        summary.review
+    );
+    let _ = std::fs::remove_dir_all(root);
+}

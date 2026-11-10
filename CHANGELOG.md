@@ -22,6 +22,10 @@ features and changes in behaviour, the last one for fixes only. See
 
 ### Fixed
 
+- **Sync after changing the download folder** kept updating files in the old folder, and
+  two-way sync proposed them for the ILIAS trash once that folder was gone. Now only copies
+  in the current download folder count: files are saved there again, and old copies are
+  left alone.
 - **Sync after midnight**: ILIAS lists recent dates as "Today, 12:41", which becomes
   "Yesterday, 12:41" the next day, so every such file looked changed on ILIAS. Sync
   fetched untouched files again, and two-way sync took your edits for conflicts. Sync
