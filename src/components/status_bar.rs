@@ -93,6 +93,15 @@ impl Component for StatusBar {
             Action::Sync(roots) => {
                 Status::Busy(format!("Sync: starting ({} selected)…", roots.len()))
             }
+            Action::LocalTrashed { moved, kept } if kept.is_empty() => {
+                Status::Done(format!("Moved {} to your Trash", files(*moved)))
+            }
+            Action::LocalTrashed { moved, kept } => Status::Warning(format!(
+                "Moved {} to your Trash; kept {}: {}",
+                files(*moved),
+                kept.len(),
+                kept.join("; ")
+            )),
             Action::Synced { summary, .. } | Action::Pushed { summary, .. } => {
                 Status::Done(summary.clone())
             }

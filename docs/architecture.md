@@ -14,7 +14,7 @@ src/
 ├── downloads.rs         Saved files (the base): path, ILIAS version, size, mtime, hash
 ├── sync/                Sync whole courses
 │   ├── mod.rs           Plan per file, parallel downloads, the report
-│   ├── local.rs         Two-way: what is in a local folder, without the ignore list
+│   ├── local.rs         Two-way: what is in a local folder (ignore list), and your Trash
 │   ├── review.rs        Two-way: what to send to ILIAS, decided three-way from the base
 │   ├── ask.rs           Two-way: the question before sending, and the mass-change brake
 │   ├── push.rs          Two-way: sending what you agreed to, with the re-checks
@@ -64,7 +64,7 @@ src/
     ├── filter.rs        `/` search bar + matching
     ├── status_bar.rs    Footer messages
     ├── report.rs        The sync report; after a two-way sync the review (ticks, Enter, Esc)
-    ├── confirm.rs       Yes/no dialog in front of every write
+    ├── confirm.rs       Yes/no dialog in front of every write: icon and title by kind, `y`/`n` buttons
     ├── pick_files.rs    Asks for the files to hand in (`H`) or upload (`u`)
     ├── complete.rs      `Tab` in that dialog: completes the path being typed, as a shell does
     ├── prompt.rs        Asks for a line of text (a new folder's name; posts without $EDITOR)
@@ -570,6 +570,13 @@ else it is a conflict; then `Client::replace_file` runs and the file is recorded
 listing's new version. A `Trash` is sent only if ILIAS still
 has the version and the file is still gone from your disk, through `Client::delete_item`
 (which refuses without a trash). Every write is appended to the `Journal`. `Pushed` shows the result like a sync.
+
+Saved files in a place that ILIAS no longer lists are split by `Saved::local`: edited ones
+are `gone` (kept, listed), untouched ones `gone_untouched`. After `Synced`,
+`App::ask_local_trash` asks about those (not in a dry run) with `ask::local_trash`; `y`
+sends `TrashLocal`, which checks each again (`local::trashable`: still as saved) and moves
+it with `local::to_trash` (the `trash` crate; on macOS `NSFileManager`, which needs no
+Automation rights, unlike its Finder default), journals it and reports `LocalTrashed`.
 
 The crawl uses `Client::descendants_with_pages`, which hands every course and folder page it
 reads to a callback; sync puts them in the page cache under the key the TUI uses when it

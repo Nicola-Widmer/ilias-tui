@@ -598,3 +598,45 @@ fn the_review_sends_at_once_and_asks_again_only_for_a_lot() {
     }
     let _ = std::fs::remove_dir_all(dir);
 }
+
+#[test]
+fn files_gone_on_ilias_go_to_your_trash_only_after_asking() {
+    let dir = std::env::temp_dir().join(format!("ilias-tui-local-trash-{}", std::process::id()));
+    let mut app = app(&dir);
+    let gone = vec![dir.join("Alt.pdf")];
+    let synced = || Action::Synced {
+        summary: String::new(),
+        report: Vec::new(),
+        saved: Vec::new(),
+        review: Box::new(crate::sync::Review {
+            gone_untouched: gone.clone(),
+            ..Default::default()
+        }),
+    };
+    let drain =
+        |app: &mut App| -> Vec<Action> { std::iter::from_fn(|| app.rx.try_recv().ok()).collect() };
+    app.dispatch(synced()).unwrap();
+    let asked = drain(&mut app);
+    let Some(Action::Ask { question, then }) = asked.last() else {
+        panic!("{asked:?}");
+    };
+    assert!(
+        question.contains("Move this file to your Trash?"),
+        "{question}"
+    );
+    assert!(matches!(**then, Action::TrashLocal(ref p) if *p == gone));
+    // A dry run asks nothing.
+    app.client.set_dry_run(true);
+    app.dispatch(synced()).unwrap();
+    assert!(
+        !drain(&mut app)
+            .iter()
+            .any(|a| matches!(a, Action::Ask { .. }))
+    );
+    // A file sync didn't save is never moved.
+    app.dispatch(Action::TrashLocal(gone.clone())).unwrap();
+    assert!(drain(&mut app).iter().any(
+        |a| matches!(a, Action::LocalTrashed { moved: 0, kept } if kept[0].contains("not saved by sync"))
+    ));
+    let _ = std::fs::remove_dir_all(dir);
+}

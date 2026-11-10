@@ -149,6 +149,11 @@ unclear (a new file named like an ILIAS file sync didn't save, a copy of a saved
 Nothing is sent for it and both copies stay.
 _Avoid_: clash, collision.
 
+**Your Trash**:
+Your computer's trash (macOS Trash, Windows Recycle Bin, the desktop trash on Linux), where
+two-way sync moves a file gone on ILIAS that you left untouched, after you say `y`.
+_Avoid_: delete (locally), bin.
+
 **Proposal**:
 A deletion two-way sync suggests because you deleted a file it saved and ILIAS still has
 it as saved: moving that file to the ILIAS trash. Ticked in the review; `Space` unticks it.

@@ -7,8 +7,17 @@ features and changes in behaviour, the last one for fixes only. See
 
 ## Unreleased
 
+### Added
+
+- **Files deleted on ILIAS can go to your Trash**: after a two-way sync, a dialog lists the
+  files ILIAS no longer has that you left untouched, and `y` moves them to your computer's
+  trash (macOS Trash, Windows Recycle Bin, Linux desktop trash). Edited ones are kept.
+
 ### Changed
 
+- **Dialogs and the sync review look better**: an icon and colour per kind of question
+  and per section (Nerd Font icons, plain ones without), the question as a headline with
+  its files listed below, `y`/`n` as buttons, count badges and checkboxes.
 - **Two-way sync mirrors your folder**: a file renamed in the same folder is renamed on
   ILIAS (through "Replace File" with the new name) instead of uploaded again; a file
   moved to another folder is uploaded there and the old one goes to the trash; files you

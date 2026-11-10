@@ -193,6 +193,13 @@ pub enum Action {
     /// Two-way sync: send what the review sends (uploads, new folders, replaced files, the
     /// ticked deletions); asks once more first if it is a lot at once.
     AskPush(Vec<crate::sync::Change>),
+    /// Move these saved files, gone on ILIAS and untouched, to your computer's trash.
+    TrashLocal(Vec<PathBuf>),
+    /// How many went to the trash, and the ones kept with why.
+    LocalTrashed {
+        moved: usize,
+        kept: Vec<String>,
+    },
     /// Two-way sync: send these changes to ILIAS (you agreed to them).
     Push(Vec<crate::sync::Change>),
     /// What a push sent (one line) and what deserves a look (by section).

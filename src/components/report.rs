@@ -13,7 +13,7 @@ use ratatui::Frame;
 use ratatui::crossterm::event::{KeyCode, KeyEvent, MouseEvent, MouseEventKind};
 use ratatui::layout::{Constraint, Rect};
 use ratatui::style::{Modifier, Style};
-use ratatui::text::Line;
+use ratatui::text::{Line, Span};
 use ratatui::widgets::{Block, BorderType, Clear, Padding, Paragraph, Wrap};
 
 use super::Component;
@@ -103,38 +103,80 @@ impl Report {
         let mut rows = Vec::new();
         let colors = theme::colors();
         if self.reviewing() {
-            lines.push(Line::styled(
-                "Enter sends all of it; files you deleted go to the ILIAS trash unless you untick them (Space). Esc sends nothing.",
-                theme::muted(),
-            ));
+            lines.push(Line::from(vec![
+                Span::styled(format!("{}  ", theme::send()), theme::accent_bold()),
+                Span::styled("Enter", theme::accent_bold()),
+                Span::styled(" sends all of it. Files you deleted go to the ILIAS trash unless you untick them with ", theme::muted()),
+                Span::styled("Space", theme::accent_bold()),
+                Span::styled(". ", theme::muted()),
+                Span::styled("Esc", theme::accent_bold()),
+                Span::styled(" sends nothing.", theme::muted()),
+            ]));
         }
         for (title, items) in self.sections.iter().flatten() {
             if !lines.is_empty() {
                 lines.push(Line::raw(""));
             }
-            lines.push(Line::styled(
-                format!("{title} ({})", items.len()),
-                Style::new().fg(colors.yellow).add_modifier(Modifier::BOLD),
-            ));
+            let (icon, color) = section_look(title);
+            let bold = Style::new().fg(color).add_modifier(Modifier::BOLD);
+            lines.push(Line::from(vec![
+                Span::styled(format!("{icon}  "), bold),
+                Span::styled(title.clone(), bold),
+                Span::styled(
+                    format!("  {} ", items.len()),
+                    Style::new().fg(colors.bar_bg).bg(color),
+                ),
+            ]));
             if title == PROPOSALS && !self.proposals.is_empty() {
                 for (i, (item, (_, ticked))) in items.iter().zip(&self.proposals).enumerate() {
-                    let mark = if *ticked { "[x]" } else { "[ ]" };
+                    let (mark, mark_color) = match ticked {
+                        true => (theme::checked(), colors.red),
+                        false => (theme::unchecked(), colors.muted),
+                    };
                     let mut style = Style::new().fg(colors.fg);
                     if i == self.cursor {
                         style = style.bg(colors.selected_bg).add_modifier(Modifier::BOLD);
                     }
                     rows.push(lines.len());
-                    lines.push(Line::styled(format!("  {mark} {item}"), style));
+                    lines.push(Line::from(vec![
+                        Span::styled("   ", style),
+                        Span::styled(format!("{mark} "), style.fg(mark_color)),
+                        Span::styled(item.clone(), style),
+                    ]));
                 }
                 continue;
             }
-            lines.extend(
-                items
-                    .iter()
-                    .map(|item| Line::styled(format!("  {item}"), Style::new().fg(colors.fg))),
-            );
+            lines.extend(items.iter().map(|item| {
+                Line::from(vec![
+                    Span::styled(format!("   {} ", theme::bullet()), Style::new().fg(color)),
+                    Span::styled(item.clone(), Style::new().fg(colors.fg)),
+                ])
+            }));
         }
         (lines, rows)
+    }
+}
+
+/// A section's icon and colour, by its title (as `sync` and `push` name them).
+fn section_look(title: &str) -> (&'static str, ratatui::style::Color) {
+    let c = theme::colors();
+    let starts = |prefix: &str| title.starts_with(prefix);
+    match () {
+        _ if starts("New on your disk") => (theme::upload(), c.green),
+        _ if starts("New folders") => (theme::folder(), c.green),
+        _ if starts("Edited by you") => (theme::edit(), c.blue),
+        _ if starts("Renamed by you") => (theme::rename(), c.cyan),
+        _ if starts("Deleted by you") => (theme::trash(), c.red),
+        _ if starts("Gone on ILIAS, unchanged") => (theme::trash(), c.orange),
+        _ if starts("Gone on ILIAS") => (theme::unlink(), c.orange),
+        _ if starts("Conflicts") || starts("Changed on ILIAS since") => {
+            (theme::warning(), c.yellow)
+        }
+        _ if starts("Changed on ILIAS") => (theme::copy(), c.yellow),
+        _ if starts("Only on your disk") => (theme::lock(), c.muted),
+        _ if starts("Changed on your disk") => (theme::question(), c.muted),
+        _ if starts("Failed") => (theme::failed(), c.red),
+        _ => (theme::ban(), c.muted),
     }
 }
 
@@ -223,11 +265,14 @@ impl Component for Report {
         self.scroll = self.scroll.min(total.saturating_sub(visible));
         let (title, hint) = if self.reviewing() {
             (
-                " Sync review ",
+                format!(" {}  Sync review ", theme::sync()),
                 " j/k move · Space untick / tick for the trash · Enter send · Esc send nothing ",
             )
         } else {
-            (" Sync report ", " j/k scroll · any other key closes ")
+            (
+                format!(" {}  Sync report ", theme::sync()),
+                " j/k scroll · any other key closes ",
+            )
         };
         let block = Block::bordered()
             .border_type(BorderType::Rounded)
@@ -300,7 +345,8 @@ mod tests {
             .map(|i| format!("Lecture {i} (107.9 MB)"))
             .collect();
         report.update(&synced(vec![("Skipped: bigger than 50 MB".into(), big)]));
-        assert!(screen(&mut report).contains("Skipped: bigger than 50 MB (40)"));
+        let shown = screen(&mut report);
+        assert!(shown.contains("Skipped: bigger than 50 MB  40 "), "{shown}");
 
         // j scrolls (and is used up), any other key closes.
         assert!(matches!(
@@ -378,13 +424,20 @@ mod tests {
         report.update(&review(false));
         let shown = screen(&mut report);
         assert!(shown.contains("Sync review"), "{shown}");
-        assert!(shown.contains("[x] Unterlagen/Blatt 1.pdf"), "{shown}");
-        assert!(shown.contains("[x] Unterlagen/Blatt 2.pdf"), "{shown}");
+        let (on, off) = (theme::checked(), theme::unchecked());
+        assert!(
+            shown.contains(&format!("{on} Unterlagen/Blatt 1.pdf")),
+            "{shown}"
+        );
+        assert!(
+            shown.contains(&format!("{on} Unterlagen/Blatt 2.pdf")),
+            "{shown}"
+        );
         assert!(shown.contains("Unterlagen/Alt.pdf"), "{shown}");
         // Every deletion ticked by default; the second unticked.
         key(&mut report, KeyCode::Char('j'));
         key(&mut report, KeyCode::Char(' '));
-        assert!(screen(&mut report).contains("[ ] Unterlagen/Blatt 2.pdf"));
+        assert!(screen(&mut report).contains(&format!("{off} Unterlagen/Blatt 2.pdf")));
         // Other keys don't close it.
         assert!(matches!(
             key(&mut report, KeyCode::Char('x')),
@@ -439,7 +492,7 @@ mod tests {
         report.update(&review(true));
         let shown = screen(&mut report);
         assert!(shown.contains("Sync report"), "{shown}");
-        assert!(!shown.contains("[ ]"), "{shown}");
+        assert!(!shown.contains(theme::checked()), "{shown}");
         assert!(matches!(
             key(&mut report, KeyCode::Enter),
             Some(Action::Handled)

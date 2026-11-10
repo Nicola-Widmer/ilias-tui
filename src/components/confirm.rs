@@ -57,42 +57,65 @@ impl Component for Confirm {
         let Some((question, then)) = &self.pending else {
             return;
         };
-        // Sync only reads from ILIAS; everything else asked here changes it.
-        let (title, color) = match then {
-            Action::Sync(_) => (format!(" {}  Sync ", theme::sync()), theme::colors().accent),
-            _ => (
-                format!(" {}  Changes ILIAS ", theme::warning()),
-                theme::colors().yellow,
-            ),
+        // What kind of question it is: its icon, title and colour.
+        let colors = theme::colors();
+        let (icon, title, color) = match then {
+            Action::Sync(_) => (theme::sync(), "Sync", colors.accent),
+            Action::Push(_) => (theme::send(), "Send to ILIAS", colors.yellow),
+            Action::TrashLocal(_) => (theme::trash(), "Your Trash", colors.orange),
+            Action::OpenLink(_) => (theme::external(), "Another site", colors.accent),
+            _ => (theme::warning(), "Changes ILIAS", colors.yellow),
         };
+        let bold = Style::new().fg(color).add_modifier(Modifier::BOLD);
         let block = Block::bordered()
             .border_type(BorderType::Rounded)
             .border_style(Style::new().fg(color))
-            .title(Line::styled(
-                title,
-                Style::new().fg(color).add_modifier(Modifier::BOLD),
-            ))
+            .title(Line::styled(format!(" {icon}  {title} "), bold))
             .padding(Padding::horizontal(2))
-            .style(
-                Style::new()
-                    .bg(theme::colors().bar_bg)
-                    .fg(theme::colors().fg),
-            );
-        let text = vec![
+            .style(Style::new().bg(colors.bar_bg).fg(colors.fg));
+        // The first line is the question; any further lines are what it is about.
+        let mut parts = question.lines();
+        let mut text = vec![
             Line::raw(""),
-            Line::styled(question.clone(), Style::new().fg(theme::colors().fg)),
+            Line::styled(
+                parts.next().unwrap_or_default().to_string(),
+                Style::new().fg(colors.fg).add_modifier(Modifier::BOLD),
+            ),
+        ];
+        let items: Vec<Line> = parts
+            .map(|item| {
+                Line::from(vec![
+                    Span::styled(format!("  {} ", theme::bullet()), Style::new().fg(color)),
+                    Span::styled(item.to_string(), Style::new().fg(colors.fg)),
+                ])
+            })
+            .collect();
+        if !items.is_empty() {
+            text.push(Line::raw(""));
+            text.extend(items);
+        }
+        let button = |key: &str, label: &str, bg| {
+            Span::styled(
+                format!(" {key}  {label} "),
+                Style::new()
+                    .fg(colors.bar_bg)
+                    .bg(bg)
+                    .add_modifier(Modifier::BOLD),
+            )
+        };
+        text.extend([
             Line::raw(""),
             Line::from(vec![
-                Span::styled(" y ", theme::accent_bold()),
-                Span::styled("yes   ", theme::muted()),
-                Span::styled(" n ", theme::accent_bold()),
-                Span::styled("no", theme::muted()),
-            ]),
-        ];
+                button("y", "Yes", color),
+                Span::raw("   "),
+                button("n", "No", colors.muted),
+            ])
+            .centered(),
+        ]);
         let paragraph = Paragraph::new(text).wrap(Wrap { trim: true }).block(block);
         // Long questions wrap: make the box tall enough that the y/n line stays visible
         // (the width inside the borders and padding is 6 less).
-        let width = area.width.min(64);
+        let width = area.width.min(76);
         let height = paragraph.line_count(width.saturating_sub(6)) as u16;
         let area = area.centered(Constraint::Length(width), Constraint::Length(height));
         frame.render_widget(Clear, area);
@@ -148,7 +171,10 @@ mod tests {
             let screen = format!("{:?}", terminal.backend().buffer());
             // The whole question (its last word) and the answers below it.
             assert!(screen.contains("are."), "{screen}");
-            assert!(screen.contains("y yes"), "{screen}");
+            assert!(
+                screen.contains("y  Yes") && screen.contains("n  No"),
+                "{screen}"
+            );
         }
     }
 

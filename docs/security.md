@@ -110,6 +110,11 @@ would write are deliberately not built; see the
   set, so Gatekeeper checks them before anything inside can run. On Windows they get the
   browsers' "Mark of the Web" (`Zone.Identifier`), so SmartScreen and Office's protected
   view treat them as downloaded. Linux has no equivalent mark.
+- **Your files go to your Trash, never away for good.** Two-way sync offers to move a
+  file of a synced course to your computer's trash only if it is gone on ILIAS and still
+  exactly as sync saved it (by content hash), and only after you answer `y`; it checks
+  that again right before. On macOS through the file manager API (no Finder automation
+  rights), elsewhere the system's trash (the `trash` crate). Each move is in the journal.
 - **No shell in between.** Files and links are handed to `open` (macOS), `xdg-open` (Linux)
   or `rundll32 url.dll,FileProtocolHandler` (Windows) as one argument, never through `cmd`,
   which would read the `&` in ILIAS links as a command separator.

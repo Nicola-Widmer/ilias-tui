@@ -35,7 +35,7 @@ use crate::ilias::{Client, Id, Item, Kind, Page};
 
 pub mod ask;
 pub mod journal;
-mod local;
+pub mod local;
 pub mod push;
 pub mod review;
 
@@ -336,8 +336,12 @@ impl Summary {
                 conflicts,
             ),
             (
-                "Gone on ILIAS, kept on your disk".to_string(),
+                "Gone on ILIAS, edited by you: kept on your disk".to_string(),
                 paths(&review.gone),
+            ),
+            (
+                "Gone on ILIAS, unchanged on your disk: to your Trash (asks)".to_string(),
+                paths(&review.gone_untouched),
             ),
             (
                 "Only on your disk: ILIAS doesn't let you upload or change it there".to_string(),

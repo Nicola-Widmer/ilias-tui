@@ -206,7 +206,8 @@ is a plain report and nothing is sent.
 | moved (other folder)  | unchanged | uploads it there and moves the old one to the ILIAS trash |
 | deleted           | unchanged     | a **proposal**: moves it to the ILIAS trash; ticked, `Space` unticks it |
 | deleted           | changed       | downloads it again                                         |
-| any               | gone on ILIAS | keeps yours and lists it                                   |
+| unchanged         | gone on ILIAS | asks (`y`/`n`) whether to move yours to your computer's Trash |
+| edited            | gone on ILIAS | keeps yours and lists it                                   |
 
 - **Edited means edited:** a file whose date changed but whose content didn't counts as
   untouched. Files saved by an older version have no hash yet; sync adds it while they are
@@ -233,9 +234,10 @@ is a plain report and nothing is sent.
   sees it as unchanged.
 - **A journal** of every write (time, action, file, ILIAS object, result) is kept next to
   the session, as `<ilias host>.journal.jsonl`.
-- **Nothing is deleted for good** besides the earlier versions of a file you replace:
-  sync never removes your files, and on ILIAS only moves the ones you ticked to its trash
-  (where they can be restored), never where ILIAS has no trash.
+- **Nothing is deleted for good** besides the earlier versions of a file you replace: on
+  your disk sync only moves files to your Trash (macOS Trash, Windows Recycle Bin, the
+  desktop trash on Linux), and only untouched ones gone on ILIAS, after you say `y`; on
+  ILIAS only into its trash (where they can be restored), never where ILIAS has no trash.
 
 ## Offline
 

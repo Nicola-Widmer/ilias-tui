@@ -63,6 +63,41 @@ pub fn scan(dir: &Path) -> Found {
     found
 }
 
+/// Which of `paths` (files gone on ILIAS) may go to your computer's trash now: those still
+/// exactly as sync saved them (by content). The others are returned with why not.
+pub fn trashable(
+    paths: &[PathBuf],
+    downloads: &crate::downloads::Downloads,
+) -> (Vec<PathBuf>, Vec<String>) {
+    let (mut ok, mut skipped) = (Vec::new(), Vec::new());
+    for path in paths {
+        let saved = downloads.entries().find(|(_, s)| &s.path == path);
+        match saved.map(|(_, s)| s.local()) {
+            Some(crate::downloads::Local::Untouched) => ok.push(path.clone()),
+            Some(crate::downloads::Local::Missing) => {}
+            Some(crate::downloads::Local::Edited) => {
+                skipped.push(format!("{}: changed since the sync; kept", path.display()))
+            }
+            None => skipped.push(format!("{}: not saved by sync; kept", path.display())),
+        }
+    }
+    (ok, skipped)
+}
+
+/// Moves `path` to your computer's trash, from where it can be put back. On macOS through
+/// the file manager API, which needs no permission (asking Finder would need Automation
+/// rights and plays its sound).
+pub fn to_trash(path: &Path) -> Result<(), trash::Error> {
+    #[allow(unused_mut)]
+    let mut trash = trash::TrashContext::default();
+    #[cfg(target_os = "macos")]
+    {
+        use trash::macos::{DeleteMethod, TrashContextExtMacos};
+        trash.set_delete_method(DeleteMethod::NsFileManager);
+    }
+    trash.delete(path)
+}
+
 /// What a new local folder holds, all the way down (at most [`MAX_DEPTH`] folders deep and
 /// [`MAX_ENTRIES`] entries): its folders and files, each folder before what is in it, and
 /// the files over `max_bytes`, which are left out.
@@ -123,6 +158,28 @@ mod tests {
         ] {
             assert!(!ignored(name), "{name}");
         }
+    }
+
+    #[test]
+    fn only_files_still_as_saved_may_go_to_the_trash() {
+        let dir = std::env::temp_dir().join(format!("ilias-tui-trashable-{}", std::process::id()));
+        let _ = fs::remove_dir_all(&dir);
+        fs::create_dir_all(&dir).unwrap();
+        let mut downloads = crate::downloads::Downloads::in_file(dir.join("index.json"));
+        let (same, edited, other) = (dir.join("a.pdf"), dir.join("b.pdf"), dir.join("c.pdf"));
+        for (key, path) in [(1, &same), (2, &edited)] {
+            fs::write(path, "as saved").unwrap();
+            downloads.record(key, path.clone(), "v1".into()).unwrap();
+        }
+        fs::write(&edited, "with my notes").unwrap();
+        fs::write(&other, "never synced").unwrap();
+        let (ok, kept) = trashable(&[same.clone(), edited, other], &downloads);
+        assert_eq!(ok, [same]);
+        assert_eq!(kept.len(), 2, "{kept:?}");
+        assert!(
+            kept[0].contains("changed since the sync") && kept[1].contains("not saved by sync")
+        );
+        let _ = fs::remove_dir_all(dir);
     }
 
     #[test]

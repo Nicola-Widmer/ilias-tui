@@ -19,7 +19,7 @@ use std::collections::{HashMap, HashSet};
 use std::path::{Path, PathBuf};
 
 use super::local;
-use crate::downloads::Downloads;
+use crate::downloads::{Downloads, Local};
 use crate::ilias::{Item, Kind, Rights, lists_as, sanitize};
 
 /// A course or folder the sync read, and its folder on your disk. Only pages with a place
@@ -97,8 +97,11 @@ pub struct Review {
     pub changes: Vec<Change>,
     /// Unclear cases, with why: nothing sent, both copies kept.
     pub conflicts: Vec<String>,
-    /// Saved files ILIAS no longer lists: kept on your disk.
+    /// Saved files ILIAS no longer lists, which you edited: kept on your disk.
     pub gone: Vec<PathBuf>,
+    /// Saved files ILIAS no longer lists, still exactly as saved: offered for your
+    /// computer's trash (after asking).
+    pub gone_untouched: Vec<PathBuf>,
     /// New or edited files where ILIAS doesn't let you upload.
     pub local_only: Vec<PathBuf>,
     /// Changed on your disk, but saved before content hashes were recorded: whether you
@@ -382,16 +385,17 @@ pub fn decide(
 
     // Saved files in these folders that ILIAS no longer lists.
     let dirs: HashSet<&Path> = places.iter().map(|p| p.dir.as_path()).collect();
-    review.gone = downloads
-        .entries()
-        .filter(|(key, saved)| {
-            !on_ilias.contains(key)
-                && saved.path.parent().is_some_and(|d| dirs.contains(d))
-                && saved.path.exists()
-        })
-        .map(|(_, saved)| saved.path.clone())
-        .collect();
+    for (_, saved) in downloads.entries().filter(|(key, saved)| {
+        !on_ilias.contains(key) && saved.path.parent().is_some_and(|d| dirs.contains(d))
+    }) {
+        match saved.local() {
+            Local::Untouched => review.gone_untouched.push(saved.path.clone()),
+            Local::Edited => review.gone.push(saved.path.clone()),
+            Local::Missing => {}
+        }
+    }
     review.gone.sort();
+    review.gone_untouched.sort();
     review
 }
 
@@ -741,10 +745,14 @@ mod tests {
     fn keeps_and_reports_files_gone_on_ilias() {
         let (dir, mut downloads) = setup("gone");
         let folder = dir.join("Unterlagen");
-        fs::write(folder.join("Alt.pdf"), "old").unwrap();
-        downloads
-            .record(12, folder.join("Alt.pdf"), "v1".into())
-            .unwrap();
+        for (key, name) in [(12, "Alt.pdf"), (13, "Notizen.pdf")] {
+            fs::write(folder.join(name), "old").unwrap();
+            downloads
+                .record(key, folder.join(name), "v1".into())
+                .unwrap();
+        }
+        // Edited after the sync saved it.
+        fs::write(folder.join("Notizen.pdf"), "old, with my notes").unwrap();
         let places = [place(&folder, Vec::new(), Vec::new())];
         let review = decide(
             &places,
@@ -753,7 +761,9 @@ mod tests {
             &downloads,
             1 << 20,
         );
-        assert_eq!(review.gone, [folder.join("Alt.pdf")]);
+        // Untouched: offered for your trash; edited: kept. Nothing is removed here.
+        assert_eq!(review.gone_untouched, [folder.join("Alt.pdf")]);
+        assert_eq!(review.gone, [folder.join("Notizen.pdf")]);
         assert!(review.changes.is_empty());
         assert!(folder.join("Alt.pdf").exists());
         let _ = fs::remove_dir_all(dir);

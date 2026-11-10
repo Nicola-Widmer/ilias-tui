@@ -98,7 +98,11 @@ impl App {
                 self.downloads = Downloads::load(&self.client.base);
             }
             Action::Sync(roots) => self.sync(roots.clone()),
-            Action::Synced { .. } => self.synced()?,
+            Action::Synced { review, .. } => {
+                self.synced()?;
+                self.ask_local_trash(&review.gone_untouched)?;
+            }
+            Action::TrashLocal(paths) => self.trash_local(paths)?,
             Action::AskPush(changes) => self.ask_push(changes)?,
             Action::Push(changes) => self.push(changes.clone()),
             Action::Pushed { .. } => self.downloads = Downloads::load(&self.client.base),
@@ -417,6 +421,43 @@ impl App {
         self.downloads = Downloads::load(&self.client.base);
         self.seen = Seen::load(&self.client.base);
         self.tx.send(Action::NewCounts(self.seen.counts()))?;
+        Ok(())
+    }
+
+    /// Files gone on ILIAS and untouched on your disk: ask whether they go to your trash
+    /// (not in a dry run).
+    fn ask_local_trash(&self, paths: &[PathBuf]) -> Result<()> {
+        if paths.is_empty() || self.client.is_dry_run() {
+            return Ok(());
+        }
+        self.tx.send(Action::Ask {
+            question: sync::ask::local_trash(paths, &self.download_dir),
+            then: Box::new(Action::TrashLocal(paths.to_vec())),
+        })?;
+        Ok(())
+    }
+
+    /// Moves files to your computer's trash (where they can be restored), each only if it
+    /// is still exactly as sync saved it; every move goes into the journal.
+    fn trash_local(&mut self, paths: &[PathBuf]) -> Result<()> {
+        self.downloads = Downloads::load(&self.client.base);
+        let (ok, mut kept) = sync::local::trashable(paths, &self.downloads);
+        let mut journal = sync::journal::Journal::open(&self.client.base);
+        let mut moved = 0;
+        for path in ok {
+            let result = match sync::local::to_trash(&path) {
+                Ok(()) => {
+                    moved += 1;
+                    "ok: in your trash".to_string()
+                }
+                Err(e) => {
+                    kept.push(format!("{}: {e}", path.display()));
+                    format!("failed: {e}")
+                }
+            };
+            let _ = journal.write("local trash", &path, "gone on ILIAS", &result);
+        }
+        self.tx.send(Action::LocalTrashed { moved, kept })?;
         Ok(())
     }
 

@@ -13,6 +13,27 @@ pub const MAX_FILES: usize = 20;
 /// more.
 pub const MAX_IN_FOLDER: usize = 5;
 
+/// The question before moving `paths` (gone on ILIAS, untouched on your disk) to your
+/// computer's trash; `dir` shortens them.
+pub fn local_trash(paths: &[std::path::PathBuf], dir: &std::path::Path) -> String {
+    let names: Vec<String> = paths
+        .iter()
+        .map(|p| p.strip_prefix(dir).unwrap_or(p).display().to_string())
+        .collect();
+    let mut lines: Vec<String> = names.iter().take(8).cloned().collect();
+    if names.len() > 8 {
+        lines.push(format!("and {} more (see the report)", names.len() - 8));
+    }
+    let files = match names.len() {
+        1 => "this file".to_string(),
+        n => format!("these {n} files"),
+    };
+    format!(
+        "Deleted on ILIAS, unchanged on your disk. Move {files} to your Trash?\n{}",
+        lines.join("\n")
+    )
+}
+
 /// Why `changes` are more than usual, for a second question; `None` if they aren't.
 pub fn brake(changes: &[Change]) -> Option<String> {
     let in_folders: usize = changes
@@ -129,6 +150,23 @@ mod tests {
             brake(&changes)
                 .unwrap()
                 .contains("6 files in Unterlagen would be replaced or moved to the trash")
+        );
+    }
+
+    #[test]
+    fn names_the_files_for_the_trash_on_your_disk() {
+        let dir = std::path::Path::new("/dl");
+        assert_eq!(
+            local_trash(&[PathBuf::from("/dl/DEMO/Alt.pdf")], dir),
+            "Deleted on ILIAS, unchanged on your disk. Move this file to your Trash?\nDEMO/Alt.pdf"
+        );
+        let many: Vec<PathBuf> = (0..10)
+            .map(|n| PathBuf::from(format!("/dl/{n}.pdf")))
+            .collect();
+        let question = local_trash(&many, dir);
+        assert!(
+            question.contains("these 10 files")
+                && question.ends_with("and 2 more (see the report)")
         );
     }
 }
