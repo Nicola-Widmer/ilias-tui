@@ -26,7 +26,7 @@ with any ILIAS 10 that logs in through OpenID Connect. Runs on macOS, Linux and 
   the saved copy opens at once.
 - **Sync** whole courses (`S`, `A`): every file up to 50 MB, later only what changed, and
   never over files you edited. **Two-way sync** (settings, off by default) also uploads
-  your new files and folders and your edits (as new versions), and moves files you
+  your new files and folders and your edits (in place of ILIAS' file), and moves files you
   deleted to the ILIAS trash if you tick them; it shows everything first and asks. See
   [Sync](#sync).
 - Works **offline** with what it has seen before. See [Offline](#offline).
@@ -198,7 +198,7 @@ is a plain report and nothing is sent.
 | --- | --- | --- |
 | new               | –             | uploads it, where ILIAS lets you; a new folder is created there with what is in it |
 | unchanged         | changed       | downloads it, as always                                    |
-| edited            | unchanged     | uploads it as a new version (ILIAS keeps the old ones)     |
+| edited            | unchanged     | replaces ILIAS' file with yours (ILIAS keeps no earlier version) |
 | edited            | changed       | a **conflict**: saves ILIAS' copy beside yours, sends nothing |
 | deleted           | unchanged     | a **proposal**: moves it to the ILIAS trash if you tick it (`Space`) |
 | deleted           | changed       | downloads it again                                         |
@@ -218,17 +218,18 @@ is a plain report and nothing is sent.
 - **Checked again before sending:** each folder is read again right before its files go
   up; a file of the same name that appeared there since, or a file changed on ILIAS since
   the plan, is a conflict and isn't sent.
-- **New versions, never replaced:** an edit goes up through the file's "Create New
-  Version", so ILIAS keeps every earlier version; only where its menu offers Versions.
+- **Edits overwrite:** an edit goes up through the file's "Replace File", so ILIAS has
+  only your copy afterwards (its earlier versions are gone); only where its menu offers
+  Versions, and only if ILIAS still has the version you edited.
 - **More than usual, asked twice:** more than 20 files at once, or more than 30 % of a
   folder's files replaced or moved to the trash, and sync asks once more.
 - **In sync afterwards:** each uploaded file is recorded like a download, so the next sync
   sees it as unchanged; a renamed file's old name is never proposed for the trash.
 - **A journal** of every write (time, action, file, ILIAS object, result) is kept next to
   the session, as `<ilias host>.journal.jsonl`.
-- **Nothing is ever deleted for good**: sync never removes your files, and on ILIAS only
-  moves the ones you ticked to its trash (where they can be restored), never where ILIAS
-  has no trash.
+- **Nothing is deleted for good** besides the earlier versions of a file you replace:
+  sync never removes your files, and on ILIAS only moves the ones you ticked to its trash
+  (where they can be restored), never where ILIAS has no trash.
 
 ## Offline
 

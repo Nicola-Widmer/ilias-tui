@@ -5,7 +5,7 @@
 //! | Your disk vs base | ILIAS vs base | Here                                        |
 //! | ----------------- | ------------- | ------------------------------------------- |
 //! | new               | –             | [`Change::Upload`], where ILIAS lets you    |
-//! | edited            | unchanged     | [`Change::NewVersion`]                      |
+//! | edited            | unchanged     | [`Change::Replace`]                      |
 //! | deleted           | unchanged     | [`Change::Trash`], a proposal (unticked)    |
 //! | any               | gone          | kept, listed in [`Review::gone`]            |
 //!
@@ -44,7 +44,7 @@ pub enum Change {
     },
     /// You edited `path`, ILIAS still has the version saved (`base`): upload it as a new
     /// version of `file`.
-    NewVersion {
+    Replace {
         place: Item,
         file: Item,
         path: PathBuf,
@@ -72,7 +72,7 @@ impl Change {
     pub fn path(&self) -> &Path {
         match self {
             Change::Upload { path, .. }
-            | Change::NewVersion { path, .. }
+            | Change::Replace { path, .. }
             | Change::Trash { path, .. } => path,
             Change::NewFolder { dir, .. } => dir,
         }
@@ -102,11 +102,11 @@ pub struct Review {
 
 impl Review {
     /// What sync sends after the review (besides the ticked proposals): uploads of new
-    /// files, new folders with what is in them, new versions of edited files.
+    /// files, new folders with what is in them, your edited files in place of ILIAS' ones.
     pub fn sendable(&self) -> Vec<Change> {
         self.uploads()
             .chain(self.new_folders())
-            .chain(self.new_versions())
+            .chain(self.replacements())
             .cloned()
             .collect()
     }
@@ -117,10 +117,10 @@ impl Review {
             .filter(|c| matches!(c, Change::Upload { .. }))
     }
 
-    pub fn new_versions(&self) -> impl Iterator<Item = &Change> {
+    pub fn replacements(&self) -> impl Iterator<Item = &Change> {
         self.changes
             .iter()
-            .filter(|c| matches!(c, Change::NewVersion { .. }))
+            .filter(|c| matches!(c, Change::Replace { .. }))
     }
 
     pub fn proposals(&self) -> impl Iterator<Item = &Change> {
@@ -176,7 +176,7 @@ pub fn decide(
 
     for (file, path) in candidates.edited {
         match place_of(&file) {
-            Some(place) if may_change(place, &file) => review.changes.push(Change::NewVersion {
+            Some(place) if may_change(place, &file) => review.changes.push(Change::Replace {
                 place: place.item.clone(),
                 base: base(file.key())
                     .map(super::saved_version)
@@ -347,8 +347,8 @@ pub fn decide(
     review
 }
 
-/// Whether ILIAS lets you upload a new version of `file` in `place`: its menu there has
-/// Versions.
+/// Whether ILIAS lets you replace `file` in `place`: its menu there has Versions (where
+/// "Replace File" is).
 fn may_change(place: &Place, file: &Item) -> bool {
     place.rights.versions.contains(&file.key())
 }
@@ -458,7 +458,7 @@ mod tests {
     }
 
     #[test]
-    fn proposes_new_versions_and_the_trash_with_the_base_version() {
+    fn proposes_replacements_and_the_trash_with_the_base_version() {
         let (dir, mut downloads) = setup("versions");
         let folder = dir.join("Unterlagen");
         for (key, name) in [(9, "Blatt 3.pdf"), (10, "Blatt 4.pdf")] {
@@ -485,7 +485,7 @@ mod tests {
         assert_eq!(
             review.changes,
             [
-                Change::NewVersion {
+                Change::Replace {
                     place: places[0].item.clone(),
                     file: files[0].clone(),
                     path: folder.join("Blatt 3.pdf"),

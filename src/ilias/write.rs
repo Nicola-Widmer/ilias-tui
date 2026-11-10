@@ -47,6 +47,7 @@ const WRITE_COMMANDS: &[&str] = &[
     "confirmDeleteDelivered",
     "deleteDelivered",
     "saveVersion",
+    "createReplacingVersion",
     "deleteVersions",
     "rollbackVersion",
 ];

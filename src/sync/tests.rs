@@ -446,8 +446,8 @@ fn two_way_decides_every_row_from_base_disk_and_ilias() {
     let plan = |item: &Item, local| plan(item, Some((&hashed(V1), local)), TWO_WAY);
     // Your disk unchanged, ILIAS changed: download, as one-way.
     assert_eq!(plan(&changed, Local::Untouched), Plan::Update(path.clone()));
-    // Edited, ILIAS unchanged: a new version for ILIAS.
-    assert_eq!(plan(&same, Local::Edited), Plan::NewVersion(path.clone()));
+    // Edited, ILIAS unchanged: your copy replaces ILIAS' file.
+    assert_eq!(plan(&same, Local::Edited), Plan::Replace(path.clone()));
     // Edited, ILIAS changed: a conflict; ILIAS' copy goes beside yours.
     assert_eq!(plan(&changed, Local::Edited), Plan::Beside(path.clone()));
     // Deleted, ILIAS unchanged: propose the trash.
@@ -601,7 +601,7 @@ fn two_way_sync_plans_what_to_send_and_sends_nothing_by_itself() {
         ["DEMO.101/Notizen.md"]
     );
     assert_eq!(
-        section("Edited by you: to upload as a new version"),
+        section("Edited by you: to replace the file on ILIAS"),
         ["DEMO.101/Blatt 3.pdf"]
     );
     assert!(
@@ -634,7 +634,7 @@ fn a_relative_date_is_the_same_version_the_next_day() {
     assert_eq!(saved_version(&saved_then), version(&now));
     assert_eq!(
         plan(&now, Some((&saved_then, Local::Edited)), TWO_WAY),
-        Plan::NewVersion(saved_then.path.clone()),
+        Plan::Replace(saved_then.path.clone()),
         "your edit, not a conflict"
     );
     assert_eq!(

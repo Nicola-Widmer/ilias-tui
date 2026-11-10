@@ -37,13 +37,13 @@ src/
 │   │   ├── rights.rs    Rights: what the page lets you change (upload, Add New Item, Delete)
 │   │   ├── show_more.rs "Show more" buttons
 │   │   ├── submissions.rs An assignment's submissions page: participants, assignments as tabs
-│   │   ├── versions.rs  A file's Versions tab: its versions, "Create New Version" and its form
+│   │   ├── versions.rs  A file's Versions tab: its versions, "Replace File" and its form
 │   │   ├── html.rs      Selectors, visible text, link base
 │   │   └── tests.rs
 │   ├── write.rs         The write guard, favourites, logout; every other write is in write/
 │   └── write/
 │       ├── exercise.rs  Handing in, deleting a handed-in file
-│       ├── container.rs Courses and folders: uploading files, new versions, new folders, into the trash
+│       ├── container.rs Courses and folders: uploading files, replacing a file, new folders, into the trash
 │       └── forum.rs     New threads and replies
 ├── action.rs            Action enum (the app's messages)
 ├── compose.rs           Forum posts: text from $EDITOR (TUI suspended), the question before sending
@@ -278,18 +278,21 @@ pub struct Todo { assignment: Item, course, deadline, due, urgency }   // My cou
   form it leads to, and checks that the form posts to `ilObjFolderGUI` with
   `fallbackCmd=save` for that ref id and `new_type=fold` (`parse::create_form`). It posts the
   title (and an empty description), then checks that the page lists the folder.
-- **New version of a file** (two-way sync, `Client::upload_version`): offered for files
+- **Replacing a file** (two-way sync, `Client::replace_file`): offered for files
   whose menu on the container page has Versions (`Rights::versions`: a button to
   `ilFileVersionsGUI` with that file's `ref_id` and no command). The client reads the
   container page again and takes that entry (`parse::versions_link`), reads the tab
-  (`parse::versions`: the numbers in `#ilFileVersionsTableGUI`) and its "Create New
-  Version" (`parse::new_version_link`: `cmd=addNewVersion`, never `addReplacingVersion`),
-  then the form (`parse::version_form`): it must post to `ilFileVersionsGUI` with
-  `fallbackCmd=saveVersion` and upload to `ilFileVersionsUploadHandlerGUI&cmd=upload` with
-  `upload_mode=append`, all for that file on this ILIAS. Files over the form's limit are
+  (`parse::versions`: the numbers in `#ilFileVersionsTableGUI`) and its "Replace File"
+  (`parse::replace_link`: `cmd=addReplacingVersion`, never `addNewVersion`), then the form
+  (`parse::replace_form`): it must post to `ilFileVersionsGUI` with
+  `fallbackCmd=createReplacingVersion` and upload to
+  `ilFileVersionsUploadHandlerGUI&cmd=upload` with `upload_mode=replace`, all for that file
+  on this ILIAS. Files over the form's limit are
   refused. It posts the file (as for uploads), then the form with ILIAS' own title, an
-  empty description and the file's id, and checks that the tab lists a higher version.
-  `saveVersion`, `deleteVersions` and `rollbackVersion` are in the write guard's list.
+  empty description and the file's id, and checks that the tab lists a higher version
+  number (on the local ILIAS 10 it then lists only that one: the earlier versions are
+  deleted). `saveVersion`, `createReplacingVersion`, `deleteVersions` and
+  `rollbackVersion` are in the write guard's list.
 - **Into the trash** (`D`, `Client::delete_item`): offered for the selected item if the
   rights' `delete` has it; `Ask` names title, kind and place and says it goes to the trash.
   The client reads the container's page again and takes that item's Delete from its action
@@ -526,14 +529,14 @@ itself (`Downloads::update` re-reads the file first, so it and the TUI don't dro
 other's entries); `Synced` makes `App` read it again.
 
 **Two-way sync** (`Rules::two_way`, see [CONTEXT.md](../CONTEXT.md): base, conflict,
-proposal). `plan` adds three per-file outcomes: `NewVersion` (edited, unchanged on ILIAS),
+proposal). `plan` adds three per-file outcomes: `Replace` (edited, unchanged on ILIAS),
 `Trash` (deleted, unchanged on ILIAS) and `Unsure` (changed, but no hash to tell). The
 crawl also keeps every page with a place below a course (`Page::path`, its breadcrumb) as a
 `review::Place`: the item, its local folder (`ilias::local_folder`, as downloads name
 them), its rights and its items. After the downloads, `review::decide` scans each place's
 folder (`local::scan`: one level, no links, without `local::ignored`) and builds the
 `Review`: `Change::Upload` for files the base doesn't know (where `rights.upload`),
-`NewVersion` (where `rights.versions` has the file), `Trash` (where `rights.delete` has
+`Replace` (where `rights.versions` has the file), `Trash` (where `rights.delete` has
 it), `NewFolder` for folders no item of the place is called (where `rights.create` has
 `fold`), with what is in them all the way down (`local::walk`, ignore list and size limit
 applied; a name sync would save differently, `sanitize`, is a conflict); renames (a new file with the hash of a missing saved one) drop that
@@ -545,7 +548,7 @@ report lists all of it.
 sections, with the proposals (`sync::PROPOSALS`) as `[ ]` rows, its own keys
 (`keymap::REVIEW`: move, `Space` ticks, `Enter`, `Esc`), the cursor kept on screen with
 `Paragraph::line_count`. `Enter` sends `AskPush` with `Review::sendable` (uploads, new
-folders, new versions) plus the ticked proposals; `Esc` or a click sends `Cancelled`. In a dry run the
+folders, replaced files) plus the ticked proposals; `Esc` or a click sends `Cancelled`. In a dry run the
 review is a plain report. `App::ask_push` asks with `ask::question` (each file and its
 size); if `ask::brake` finds more than usual (over `MAX_FILES` = 20 files, those in new
 folders included, or
@@ -559,10 +562,10 @@ files with that content `moved_to`, which keeps them out of the trash proposals 
 New folders come next: `push::new_folder` reads the place again (anything of that name now
 is a conflict), creates the folder with `Client::create_folder`, takes it from the
 listing, creates the folders below it in order, then uploads each one's planned files
-through `push::upload_into` (the same re-check and recording as above). A `NewVersion` is
-sent only if the place still lists the file with the version it was
-edited from (`base`), else it is a conflict; then `Client::upload_version` runs and the
-file is recorded with the listing's new version. A `Trash` is sent only if ILIAS still
+through `push::upload_into` (the same re-check and recording as above). A `Replace` is
+sent only if the place still lists the file with the version it was edited from (`base`),
+else it is a conflict; then `Client::replace_file` runs and the file is recorded with the
+listing's new version. A `Trash` is sent only if ILIAS still
 has the version and the file is still gone from your disk, through `Client::delete_item`
 (which refuses without a trash). Every write is appended to the `Journal`. `Pushed` shows the result like a sync.
 

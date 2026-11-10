@@ -15,8 +15,8 @@ use crate::ilias::{Client, Item, Kind, lists_as};
 #[derive(Debug, Default, PartialEq)]
 pub struct Pushed {
     pub uploaded: Vec<PathBuf>,
-    /// Edited files sent as new versions.
-    pub new_versions: Vec<PathBuf>,
+    /// Edited files that replaced ILIAS' ones.
+    pub replacements: Vec<PathBuf>,
     /// Files you deleted, now in the ILIAS trash.
     pub trashed: Vec<PathBuf>,
     /// Local folders now also on ILIAS.
@@ -35,8 +35,8 @@ impl Pushed {
             return "Dry run: nothing sent to ILIAS".into();
         }
         let mut parts = vec![format!("{} uploaded", self.uploaded.len())];
-        if !self.new_versions.is_empty() {
-            parts.push(format!("{} new versions", self.new_versions.len()));
+        if !self.replacements.is_empty() {
+            parts.push(format!("{} replaced", self.replacements.len()));
         }
         if !self.folders.is_empty() {
             parts.push(format!("{} new folders", self.folders.len()));
@@ -160,15 +160,15 @@ pub fn push(
         }
     }
     for change in changes {
-        if let Change::NewVersion {
+        if let Change::Replace {
             place,
             file,
             path,
             base,
         } = change
         {
-            progress(format!("Two-way sync: new version of {}", file.title));
-            new_version(
+            progress(format!("Two-way sync: replacing {}", file.title));
+            replace(
                 client,
                 place,
                 file,
@@ -439,10 +439,10 @@ fn make_folder(client: &Client, parent: &Item, dir: &Path) -> color_eyre::Result
     }
 }
 
-/// Sends one edited file as a new version, if ILIAS still has the version it was edited
-/// from (`base`); records the new version as in sync.
+/// Puts one edited file in place of ILIAS' one, if ILIAS still has the version it was
+/// edited from (`base`); records it as in sync.
 #[allow(clippy::too_many_arguments)]
-fn new_version(
+fn replace(
     client: &Client,
     place: &Item,
     file: &Item,
@@ -453,7 +453,7 @@ fn new_version(
     pushed: &mut Pushed,
 ) {
     let fail = |journal: &mut Journal, pushed: &mut Pushed, why: String| {
-        fail_as("new version", journal, pushed, place, path, why);
+        fail_as("replace", journal, pushed, place, path, why);
     };
     // The re-check: the file as ILIAS lists it now.
     let now = match client.page(place, None) {
@@ -476,10 +476,10 @@ fn new_version(
         }
         Some(_) => {}
     }
-    match client.upload_version(place, file, path) {
+    match client.replace_file(place, file, path) {
         Ok(None) => pushed.dry_run = true,
         Ok(Some(number)) => {
-            // In sync again: your copy is this new version.
+            // In sync again: ILIAS' file is your copy now.
             let listed = client
                 .page(place, None)
                 .ok()
@@ -491,8 +491,8 @@ fn new_version(
                 Some(Err(e)) => format!("ok: version {number}, not recorded: {e:#}"),
                 None => format!("ok: version {number}, not recorded: not in the listing"),
             };
-            let _ = journal.write("new version", path, &object(place), &result);
-            pushed.new_versions.push(path.to_path_buf());
+            let _ = journal.write("replace", path, &object(place), &result);
+            pushed.replacements.push(path.to_path_buf());
         }
         Err(e) => fail(journal, pushed, format!("{e:#}")),
     }

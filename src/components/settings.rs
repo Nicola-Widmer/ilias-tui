@@ -83,7 +83,7 @@ impl Field {
                  Files you have are never replaced, and no new versions are saved beside them."
             }
             Field::TwoWay => {
-                "Sync also uploads your new files and folders and new versions of the files you \
+                "Sync also uploads your new files and folders, replaces the files you \
                  edited, and moves the deleted ones you tick to the ILIAS trash: after a \
                  review, asking."
             }

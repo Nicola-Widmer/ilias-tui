@@ -155,7 +155,7 @@ it as saved: moving that file to the ILIAS trash, unticked until you tick it.
 
 **Review**:
 What a two-way sync shows before it sends anything: grouped, what `Enter` sends (uploads,
-new versions), the proposals to tick, and what stays as it is (conflicts, files gone on
+replaced files), the proposals to tick, and what stays as it is (conflicts, files gone on
 ILIAS, files ILIAS doesn't let you upload). In a dry run it is a plain report.
 _Avoid_: preview, diff.
 

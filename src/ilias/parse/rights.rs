@@ -20,8 +20,8 @@ pub struct Rights {
     /// Items (by reference id) whose action menu offers Delete.
     #[serde(default)]
     pub delete: Vec<u64>,
-    /// Files (by reference id) whose action menu offers Versions, where a new version can
-    /// be uploaded.
+    /// Files (by reference id) whose action menu offers Versions, where the file can be
+    /// replaced.
     #[serde(default, skip_serializing_if = "Vec::is_empty")]
     pub versions: Vec<u64>,
     /// A forum that offers "New Thread".

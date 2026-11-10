@@ -7,6 +7,14 @@ features and changes in behaviour, the last one for fixes only. See
 
 ## Unreleased
 
+### Changed
+
+- **Two-way sync overwrites edited files on ILIAS** through the file's "Replace File"
+  instead of adding a version with "Create New Version". ILIAS keeps only your copy;
+  its earlier versions are deleted (the question before sending says so). As before only
+  where the file's menu offers Versions, and only if ILIAS still has the version you
+  edited.
+
 ### Fixed
 
 - **Sync after midnight**: ILIAS lists recent dates as "Today, 12:41", which becomes

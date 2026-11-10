@@ -862,7 +862,7 @@ fn lists_every_participants_submission_with_assignments_as_tabs() {
 }
 
 #[test]
-fn reads_a_files_versions_and_its_create_new_version_form() {
+fn reads_a_files_versions_and_its_replace_file_form() {
     let base = Url::parse("http://localhost:8080/ilias.php?baseClass=ilrepositorygui&cmdClass=ilFileVersionsGUI&ref_id=133").unwrap();
     // As the local ILIAS 10 shows them (shortened).
     let tab = r#"<button class="btn btn-default" data-action="ilias.php?baseClass=ilrepositorygui&amp;cmdNode=wq:mk:cv&amp;cmdClass=ilFileVersionsGUI&amp;cmd=addNewVersion&amp;ref_id=133">Create New Version</button>
@@ -873,25 +873,25 @@ fn reads_a_files_versions_and_its_create_new_version_form() {
         </tbody></table>"#;
     assert_eq!(versions(tab), [2, 1]);
     assert_eq!(
-        new_version_link(tab, &base, 133).unwrap().as_str(),
-        "http://localhost:8080/ilias.php?baseClass=ilrepositorygui&cmdNode=wq:mk:cv&cmdClass=ilFileVersionsGUI&cmd=addNewVersion&ref_id=133"
+        replace_link(tab, &base, 133).unwrap().as_str(),
+        "http://localhost:8080/ilias.php?baseClass=ilrepositorygui&cmdNode=wq:mk:cv&cmdClass=ilFileVersionsGUI&cmd=addReplacingVersion&ref_id=133"
     );
-    assert!(new_version_link(tab, &base, 134).is_none());
-    let form = r#"<form class="c-form c-form--horizontal" enctype="multipart/form-data" action="ilias.php?baseClass=ilrepositorygui&amp;cmdNode=wq:mk:cv&amp;cmdClass=ilFileVersionsGUI&amp;cmd=post&amp;fallbackCmd=saveVersion&amp;ref_id=133&amp;rtoken=t" method="post">
+    assert!(replace_link(tab, &base, 134).is_none());
+    let form = r#"<form class="c-form c-form--horizontal" enctype="multipart/form-data" action="ilias.php?baseClass=ilrepositorygui&amp;cmdNode=wq:mk:cv&amp;cmdClass=ilFileVersionsGUI&amp;cmd=post&amp;fallbackCmd=createReplacingVersion&amp;ref_id=133&amp;rtoken=t" method="post">
         <input id="a" type="text" value="Zusammenfassung.md" name="form/input_0/input_1" maxlength="255" class="c-field-text" />
         <textarea id="b" class="c-field-textarea" name="form/input_0/input_2"></textarea>
         <template><input id="c" type="hidden" name="form/input_0/input_3[input_0][]" value="" /></template></form>
         <script>il.UI.Input.File.init(
             'il_ui_fw_1',
-            'ilias.php?baseClass=ilrepositorygui&cmdNode=wq:mk:cv:cx&cmdClass=ilFileVersionsUploadHandlerGUI&cmd=upload&ref_id=133&upload_mode=append&cmdMode=asynch',
-            'ilias.php?baseClass=ilrepositorygui&cmdNode=wq:mk:cv:cx&cmdClass=ilFileVersionsUploadHandlerGUI&cmd=remove&ref_id=133&upload_mode=append&cmdMode=asynch',
+            'ilias.php?baseClass=ilrepositorygui&cmdNode=wq:mk:cv:cx&cmdClass=ilFileVersionsUploadHandlerGUI&cmd=upload&ref_id=133&upload_mode=replace&cmdMode=asynch',
+            'ilias.php?baseClass=ilrepositorygui&cmdNode=wq:mk:cv:cx&cmdClass=ilFileVersionsUploadHandlerGUI&cmd=remove&ref_id=133&upload_mode=replace&cmdMode=asynch',
             'file_id',
             0,
             1,
             209715200,
             '',
             false);</script>"#;
-    let parsed = version_form(form, &base, 133).unwrap();
+    let parsed = replace_form(form, &base, 133).unwrap();
     assert_eq!(
         parsed.title,
         ("form/input_0/input_1".into(), "Zusammenfassung.md".into())
@@ -899,17 +899,17 @@ fn reads_a_files_versions_and_its_create_new_version_form() {
     assert_eq!(parsed.description, "form/input_0/input_2");
     assert_eq!(parsed.id, "form/input_0/input_3[input_0][]");
     assert_eq!(parsed.max_size, Some(209_715_200));
-    assert!(parsed.upload.as_str().contains("upload_mode=append"));
+    assert!(parsed.upload.as_str().contains("upload_mode=replace"));
     assert!(
         parsed
             .save
             .as_str()
-            .contains("fallbackCmd=saveVersion&ref_id=133")
+            .contains("fallbackCmd=createReplacingVersion&ref_id=133")
     );
-    // Another file's form, or one that replaces the file: not this form.
-    assert!(version_form(form, &base, 134).is_none());
-    let replacing = form.replace("upload_mode=append&cmdMode", "upload_mode=replace&cmdMode");
-    assert!(version_form(&replacing, &base, 133).is_none());
+    // Another file's form, or one that adds a version: not this form.
+    assert!(replace_form(form, &base, 134).is_none());
+    let appending = form.replace("upload_mode=replace&cmdMode", "upload_mode=append&cmdMode");
+    assert!(replace_form(&appending, &base, 133).is_none());
 }
 
 #[test]

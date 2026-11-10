@@ -108,8 +108,8 @@ pub enum Plan {
     /// You deleted it and it hasn't changed since.
     Deleted,
     TooBig,
-    /// Two-way: you edited it, ILIAS hasn't changed it: a new version for ILIAS.
-    NewVersion(PathBuf),
+    /// Two-way: you edited it, ILIAS hasn't changed it: your copy replaces ILIAS' file.
+    Replace(PathBuf),
     /// Two-way: you deleted it, ILIAS hasn't changed it: propose the trash.
     Trash(PathBuf),
     /// Two-way: changed on disk, but saved before content hashes were recorded, so whether
@@ -188,7 +188,7 @@ pub fn plan(item: &Item, saved: Option<(&Saved, Local)>, rules: Rules) -> Plan {
         _ if saved.version.is_empty() && local != Local::Missing => Plan::Adopt,
         Local::Missing if rules.missing_only => fetch(Plan::New),
         Local::Edited if rules.two_way && !changed && !saved.has_hash() => Plan::Unsure(path()),
-        Local::Edited if rules.two_way && !changed => Plan::NewVersion(path()),
+        Local::Edited if rules.two_way && !changed => Plan::Replace(path()),
         _ if rules.missing_only => Plan::Unchanged,
         Local::Missing if changed => fetch(Plan::New),
         Local::Missing if rules.two_way && saved.moved_to.is_none() => Plan::Trash(path()),
@@ -303,8 +303,8 @@ impl Summary {
                 changes(&mut review.uploads()),
             ),
             (
-                "Edited by you: to upload as a new version".to_string(),
-                changes(&mut review.new_versions()),
+                "Edited by you: to replace the file on ILIAS".to_string(),
+                changes(&mut review.replacements()),
             ),
             (PROPOSALS.to_string(), changes(&mut review.proposals())),
             (
@@ -429,7 +429,7 @@ pub fn sync(
                     summary.unchanged += 1;
                 }
                 Plan::Deleted => summary.deleted += 1,
-                Plan::NewVersion(path) => {
+                Plan::Replace(path) => {
                     summary.unchanged += 1;
                     candidates.edited.push((item, path));
                 }

@@ -244,7 +244,7 @@ fn refuses_a_form_for_another_place_and_journals_the_failure() {
 }
 
 #[test]
-fn a_file_changed_on_ilias_since_the_plan_gets_no_new_version() {
+fn a_file_changed_on_ilias_since_the_plan_is_not_replaced() {
     let mut s = setup("version-since");
     // Planned from version "1 Byte"; ILIAS lists "Notizen" (140) with "4 Bytes" now.
     let fake = ilias(UPLOAD, &[("Notizen", 140)]);
@@ -255,7 +255,7 @@ fn a_file_changed_on_ilias_since_the_plan_gets_no_new_version() {
         title: "Notizen".into(),
         ..Item::default()
     };
-    let edited = vec![Change::NewVersion {
+    let edited = vec![Change::Replace {
         place: folder(),
         file: file.clone(),
         path: s.file.clone(),
@@ -266,7 +266,7 @@ fn a_file_changed_on_ilias_since_the_plan_gets_no_new_version() {
     assert!(pushed.conflicts[0].contains("changed on ILIAS since the plan"));
     assert!(fake.posts(&base()).is_empty());
     // As planned, but ILIAS offers no Versions for it here: it fails, nothing sent.
-    let unchanged = vec![Change::NewVersion {
+    let unchanged = vec![Change::Replace {
         place: folder(),
         file,
         path: s.file.clone(),
@@ -284,7 +284,7 @@ fn a_file_changed_on_ilias_since_the_plan_gets_no_new_version() {
         "{pushed:?}"
     );
     assert!(fake.posts(&base()).is_empty());
-    assert_eq!(journal(&s)[0]["action"], "new version");
+    assert_eq!(journal(&s)[0]["action"], "replace");
     let _ = std::fs::remove_dir_all(&s.dir);
 }
 

@@ -2,7 +2,7 @@
 //! edited copies or had failures, it lists them. Scrolls with j/k; any other key closes it.
 //!
 //! After a two-way sync with something to send it is the **review**: what Enter sends
-//! (uploads, new versions), the proposed deletions as checkboxes, unticked until you tick
+//! (uploads, replaced files), the proposed deletions as checkboxes, unticked until you tick
 //! them (Space), and everything else that stays as it is. Enter leads to the question
 //! before sending ([`Action::AskPush`]); Esc closes it and nothing is sent. In a dry run
 //! it is a plain report.

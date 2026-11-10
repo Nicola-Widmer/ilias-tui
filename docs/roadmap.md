@@ -56,7 +56,7 @@ Read-only; safe to build.
   - [x] The base (content hashes), the local scan with its ignore list, and the three-way
     plan, shown in the sync report.
   - [x] Upload new files (asks first, re-checks each folder, mass-change brake, journal).
-  - [x] New versions of edited files ("Create New Version", tested on the local ILIAS).
+  - [x] Edited files replace ILIAS' ones ("Replace File", tested on the local ILIAS).
   - [x] A review screen with the proposed deletions to tick (unticked by default).
   - [x] New local folders become ILIAS folders, with what is in them.
 - [ ] **Two-way sync from the review straight away**: today a run downloads first and

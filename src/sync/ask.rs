@@ -10,7 +10,7 @@ use crate::ilias::write::megabytes;
 
 /// More files than this in one run, and sync asks once more before sending.
 pub const MAX_FILES: usize = 20;
-/// More than this share of a folder's files changed (new versions, the trash), and sync
+/// More than this share of a folder's files changed (replaced, to the trash), and sync
 /// asks once more.
 pub const MAX_SHARE: f64 = 0.3;
 
@@ -44,7 +44,7 @@ pub fn question(changes: &[Change], dir: &Path) -> String {
         .collect();
     let edited: Vec<String> = changes
         .iter()
-        .filter(|c| matches!(c, Change::NewVersion { .. }))
+        .filter(|c| matches!(c, Change::Replace { .. }))
         .map(|c| sized(c.path()))
         .collect();
     let folders: Vec<String> = changes
@@ -86,7 +86,7 @@ pub fn question(changes: &[Change], dir: &Path) -> String {
     }
     if !edited.is_empty() {
         parts.push(format!(
-            "upload {} as new versions (ILIAS keeps the old ones): {}",
+            "replace {} on ILIAS with yours (ILIAS keeps no earlier versions): {}",
             plural(edited.len(), "edited file", "edited files"),
             list(edited)
         ));
@@ -121,7 +121,7 @@ pub fn brake(changes: &[Change], listed: &HashMap<u64, usize>) -> Option<String>
         })
         .sum();
     let uploads =
-        count(|c| matches!(c, Change::Upload { .. } | Change::NewVersion { .. })) + in_folders;
+        count(|c| matches!(c, Change::Upload { .. } | Change::Replace { .. })) + in_folders;
     let trash = count(|c| matches!(c, Change::Trash { .. }));
     if uploads > MAX_FILES || trash > MAX_FILES {
         return Some(format!(
@@ -131,7 +131,7 @@ pub fn brake(changes: &[Change], listed: &HashMap<u64, usize>) -> Option<String>
     }
     let mut touched: HashMap<u64, (&Item, usize)> = HashMap::new();
     for change in changes {
-        if let Change::NewVersion { place, .. } | Change::Trash { place, .. } = change {
+        if let Change::Replace { place, .. } | Change::Trash { place, .. } = change {
             touched.entry(place.key()).or_insert((place, 0)).1 += 1;
         }
     }
@@ -189,7 +189,7 @@ mod tests {
             ..Item::default()
         };
         let mut changes: Vec<Change> = (1..=3)
-            .map(|id| Change::NewVersion {
+            .map(|id| Change::Replace {
                 place: folder(),
                 file: file(id),
                 path: PathBuf::from(format!("/dl/{id}.pdf")),
@@ -231,7 +231,7 @@ mod tests {
         );
         let both = [
             upload(&file),
-            vec![Change::NewVersion {
+            vec![Change::Replace {
                 place: folder(),
                 file: Item::default(),
                 path: file.clone(),
@@ -241,7 +241,7 @@ mod tests {
         .concat();
         assert!(
             super::question(&both, &dir).contains(
-                "; and upload 1 edited file as new versions (ILIAS keeps the old ones): Notizen.md"
+                "; and replace 1 edited file on ILIAS with yours (ILIAS keeps no earlier versions): Notizen.md"
             ),
             "{}",
             super::question(&both, &dir)

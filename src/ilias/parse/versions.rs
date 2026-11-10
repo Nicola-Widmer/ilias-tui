@@ -1,7 +1,7 @@
 //! A file's Versions tab (`ilFileVersionsGUI`): the versions ILIAS keeps of it, and its
-//! "Create New Version" form, which adds a version and keeps the older ones (unlike
-//! "Replace File", which ilias-tui never uses). Each one is read for one file (by reference
-//! id) and only from that file's own page.
+//! "Replace File" form, which puts your copy in place of the file (ilias-tui never uses
+//! "Create New Version"). Each one is read for one file (by reference id) and only from
+//! that file's own page.
 
 use scraper::Html;
 use url::Url;
@@ -35,15 +35,15 @@ pub fn versions_link(html: &str, page_url: &Url, file: u64) -> Option<Url> {
         .find(|url| for_file(url, &base, "ilFileVersionsGUI", &own) && param(url, "cmd").is_none())
 }
 
-/// The "Create New Version" button of file `file`'s Versions tab.
-pub fn new_version_link(html: &str, page_url: &Url, file: u64) -> Option<Url> {
+/// The "Replace File" button of file `file`'s Versions tab.
+pub fn replace_link(html: &str, page_url: &Url, file: u64) -> Option<Url> {
     let base = link_base(page_url);
     let own = file.to_string();
     links(&Html::parse_document(html), &base)
         .into_iter()
         .find(|url| {
             for_file(url, &base, "ilFileVersionsGUI", &own)
-                && param(url, "cmd").as_deref() == Some("addNewVersion")
+                && param(url, "cmd").as_deref() == Some("addReplacingVersion")
         })
 }
 
@@ -58,13 +58,13 @@ pub fn versions(html: &str) -> Vec<u32> {
         .collect()
 }
 
-/// The "Create New Version" form of a file.
+/// The "Replace File" form of a file.
 #[derive(Debug, PartialEq, Eq)]
-pub struct VersionForm {
+pub struct ReplaceForm {
     /// Takes the file and keeps it until the form is sent; answers with its id. Always in
-    /// `upload_mode=append`: a new version beside the old ones.
+    /// `upload_mode=replace`.
     pub upload: Url,
-    /// Takes title, description and the file's id, and adds the version.
+    /// Takes title, description and the file's id, and replaces the file.
     pub save: Url,
     /// The title field and the title ILIAS filled in (kept, so the file keeps its name).
     pub title: (String, String),
@@ -74,18 +74,20 @@ pub struct VersionForm {
     pub max_size: Option<u64>,
 }
 
-/// The form "Create New Version" leads to, for file `file`; `None` if it isn't exactly
-/// that form (another file, another site, another command, or a replacing upload).
-pub fn version_form(html: &str, page_url: &Url, file: u64) -> Option<VersionForm> {
+/// The form "Replace File" leads to, for file `file`; `None` if it isn't exactly that
+/// form (another file, another site, another command, or an upload that adds a version).
+pub fn replace_form(html: &str, page_url: &Url, file: u64) -> Option<ReplaceForm> {
     let base = link_base(page_url);
     let own = file.to_string();
     let doc = Html::parse_document(html);
     let (form, save) = doc
-        .select(&sel(r#"form[action*="fallbackCmd=saveVersion"]"#))
+        .select(&sel(
+            r#"form[action*="fallbackCmd=createReplacingVersion"]"#,
+        ))
         .find_map(|form| {
             let url = base.join(form.attr("action")?).ok()?;
             let expected = for_file(&url, &base, "ilFileVersionsGUI", &own)
-                && param(&url, "fallbackCmd").as_deref() == Some("saveVersion");
+                && param(&url, "fallbackCmd").as_deref() == Some("createReplacingVersion");
             expected.then_some((form, url))
         })?;
     let field = |css: &str| form.select(&sel(css)).next();
@@ -108,10 +110,10 @@ pub fn version_form(html: &str, page_url: &Url, file: u64) -> Option<VersionForm
                 .ok()?;
             let expected = for_file(&url, &base, "ilFileVersionsUploadHandlerGUI", &own)
                 && param(&url, "cmd").as_deref() == Some("upload")
-                && param(&url, "upload_mode").as_deref() == Some("append");
+                && param(&url, "upload_mode").as_deref() == Some("replace");
             expected.then_some((url, args))
         })?;
-    Some(VersionForm {
+    Some(ReplaceForm {
         upload,
         save,
         title,
