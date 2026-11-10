@@ -128,7 +128,7 @@ In the sync review:
 | --------------- | ----------------------------------------------- |
 | `↓` `j` / `↑` `k` | Next / previous proposal (else scroll)        |
 | `Space`         | Tick / untick: move this file to the ILIAS trash |
-| `Enter`         | Send what is listed and ticked (asks first)     |
+| `Enter`         | Send what is listed and ticked (asks again only for a lot) |
 | `Esc` / `q`     | Close, send nothing                             |
 
 `?` shows the keys in the app. The mouse works too: click to select, double-click to open, scroll to move, click a tab or a
@@ -191,7 +191,7 @@ With "Two-way sync" on (settings, or `ILIAS_TWO_WAY=1`), sync also compares your
 synced course and folder with what it recorded when it last saved them (the **base**: the
 file's version on ILIAS, its size, date and a hash of its content) and with ILIAS now.
 Then the **review** shows, grouped, what it would send and what it leaves alone: `Enter`
-goes on to the usual question, `Esc` sends nothing (keys above). With `ILIAS_DRY_RUN=1` it
+sends it, `Esc` sends nothing (keys above). With `ILIAS_DRY_RUN=1` it
 is a plain report and nothing is sent.
 
 | Your copy vs base | ILIAS vs base | Sync                                                       |
@@ -221,8 +221,8 @@ is a plain report and nothing is sent.
 - **Edits overwrite:** an edit goes up through the file's "Replace File", so ILIAS has
   only your copy afterwards (its earlier versions are gone); only where its menu offers
   Versions, and only if ILIAS still has the version you edited.
-- **More than usual, asked twice:** more than 20 files at once, or more than 30 % of a
-  folder's files replaced or moved to the trash, and sync asks once more.
+- **More than usual, asked again:** more than 20 files at once, or more than 5 files of
+  one folder replaced or moved to the trash, and sync asks once more after `Enter`.
 - **In sync afterwards:** each uploaded file is recorded like a download, so the next sync
   sees it as unchanged; a renamed file's old name is never proposed for the trash.
 - **A journal** of every write (time, action, file, ILIAS object, result) is kept next to

@@ -43,9 +43,6 @@ pub struct App {
     settings: Settings,
     /// A sync is running. Only one at a time: each works from the download index as it
     /// was when it started, so a second one would save the first one's files again.
-    /// How many files ILIAS listed in each place at the last two-way sync, for the
-    /// mass-change brake.
-    listed: std::collections::HashMap<u64, usize>,
     syncing: Arc<AtomicBool>,
     /// A deep search is reading ILIAS. Only one at a time: each reads every folder below,
     /// and a second one would double the load on the server for a result nobody sees.
@@ -88,7 +85,6 @@ impl App {
             help: Help::default(),
             settings,
             syncing: Arc::default(),
-            listed: Default::default(),
             searching: Arc::default(),
             checking: false,
             composing: None,

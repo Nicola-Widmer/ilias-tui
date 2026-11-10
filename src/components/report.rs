@@ -3,8 +3,9 @@
 //!
 //! After a two-way sync with something to send it is the **review**: what Enter sends
 //! (uploads, replaced files), the proposed deletions as checkboxes, unticked until you tick
-//! them (Space), and everything else that stays as it is. Enter leads to the question
-//! before sending ([`Action::AskPush`]); Esc closes it and nothing is sent. In a dry run
+//! them (Space), and everything else that stays as it is. It is the question before
+//! sending: Enter sends ([`Action::AskPush`], which asks once more only for a lot at once);
+//! Esc closes it and nothing is sent. In a dry run
 //! it is a plain report.
 
 use ratatui::Frame;
@@ -102,7 +103,7 @@ impl Report {
         let colors = theme::colors();
         if self.reviewing() {
             lines.push(Line::styled(
-                "Enter sends the files listed to upload and the ticked deletions, after asking; Esc sends nothing.",
+                "Enter sends what is listed to upload or replace and the ticked deletions; Esc sends nothing.",
                 theme::muted(),
             ));
         }
@@ -222,7 +223,7 @@ impl Component for Report {
         let (title, hint) = if self.reviewing() {
             (
                 " Sync review ",
-                " j/k move · Space tick for the trash · Enter send (asks first) · Esc send nothing ",
+                " j/k move · Space tick for the trash · Enter send · Esc send nothing ",
             )
         } else {
             (" Sync report ", " j/k scroll · any other key closes ")

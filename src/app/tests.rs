@@ -505,7 +505,7 @@ fn offline_shows_cached_pages_and_never_refreshes() {
 }
 
 #[test]
-fn two_way_sync_asks_before_sending_and_a_dry_run_stops_at_the_plan() {
+fn the_review_sends_at_once_and_asks_again_only_for_a_lot() {
     let dir = std::env::temp_dir().join(format!("ilias-tui-push-ask-{}", std::process::id()));
     let mut app = app(&dir);
     let folder = Item {
@@ -531,14 +531,13 @@ fn two_way_sync_asks_before_sending_and_a_dry_run_stops_at_the_plan() {
     };
     let drain =
         |app: &mut App| -> Vec<Action> { std::iter::from_fn(|| app.rx.try_recv().ok()).collect() };
-    // The sync itself asks nothing: the review does, and it remembers the folders' sizes.
+    // The sync itself sends and asks nothing: the review does.
     app.dispatch(Action::Synced {
         summary: String::new(),
         report: Vec::new(),
         saved: Vec::new(),
         review: Box::new(crate::sync::Review {
             changes: vec![upload(1)],
-            listed: std::collections::HashMap::from([(89, 4)]),
             ..Default::default()
         }),
     })
@@ -546,49 +545,43 @@ fn two_way_sync_asks_before_sending_and_a_dry_run_stops_at_the_plan() {
     assert!(
         !drain(&mut app)
             .iter()
-            .any(|a| matches!(a, Action::Ask { .. }))
+            .any(|a| matches!(a, Action::Ask { .. } | Action::Push(_)))
     );
 
-    app.dispatch(Action::AskPush(vec![upload(1)])).unwrap();
-    let asked = drain(&mut app);
-    let Some(Action::Ask { question, then }) = asked.last() else {
-        panic!("{asked:?}");
-    };
-    assert!(question.starts_with("Upload 1 new file into"), "{question}");
-    assert!(matches!(**then, Action::Push(ref c) if c.len() == 1));
+    // Enter in the review: sent without another question.
+    app.dispatch(Action::AskPush(vec![upload(1), trash(1)]))
+        .unwrap();
+    let sent = drain(&mut app);
+    assert!(
+        matches!(sent.last(), Some(Action::Push(c)) if c.len() == 2),
+        "{sent:?}"
+    );
+    while app.syncing.load(Ordering::SeqCst) {
+        std::thread::yield_now();
+    }
+    drain(&mut app);
 
-    // More than usual (2 of the folder's 4 files to the trash): a second question.
-    app.dispatch(Action::AskPush(vec![trash(1), trash(2)]))
+    // A lot at once (more than 5 of one folder to the trash): one more question.
+    app.dispatch(Action::AskPush((1..=6).map(trash).collect()))
         .unwrap();
     let asked = drain(&mut app);
     let Some(Action::Ask { question, then }) = asked.last() else {
         panic!("{asked:?}");
     };
-    assert!(question.contains("to the ILIAS trash"), "{question}");
-    assert!(
-        matches!(**then, Action::Ask { ref then, .. } if matches!(**then, Action::Push(_))),
-        "{then:?}"
-    );
-    app.dispatch(Action::AskPush(
-        (0..=crate::sync::ask::MAX_FILES).map(upload).collect(),
-    ))
-    .unwrap();
-    assert!(matches!(
-        drain(&mut app).last(),
-        Some(Action::Ask { then, .. }) if matches!(**then, Action::Ask { .. })
-    ));
+    assert!(question.contains("6 files in Unterlagen"), "{question}");
+    assert!(matches!(**then, Action::Push(_)), "{then:?}");
 
-    // A dry run asks nothing.
+    // A dry run sends nothing.
     app.client.set_dry_run(true);
     app.dispatch(Action::AskPush(vec![upload(1)])).unwrap();
     assert!(
         !drain(&mut app)
             .iter()
-            .any(|a| matches!(a, Action::Ask { .. }))
+            .any(|a| matches!(a, Action::Ask { .. } | Action::Push(_)))
     );
     app.client.set_dry_run(false);
 
-    // Offline nothing is asked or sent.
+    // Offline nothing is sent.
     app.client.set_offline(true);
     for action in [
         Action::AskPush(vec![upload(1)]),
@@ -603,6 +596,5 @@ fn two_way_sync_asks_before_sending_and_a_dry_run_stops_at_the_plan() {
             "{after:?}"
         );
     }
-    assert!(!app.syncing.load(Ordering::SeqCst));
     let _ = std::fs::remove_dir_all(dir);
 }

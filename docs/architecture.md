@@ -549,11 +549,10 @@ sections, with the proposals (`sync::PROPOSALS`) as `[ ]` rows, its own keys
 (`keymap::REVIEW`: move, `Space` ticks, `Enter`, `Esc`), the cursor kept on screen with
 `Paragraph::line_count`. `Enter` sends `AskPush` with `Review::sendable` (uploads, new
 folders, replaced files) plus the ticked proposals; `Esc` or a click sends `Cancelled`. In a dry run the
-review is a plain report. `App::ask_push` asks with `ask::question` (each file and its
-size); if `ask::brake` finds more than usual (over `MAX_FILES` = 20 files, those in new
-folders included, or
-over `MAX_SHARE` = 30 % of a place's ILIAS files replaced or trashed) the "yes" leads to a
-second `Ask`. `Push(changes)` runs `push::push` on a worker, one at a time like a sync:
+review is a plain report. The review is the question: `App::ask_push` sends `Push` at
+once, unless `ask::brake` finds more than usual (over `MAX_FILES` = 20 files to upload,
+those in new folders included, or to trash; or over `MAX_IN_FOLDER` = 5 files of one
+place replaced or trashed), which asks once more (`Ask`). `Push(changes)` runs `push::push` on a worker, one at a time like a sync:
 per place it reads the page again (the re-check: a file of that name now is a conflict,
 a file gone from disk a failure), sends the rest with `Client::upload_files`, reads the
 page once more and records each file in the saved-files list under its new ref id with

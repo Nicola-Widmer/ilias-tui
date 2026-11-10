@@ -601,7 +601,7 @@ fn two_way_sync_plans_what_to_send_and_sends_nothing_by_itself() {
         ["DEMO.101/Notizen.md"]
     );
     assert_eq!(
-        section("Edited by you: to replace the file on ILIAS"),
+        section("Edited by you: to replace on ILIAS"),
         ["DEMO.101/Blatt 3.pdf"]
     );
     assert!(

@@ -9,9 +9,14 @@ features and changes in behaviour, the last one for fixes only. See
 
 ### Changed
 
+- **The sync review is the question**: `Enter` sends what it lists and the ticked
+  deletions at once; it asks again only for a lot at once.
+- **The mass-change brake counts files, not percent**: it asks again for more than 20
+  files at once, or more than 5 files of one folder replaced or moved to the trash. A
+  single edit in a small folder no longer asks twice.
 - **Two-way sync overwrites edited files on ILIAS** through the file's "Replace File"
   instead of adding a version with "Create New Version". ILIAS keeps only your copy;
-  its earlier versions are deleted (the question before sending says so). As before only
+  its earlier versions are deleted (the review says so). As before only
   where the file's menu offers Versions, and only if ILIAS still has the version you
   edited.
 
@@ -58,6 +63,11 @@ features and changes in behaviour, the last one for fixes only. See
 
 ### Changed
 
+- **The sync review is the question**: `Enter` sends what it lists and the ticked
+  deletions at once; it asks again only for a lot at once.
+- **The mass-change brake counts files, not percent**: it asks again for more than 20
+  files at once, or more than 5 files of one folder replaced or moved to the trash. A
+  single edit in a small folder no longer asks twice.
 - **A shorter README** (about half as long): the details of what is stored and sent moved
   to `docs/security.md`, development and releases to `CONTRIBUTING.md`.
 - **The help (`?`) is grouped** (Items, Sync, Exercises, Edit, …) with shorter texts, wraps
@@ -89,6 +99,11 @@ features and changes in behaviour, the last one for fixes only. See
 
 ### Changed
 
+- **The sync review is the question**: `Enter` sends what it lists and the ticked
+  deletions at once; it asks again only for a lot at once.
+- **The mass-change brake counts files, not percent**: it asks again for more than 20
+  files at once, or more than 5 files of one folder replaced or moved to the trash. A
+  single edit in a small folder no longer asks twice.
 - Saved file and folder names are valid on Windows too: `<>:"|?*` become `_`, trailing dots
   and spaces are dropped, device names such as `CON` get a `_` in front.
 
@@ -115,6 +130,11 @@ features and changes in behaviour, the last one for fixes only. See
 
 ### Changed
 
+- **The sync review is the question**: `Enter` sends what it lists and the ticked
+  deletions at once; it asks again only for a lot at once.
+- **The mass-change brake counts files, not percent**: it asks again for more than 20
+  files at once, or more than 5 files of one folder replaced or moved to the trash. A
+  single edit in a small folder no longer asks twice.
 - **Faster start**: My courses shows from the cache at once while the session is checked
   in the background, and a start reads the course list once instead of twice. The To-Do
   remembers each exercise's course, so exercise pages are only read for new exercises.

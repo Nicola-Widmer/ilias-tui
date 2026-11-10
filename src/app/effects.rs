@@ -98,10 +98,7 @@ impl App {
                 self.downloads = Downloads::load(&self.client.base);
             }
             Action::Sync(roots) => self.sync(roots.clone()),
-            Action::Synced { review, .. } => {
-                self.listed.clone_from(&review.listed);
-                self.synced()?;
-            }
+            Action::Synced { .. } => self.synced()?,
             Action::AskPush(changes) => self.ask_push(changes)?,
             Action::Push(changes) => self.push(changes.clone()),
             Action::Pushed { .. } => self.downloads = Downloads::load(&self.client.base),
@@ -432,16 +429,12 @@ impl App {
             return Ok(());
         }
         let push = Action::Push(changes.to_vec());
-        let then = match sync::ask::brake(changes, &self.listed) {
+        self.tx.send(match sync::ask::brake(changes) {
             Some(question) => Action::Ask {
                 question,
                 then: Box::new(push),
             },
             None => push,
-        };
-        self.tx.send(Action::Ask {
-            question: sync::ask::question(changes, &self.download_dir),
-            then: Box::new(then),
         })?;
         Ok(())
     }

@@ -303,7 +303,7 @@ impl Summary {
                 changes(&mut review.uploads()),
             ),
             (
-                "Edited by you: to replace the file on ILIAS".to_string(),
+                "Edited by you: to replace on ILIAS (its earlier versions are deleted)".to_string(),
                 changes(&mut review.replacements()),
             ),
             (PROPOSALS.to_string(), changes(&mut review.proposals())),

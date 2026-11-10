@@ -204,7 +204,7 @@ pub const REVIEW: &[Binding] = &[
     bind(
         Send,
         &[Enter],
-        "Send what is listed and ticked (asks first)",
+        "Send what is listed and ticked (asks again only for a lot)",
     ),
     bind(Back, &[Esc, Char('q')], "Close, send nothing"),
 ];
