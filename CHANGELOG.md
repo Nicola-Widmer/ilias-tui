@@ -43,6 +43,11 @@ features and changes in behaviour, the last one for fixes only. See
 
 ### Fixed
 
+- **Renames among files with the same content**: a saved file already gone from ILIAS
+  made a rename look unclear, so it was uploaded again and the old one trashed. Only files
+  proposed for the trash now count as what you renamed.
+- **The status line after deleting a folder** counted its files as ones ILIAS doesn't let
+  you delete.
 - **Sync after changing the download folder** kept updating files in the old folder, and
   two-way sync proposed them for the ILIAS trash once that folder was gone. Now only copies
   in the current download folder count: files are saved there again, and old copies are

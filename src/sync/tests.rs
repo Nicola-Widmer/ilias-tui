@@ -741,3 +741,32 @@ fn says_what_becomes_of_the_files_you_deleted() {
             .contains("2 deleted by you (not downloaded again)")
     );
 }
+
+#[test]
+fn files_in_a_folder_for_the_trash_count_as_going_there() {
+    let folder = Change::Trash {
+        place: Item::default(),
+        file: Item {
+            kind: Kind::Folder,
+            ..Item::default()
+        },
+        path: PathBuf::from("/dl/KW1"),
+        base: String::new(),
+    };
+    let summary = Summary {
+        deleted: 2,
+        two_way: true,
+        review: Review {
+            changes: vec![folder],
+            in_folders: 2,
+            ..Review::default()
+        },
+        ..Summary::default()
+    };
+    let text = summary.text(50.0);
+    assert!(
+        text.contains("2 deleted by you (to the ILIAS trash)"),
+        "{text}"
+    );
+    assert!(!text.contains("doesn't let you"), "{text}");
+}

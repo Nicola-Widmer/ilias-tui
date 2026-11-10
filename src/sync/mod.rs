@@ -249,7 +249,12 @@ impl Summary {
         }
         parts.push(format!("{} unchanged", self.unchanged));
         let review = &self.review;
-        let (trash, renamed) = (review.proposals().count(), review.renames().count());
+        // Files: those proposed one by one, and those in a folder proposed as a whole.
+        let one_by_one = review
+            .proposals()
+            .filter(|c| !matches!(c, Change::Trash { file, .. } if file.kind == Kind::Folder))
+            .count();
+        let (trash, renamed) = (one_by_one + review.in_folders, review.renames().count());
         let kept = self.deleted.saturating_sub(trash + renamed);
         if trash > 0 {
             parts.push(format!("{trash} deleted by you (to the ILIAS trash)"));

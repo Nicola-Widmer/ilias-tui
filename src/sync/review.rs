@@ -111,6 +111,8 @@ pub struct Review {
     pub too_big: Vec<PathBuf>,
     /// Dry run: two-way sync stops after the plan.
     pub dry_run: bool,
+    /// Files you deleted that go to the ILIAS trash with their folder (not one by one).
+    pub in_folders: usize,
 }
 
 impl Review {
@@ -272,9 +274,13 @@ pub fn decide(
             let same = by_hash.get(hash.as_str()).map_or(&[][..], Vec::as_slice);
             // Renamed or moved: a saved file with this content is gone from its place (and
             // not taken by another rename yet).
+            // Only files proposed for the trash now count: a saved file that is gone from
+            // ILIAS too (its entry stays in the list) was not renamed into this one.
             let gones: Vec<&&Path> = same
                 .iter()
-                .filter(|saved| !saved.exists() && !renamed.contains(**saved))
+                .filter(|saved| {
+                    !saved.exists() && deleted.contains_key(**saved) && !renamed.contains(**saved)
+                })
                 .collect();
             // Exactly one, still on ILIAS as saved: a rename in this folder renames the
             // ILIAS file; a move from another folder is an upload here, and the old file
@@ -401,7 +407,9 @@ pub fn decide(
         if !was_here || !all_deleted || !parent.rights.delete.contains(&folder.item.key()) {
             continue;
         }
+        let before = trash.len();
         trash.retain(|(_, _, path)| !path.starts_with(&folder.dir));
+        review.in_folders += before - trash.len();
         let listed = parent.items.iter().find(|i| i.id == folder.item.id);
         review.changes.push(Change::Trash {
             place: parent.item.clone(),
@@ -680,6 +688,46 @@ mod tests {
     }
 
     #[test]
+    fn a_file_gone_from_ilias_too_does_not_make_a_rename_unclear() {
+        let (dir, mut downloads) = setup("rename-gone");
+        let folder = dir.join("Unterlagen");
+        // Archiv (11) is in the ILIAS trash and gone from your disk; Archiv_2 (12), the
+        // same content, you renamed to Archiv_3.
+        for (key, name) in [(11, "Archiv.pdf"), (12, "Archiv_2.pdf")] {
+            fs::write(folder.join(name), "same").unwrap();
+            downloads
+                .record(key, folder.join(name), "v1".into())
+                .unwrap();
+        }
+        fs::remove_file(folder.join("Archiv.pdf")).unwrap();
+        fs::rename(folder.join("Archiv_2.pdf"), folder.join("Archiv_3.pdf")).unwrap();
+        let file = item("file", 12, "Archiv_2");
+        let places = [place(&folder, vec![file.clone()], vec![12])];
+        let candidates = Candidates {
+            deleted: vec![(file.clone(), folder.join("Archiv_2.pdf"))],
+            ..Candidates::default()
+        };
+        let review = decide(
+            &places,
+            &HashSet::from([12]),
+            candidates,
+            &downloads,
+            1 << 20,
+        );
+        assert_eq!(
+            review.changes,
+            [Change::Rename {
+                place: places[0].item.clone(),
+                file,
+                from: folder.join("Archiv_2.pdf"),
+                path: folder.join("Archiv_3.pdf"),
+                base: "v1".into(),
+            }]
+        );
+        let _ = fs::remove_dir_all(dir);
+    }
+
+    #[test]
     fn an_unclear_rename_is_an_upload_and_the_gone_files_go_to_the_trash() {
         let (dir, mut downloads) = setup("same");
         let folder = dir.join("Unterlagen");
@@ -848,6 +896,7 @@ mod tests {
             &downloads,
             1 << 20,
         );
+        assert_eq!(review.in_folders, 2);
         // One proposal, for the folder; none for its files.
         assert_eq!(
             review.changes,
