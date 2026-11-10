@@ -7,6 +7,13 @@ features and changes in behaviour, the last one for fixes only. See
 
 ## Unreleased
 
+### Fixed
+
+- **Sync after midnight**: ILIAS lists recent dates as "Today, 12:41", which becomes
+  "Yesterday, 12:41" the next day, so every such file looked changed on ILIAS. Sync
+  fetched untouched files again, and two-way sync took your edits for conflicts. Sync
+  now records dates in full and reads older entries against the day they were saved.
+
 ## 0.4.0 - 2026-11-09
 
 ### Added

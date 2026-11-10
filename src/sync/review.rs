@@ -179,7 +179,7 @@ pub fn decide(
             Some(place) if may_change(place, &file) => review.changes.push(Change::NewVersion {
                 place: place.item.clone(),
                 base: base(file.key())
-                    .map(|s| s.version.clone())
+                    .map(super::saved_version)
                     .unwrap_or_default(),
                 file,
                 path,
@@ -324,7 +324,7 @@ pub fn decide(
         .extend(trash.into_iter().map(|(place, file, path)| {
             Change::Trash {
                 base: base(file.key())
-                    .map(|s| s.version.clone())
+                    .map(super::saved_version)
                     .unwrap_or_default(),
                 place,
                 file,

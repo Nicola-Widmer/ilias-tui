@@ -513,7 +513,10 @@ reached it goes back to offline.
 (their folder path and the listing's size and date come with them). `plan` decides per file
 from what `downloads.rs` recorded: `New`, `Update` (changed on ILIAS, copy untouched),
 `Beside` (changed on ILIAS, copy edited), `Adopt` (old entry without version), `Unchanged`,
-`Deleted`, `TooBig`. "Edited" means the content differs from right after the download: size and mtime
+`Deleted`, `TooBig`. A file's version is its size and date in the listing (`sync::version`), with ILIAS'
+relative dates ("Today, 12:41") written out in full, so it doesn't change overnight; an
+entry recorded with relative dates is read against the day its copy was saved
+(`sync::saved_version`). "Edited" means the content differs from right after the download: size and mtime
 are compared first, then the SHA-256 recorded at download (`Saved::hash`), so a file only
 touched is still untouched. Old entries without a hash count as edited if size or mtime
 differ, so nothing saved before is ever overwritten; sync adds the hash while they are as

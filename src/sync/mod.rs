@@ -117,15 +117,43 @@ pub enum Plan {
     Unsure(PathBuf),
 }
 
-/// The file's version as ILIAS lists it: size and last change, e.g. `6.92 MB · 17. Sep 2026,
-/// 14:50`. Other properties (type, "new" marks, …) don't count.
+/// The file's version as ILIAS lists it now: size and last change, e.g. `6.92 MB ·
+/// 2026-09-17T14:50:00`. Other properties (type, "new" marks, …) don't count. ILIAS writes
+/// recent dates relative to today ("Today, 14:50"), which changes overnight; they are
+/// written out with today's date, so the version stays the same.
 pub fn version(item: &Item) -> String {
-    item.properties
+    let listed = item
+        .properties
         .iter()
         .filter(|p| size_mb(p).is_some() || p.contains(", ") || p.starts_with("Version"))
         .cloned()
         .collect::<Vec<_>>()
+        .join(" · ");
+    absolute(&listed, jiff::Zoned::now().date())
+}
+
+/// `version` with every date in it made absolute, "Today" being `day`. Dates that are
+/// absolute already stay as they are.
+pub fn absolute(version: &str, day: jiff::civil::Date) -> String {
+    version
+        .split(" · ")
+        .map(|part| match crate::ilias::parse::parse_date(part, day) {
+            Some(date) => date.to_string(),
+            None => part.to_string(),
+        })
+        .collect::<Vec<_>>()
         .join(" · ")
+}
+
+/// The version recorded for a saved file, comparable with [`version`]: one recorded with
+/// ILIAS' relative dates (by older versions) reads them on the day the copy was saved.
+pub fn saved_version(saved: &Saved) -> String {
+    let day = jiff::Timestamp::from_millisecond(saved.modified_ms as i64)
+        .ok()
+        .filter(|_| saved.modified_ms > 0)
+        .map(|t| t.to_zoned(jiff::tz::TimeZone::system()).date())
+        .unwrap_or_else(|| jiff::Zoned::now().date());
+    absolute(&saved.version, day)
 }
 
 /// `"107.9 MB"` → 107.9; `"512 KB"` → 0.512.
@@ -154,7 +182,7 @@ pub fn plan(item: &Item, saved: Option<(&Saved, Local)>, rules: Rules) -> Plan {
     let Some((saved, local)) = saved else {
         return fetch(Plan::New);
     };
-    let changed = saved.version != version;
+    let changed = saved_version(saved) != version;
     let path = || saved.path.clone();
     match local {
         _ if saved.version.is_empty() && local != Local::Missing => Plan::Adopt,

@@ -355,7 +355,8 @@ impl App {
                 )));
                 let version = sync::version(item);
                 let kept = downloads.entry(item.key()).is_some_and(|s| {
-                    s.version == version && s.local() == crate::downloads::Local::Untouched
+                    sync::saved_version(s) == version
+                        && s.local() == crate::downloads::Local::Untouched
                 });
                 if kept {
                     unchanged += 1;

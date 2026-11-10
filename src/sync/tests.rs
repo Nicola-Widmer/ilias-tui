@@ -22,7 +22,7 @@ fn saved(version: &str) -> Saved {
     }
 }
 
-const V1: &str = "1.2 MB · 1. Nov 2026, 10:00";
+const V1: &str = "1.2 MB · 2026-11-01T10:00:00";
 
 const RULES: Rules = Rules {
     max_mb: 50.0,
@@ -610,4 +610,42 @@ fn two_way_sync_plans_what_to_send_and_sends_nothing_by_itself() {
         summary.text(50.0)
     );
     let _ = std::fs::remove_dir_all(dir);
+}
+
+#[test]
+fn a_relative_date_is_the_same_version_the_next_day() {
+    let yesterday = jiff::Zoned::now().date().yesterday().unwrap();
+    // Saved yesterday while ILIAS said "Today, 12:41"; today it says "Yesterday, 12:41".
+    let modified = yesterday
+        .to_datetime(jiff::civil::time(13, 0, 0, 0))
+        .to_zoned(jiff::tz::TimeZone::system())
+        .unwrap()
+        .timestamp()
+        .as_millisecond() as u64;
+    let saved_then = Saved {
+        version: "15 B · Today, 12:41".into(),
+        modified_ms: modified,
+        ..hashed("")
+    };
+    let now = Item {
+        properties: vec!["pdf".into(), "15 B".into(), "Yesterday, 12:41".into()],
+        ..file("15 B", "")
+    };
+    assert_eq!(saved_version(&saved_then), version(&now));
+    assert_eq!(
+        plan(&now, Some((&saved_then, Local::Edited)), TWO_WAY),
+        Plan::NewVersion(saved_then.path.clone()),
+        "your edit, not a conflict"
+    );
+    assert_eq!(
+        plan(&now, Some((&saved_then, Local::Untouched)), RULES),
+        Plan::Unchanged,
+        "nothing to download again"
+    );
+    // Recorded by an older version in ILIAS' own words: the same too.
+    let old = Saved {
+        version: "1.2 MB · 1. Nov 2026, 10:00".into(),
+        ..hashed("")
+    };
+    assert_eq!(saved_version(&old), V1);
 }
