@@ -542,7 +542,9 @@ it), `NewFolder` for folders no item of the place is called (where `rights.creat
 applied; a name sync would save differently, `sanitize`, is a conflict); a new file with the hash of exactly one missing saved file in the same folder, where
 `rights.versions` has it, is a `Rename` (and drops that file's proposal); in another
 folder, or among several with that hash, it is an `Upload` and the missing ones stay
-proposed; same names on ILIAS, copies of saved files and folders shared by two ILIAS
+proposed; a folder place (never a course) whose local folder is gone, into which sync had saved
+files and whose files all the way down are all deleted candidates, is one `Trash` of the
+folder, in place of its files' proposals (and `ask::brake` always asks about it); same names on ILIAS, copies of saved files and folders shared by two ILIAS
 places become conflicts; saved files in a place that ILIAS no longer lists are `gone`. The
 report lists all of it.
 
@@ -569,7 +571,10 @@ sent only if the place still lists the file with the version it was edited from 
 else it is a conflict; then `Client::replace_file` runs and the file is recorded with the
 listing's new version. A `Trash` is sent only if ILIAS still
 has the version and the file is still gone from your disk, through `Client::delete_item`
-(which refuses without a trash). Every write is appended to the `Journal`. `Pushed` shows the result like a sync.
+(which refuses without a trash). Every write is appended to the `Journal`. `Pushed` shows the result like a sync. `Synced`, `Pushed` and `LocalTrashed` make
+`Browser` reload the page on screen and mark the hidden ones out of date
+(`Browser::reload_all`); the last two carry the keys of all files saved now, for the
+"saved" marks.
 
 Saved files in a place that ILIAS no longer lists are split by `Saved::local`: edited ones
 are `gone` (kept, listed), untouched ones `gone_untouched`. After `Synced`,

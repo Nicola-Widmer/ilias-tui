@@ -93,10 +93,10 @@ impl Component for StatusBar {
             Action::Sync(roots) => {
                 Status::Busy(format!("Sync: starting ({} selected)…", roots.len()))
             }
-            Action::LocalTrashed { moved, kept } if kept.is_empty() => {
+            Action::LocalTrashed { moved, kept, .. } if kept.is_empty() => {
                 Status::Done(format!("Moved {} to your Trash", files(*moved)))
             }
-            Action::LocalTrashed { moved, kept } => Status::Warning(format!(
+            Action::LocalTrashed { moved, kept, .. } => Status::Warning(format!(
                 "Moved {} to your Trash; kept {}: {}",
                 files(*moved),
                 kept.len(),
@@ -233,6 +233,9 @@ impl Component for StatusBar {
                 | Action::FolderCreated { created: true, .. }
                 | Action::Deleted { deleted: true, .. }
                 | Action::Posted { sent: true, .. }
+                | Action::Synced { .. }
+                | Action::Pushed { .. }
+                | Action::LocalTrashed { .. }
         );
         None
     }
@@ -340,5 +343,37 @@ mod tests {
             deep: false,
         });
         assert!(matches!(bar.status, Status::Busy(_)));
+    }
+}
+
+#[cfg(test)]
+mod sync_tests {
+    use super::*;
+
+    #[test]
+    fn what_a_push_sent_stays_shown_through_the_reload_after_it() {
+        let mut bar = StatusBar::default();
+        bar.update(&Action::Pushed {
+            summary: "Sent to ILIAS: 1 uploaded".into(),
+            report: Vec::new(),
+            saved: Vec::new(),
+        });
+        for action in [
+            Action::Load {
+                item: None,
+                url: None,
+                refresh: true,
+                deep: false,
+            },
+            Action::Loaded {
+                item: None,
+                page: Default::default(),
+                refresh: true,
+                deep: false,
+            },
+        ] {
+            bar.update(&action);
+            assert!(matches!(bar.status, Status::Done(ref s) if s.contains("1 uploaded")));
+        }
     }
 }

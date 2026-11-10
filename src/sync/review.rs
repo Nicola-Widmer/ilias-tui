@@ -370,6 +370,47 @@ pub fn decide(
             }
         }
     }
+    // Folders you deleted: one proposal for the topmost, in place of its files'.
+    let gone_ids: HashSet<u64> = deleted.values().map(Item::key).collect();
+    let mut folders: Vec<&Place> = places
+        .iter()
+        .filter(|p| p.item.kind == Kind::Folder && !p.dir.exists())
+        .collect();
+    folders.sort_by_key(|p| p.dir.components().count());
+    let mut trashed: Vec<&Path> = Vec::new();
+    for folder in folders {
+        if trashed.iter().any(|t| folder.dir.starts_with(t)) {
+            continue;
+        }
+        let Some(parent) = places
+            .iter()
+            .find(|p| p.items.iter().any(|i| i.id == folder.item.id))
+        else {
+            continue;
+        };
+        // Sync saved files into it, so it was on your disk; every file ILIAS has in it,
+        // all the way down, you deleted too (none changed on ILIAS since).
+        let was_here = downloads
+            .entries()
+            .any(|(_, s)| s.path.starts_with(&folder.dir));
+        let all_deleted = places
+            .iter()
+            .filter(|p| p.dir.starts_with(&folder.dir))
+            .flat_map(|p| p.items.iter().filter(|i| i.kind == Kind::File))
+            .all(|file| gone_ids.contains(&file.key()));
+        if !was_here || !all_deleted || !parent.rights.delete.contains(&folder.item.key()) {
+            continue;
+        }
+        trash.retain(|(_, _, path)| !path.starts_with(&folder.dir));
+        let listed = parent.items.iter().find(|i| i.id == folder.item.id);
+        review.changes.push(Change::Trash {
+            place: parent.item.clone(),
+            file: folder.item.clone(),
+            path: folder.dir.clone(),
+            base: listed.map(super::version).unwrap_or_default(),
+        });
+        trashed.push(&folder.dir);
+    }
     review
         .changes
         .extend(trash.into_iter().map(|(place, file, path)| {
@@ -766,6 +807,84 @@ mod tests {
         assert_eq!(review.gone, [folder.join("Notizen.pdf")]);
         assert!(review.changes.is_empty());
         assert!(folder.join("Alt.pdf").exists());
+        let _ = fs::remove_dir_all(dir);
+    }
+
+    #[test]
+    fn a_deleted_folder_goes_to_the_trash_as_one_and_only_if_all_of_it_was_deleted() {
+        let (dir, mut downloads) = setup("gone-folder");
+        let course = dir.join("Unterlagen");
+        let week = course.join("Woche 1");
+        fs::create_dir_all(&week).unwrap();
+        for (key, name) in [(20, "a.pdf"), (21, "b.pdf")] {
+            fs::write(week.join(name), name).unwrap();
+            downloads.record(key, week.join(name), "v1".into()).unwrap();
+        }
+        fs::remove_dir_all(&week).unwrap();
+        let files = [item("file", 20, "a"), item("file", 21, "b")];
+        let mut parent = place(&course, vec![item("fold", 5, "Woche 1")], vec![5, 20, 21]);
+        parent.item = item("crs", 1, "DEMO");
+        let folder = Place {
+            item: item("fold", 5, "Woche 1"),
+            dir: week.clone(),
+            rights: Rights {
+                delete: vec![20, 21],
+                ..Rights::default()
+            },
+            items: files.to_vec(),
+        };
+        let places = [parent.clone(), folder.clone()];
+        let candidates = |deleted: &[Item]| Candidates {
+            deleted: deleted
+                .iter()
+                .map(|f| (f.clone(), week.join(format!("{}.pdf", f.title))))
+                .collect(),
+            ..Candidates::default()
+        };
+        let review = decide(
+            &places,
+            &HashSet::from([20, 21]),
+            candidates(&files),
+            &downloads,
+            1 << 20,
+        );
+        // One proposal, for the folder; none for its files.
+        assert_eq!(
+            review.changes,
+            [Change::Trash {
+                place: parent.item.clone(),
+                file: item("fold", 5, "Woche 1"),
+                path: week.clone(),
+                base: String::new(),
+            }]
+        );
+        // A file in it changed on ILIAS (so it is downloaded again, not deleted): the
+        // folder stays, the other file is proposed alone.
+        let review = decide(
+            &places,
+            &HashSet::from([20, 21]),
+            candidates(&files[..1]),
+            &downloads,
+            1 << 20,
+        );
+        assert!(
+            !review
+                .changes
+                .iter()
+                .any(|c| matches!(c, Change::Trash { file, .. } if file.kind == Kind::Folder)),
+            "{review:?}"
+        );
+        assert_eq!(review.proposals().count(), 1);
+        // Never on your disk (sync saved nothing into it): no proposal.
+        let fresh = Downloads::in_file(dir.join("empty.json"));
+        let review = decide(
+            &places,
+            &HashSet::new(),
+            Candidates::default(),
+            &fresh,
+            1 << 20,
+        );
+        assert!(review.changes.is_empty(), "{review:?}");
         let _ = fs::remove_dir_all(dir);
     }
 

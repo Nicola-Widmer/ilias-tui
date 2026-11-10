@@ -195,17 +195,21 @@ pub enum Action {
     AskPush(Vec<crate::sync::Change>),
     /// Move these saved files, gone on ILIAS and untouched, to your computer's trash.
     TrashLocal(Vec<PathBuf>),
-    /// How many went to the trash, and the ones kept with why.
+    /// How many went to the trash, the ones kept with why, and the keys of all files
+    /// still saved on disk.
     LocalTrashed {
         moved: usize,
         kept: Vec<String>,
+        saved: Vec<u64>,
     },
     /// Two-way sync: send these changes to ILIAS (you agreed to them).
     Push(Vec<crate::sync::Change>),
-    /// What a push sent (one line) and what deserves a look (by section).
+    /// What a push sent (one line), what deserves a look (by section), and the keys of all
+    /// files saved on disk now.
     Pushed {
         summary: String,
         report: Vec<(String, Vec<String>)>,
+        saved: Vec<u64>,
     },
     /// The app runs offline: only cached pages and saved files, nothing is sent.
     Offline,

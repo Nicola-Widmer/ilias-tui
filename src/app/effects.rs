@@ -457,7 +457,12 @@ impl App {
             };
             let _ = journal.write("local trash", &path, "gone on ILIAS", &result);
         }
-        self.tx.send(Action::LocalTrashed { moved, kept })?;
+        self.downloads = Downloads::load(&self.client.base);
+        self.tx.send(Action::LocalTrashed {
+            moved,
+            kept,
+            saved: self.downloads.saved().collect(),
+        })?;
         Ok(())
     }
 
@@ -495,6 +500,7 @@ impl App {
             Ok(Action::Pushed {
                 summary: pushed.text(),
                 report: pushed.report(&dir),
+                saved: downloads.saved().collect(),
             })
         });
     }

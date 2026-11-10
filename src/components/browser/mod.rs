@@ -73,6 +73,15 @@ enum Hit {
 const DOUBLE_CLICK: Duration = Duration::from_millis(400);
 
 impl Browser {
+    /// Reloads the page on screen and marks the hidden ones out of date.
+    fn reload_all(&mut self) -> Option<Action> {
+        let (top, hidden) = self.stack.split_last_mut()?;
+        for level in hidden {
+            level.out_of_date = true;
+        }
+        Some(top.reload())
+    }
+
     pub fn new(saved: HashSet<u64>, config: &crate::config::Config) -> Self {
         Self {
             saved,
@@ -290,8 +299,17 @@ impl Component for Browser {
             Action::Downloaded { item, .. } => {
                 self.saved.insert(item.key());
             }
-            Action::Synced { saved, .. } | Action::SubmissionsSaved { saved, .. } => {
-                self.saved.extend(saved)
+            Action::SubmissionsSaved { saved, .. } => self.saved.extend(saved),
+            // A sync may have read newer pages (and saved files); a two-way push or the
+            // trash on your disk changed ILIAS or what is saved: show the page on screen
+            // as it is now, and reload the hidden ones once they are on screen again.
+            Action::Synced { saved, .. } => {
+                self.saved.extend(saved);
+                return self.reload_all();
+            }
+            Action::Pushed { saved, .. } | Action::LocalTrashed { saved, .. } => {
+                self.saved = saved.iter().copied().collect();
+                return self.reload_all();
             }
             Action::NewItems(items) => self.new.extend(items),
             Action::NewCounts(counts) => self.new_counts.clone_from(counts),

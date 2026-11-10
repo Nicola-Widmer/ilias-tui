@@ -636,7 +636,7 @@ fn files_gone_on_ilias_go_to_your_trash_only_after_asking() {
     // A file sync didn't save is never moved.
     app.dispatch(Action::TrashLocal(gone.clone())).unwrap();
     assert!(drain(&mut app).iter().any(
-        |a| matches!(a, Action::LocalTrashed { moved: 0, kept } if kept[0].contains("not saved by sync"))
+        |a| matches!(a, Action::LocalTrashed { moved: 0, kept, .. } if kept[0].contains("not saved by sync"))
     ));
     let _ = std::fs::remove_dir_all(dir);
 }

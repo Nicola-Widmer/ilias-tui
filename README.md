@@ -205,6 +205,7 @@ is a plain report and nothing is sent.
 | renamed (same folder) | unchanged | renames ILIAS' file (through "Replace File" with the new name) |
 | moved (other folder)  | unchanged | uploads it there and moves the old one to the ILIAS trash |
 | deleted           | unchanged     | a **proposal**: moves it to the ILIAS trash; ticked, `Space` unticks it |
+| folder deleted    | none of it changed | moves the ILIAS folder to the trash, with what is in it (asks once more) |
 | deleted           | changed       | downloads it again                                         |
 | unchanged         | gone on ILIAS | asks (`y`/`n`) whether to move yours to your computer's Trash |
 | edited            | gone on ILIAS | keeps yours and lists it                                   |

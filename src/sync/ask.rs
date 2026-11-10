@@ -51,6 +51,22 @@ pub fn brake(changes: &[Change]) -> Option<String> {
         )
     }) + in_folders;
     let trash = count(|c| matches!(c, Change::Trash { .. }));
+    // A whole folder is more than its one line in the review: always asked about.
+    let folders: Vec<&str> = changes
+        .iter()
+        .filter_map(|c| match c {
+            Change::Trash { file, .. } if file.kind == crate::ilias::Kind::Folder => {
+                Some(file.title.as_str())
+            }
+            _ => None,
+        })
+        .collect();
+    if !folders.is_empty() {
+        return Some(format!(
+            "Move these folders, with everything in them, to the ILIAS trash?\n{}",
+            folders.join("\n")
+        ));
+    }
     if uploads > MAX_FILES || trash > MAX_FILES {
         return Some(format!(
             "That is a lot at once: {uploads} files to upload and {trash} to move to the trash \
@@ -167,6 +183,25 @@ mod tests {
         assert!(
             question.contains("these 10 files")
                 && question.ends_with("and 2 more (see the report)")
+        );
+    }
+
+    #[test]
+    fn a_folder_to_the_trash_is_always_asked_about() {
+        let trash = Change::Trash {
+            place: folder(),
+            file: Item {
+                kind: Kind::Folder,
+                id: Id::Ref(5),
+                title: "Unterlagen › Woche 1".into(),
+                ..Item::default()
+            },
+            path: PathBuf::from("/dl/DEMO/Unterlagen/Woche 1"),
+            base: String::new(),
+        };
+        assert_eq!(
+            brake(&[trash]).unwrap(),
+            "Move these folders, with everything in them, to the ILIAS trash?\nUnterlagen › Woche 1"
         );
     }
 }

@@ -15,6 +15,13 @@ features and changes in behaviour, the last one for fixes only. See
 
 ### Changed
 
+- **A folder you delete goes to the ILIAS trash as a whole** (where ILIAS lets you delete
+  it, and only if none of its files changed on ILIAS since): one proposal in the review
+  instead of one per file, and always asked about once more. Before, its files went but
+  the empty folder stayed.
+- **The TUI shows ILIAS as it is after a sync, a two-way push or the trash on your disk**:
+  the page on screen is read again (the result stays in the status line), the others once
+  you go back to them, and the "saved" marks follow.
 - **Dialogs and the sync review look better**: an icon and colour per kind of question
   and per section (Nerd Font icons, plain ones without), the question as a headline with
   its files listed below, `y`/`n` as buttons, count badges and checkboxes.

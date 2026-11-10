@@ -290,6 +290,9 @@ impl Summary {
                         path,
                         ..
                     } => format!("{} (renamed from {})", shorten(path), shorten(old)),
+                    Change::Trash { file, path, .. } if file.kind == Kind::Folder => {
+                        format!("{}/ (the folder, with what is in it)", shorten(path))
+                    }
                     Change::Rename { from, path, .. } => {
                         format!("{} (was {})", shorten(path), shorten(from))
                     }
