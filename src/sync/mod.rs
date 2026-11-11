@@ -36,6 +36,9 @@ use crate::ilias::{Client, Id, Item, Kind, Page};
 pub mod ask;
 pub mod journal;
 pub mod local;
+// Used by the app from the switch-over on; until then only by its tests.
+#[allow(dead_code)]
+pub mod model;
 pub mod push;
 pub mod review;
 
