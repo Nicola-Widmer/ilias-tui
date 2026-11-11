@@ -39,6 +39,10 @@ pub mod local;
 // Used by the app from the switch-over on; until then only by its tests.
 #[allow(dead_code)]
 pub mod model;
+#[allow(dead_code)]
+pub mod diff;
+#[allow(dead_code)]
+pub mod ops;
 pub mod push;
 pub mod review;
 
