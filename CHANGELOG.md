@@ -15,6 +15,8 @@ features and changes in behaviour, the last one for fixes only. See
 
 ### Changed
 
+- **`S` on a course's page syncs the whole course**, even when a folder in it is selected.
+  Inside a folder it still syncs the selected subfolder (or the folder on screen).
 - **The status line names what was synced** ("Synced Test: …"), so it shows when `S`
   synced the selected folder rather than the course on screen.
 - **A folder you delete goes to the ILIAS trash as a whole** (where ILIAS lets you delete

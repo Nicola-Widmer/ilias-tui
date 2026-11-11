@@ -162,9 +162,14 @@ impl Browser {
         let roots = if self.marked.is_empty() {
             self.current()
                 .and_then(|level| {
-                    level
-                        .selected()
-                        .filter(|i| syncable(i))
+                    // On a course's (or group's) own page: the whole course, whatever is
+                    // selected. Elsewhere the selected course or folder, else the page.
+                    let course = level
+                        .item
+                        .as_ref()
+                        .filter(|i| !level.deep && matches!(i.kind, Kind::Course | Kind::Group));
+                    course
+                        .or(level.selected().filter(|i| syncable(i)))
                         .or(level.item.as_ref().filter(|i| syncable(i)))
                 })
                 .cloned()

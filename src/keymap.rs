@@ -131,7 +131,7 @@ pub const SECTIONS: &[(&str, &[Binding])] = &[
             bind(
                 Sync,
                 &[Char('S')],
-                "Sync files (≤ 50 MB) of the marked or selected; two-way asks before sending",
+                "Sync the marked, else the selected (on a course page: the course)",
             ),
             bind(SyncAll, &[Char('A')], "Sync all courses (asks first)"),
         ],

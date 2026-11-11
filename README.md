@@ -105,7 +105,7 @@ opens again when the HSLU login itself has expired.
 | `r`             | Reload current list                             |
 | **Sync**        |                                                 |
 | `Space`         | Mark a course or folder for sync                |
-| `S`             | Sync the marked courses (or the selected one); with two-way sync, asks before sending anything |
+| `S`             | Sync the marked courses, else the selected one; on a course's page the whole course; with two-way sync, shows what it would send first |
 | `A`             | Sync all courses in My courses (asks first)     |
 | **Exercises**   |                                                 |
 | `H`             | On an assignment: hand in a file (asks first; `Tab` completes the path) |

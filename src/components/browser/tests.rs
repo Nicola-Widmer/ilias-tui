@@ -1057,3 +1057,35 @@ fn shows_ilias_and_your_disk_as_they_are_after_a_push_or_the_trash() {
     );
     assert!(screen(&mut browser).contains("saved"));
 }
+
+#[test]
+fn s_on_a_course_page_syncs_the_course_and_in_a_folder_the_selected_folder() {
+    let course = item("crs", 1, "DEMO");
+    let folder = item("fold", 2, "Test");
+    let mut browser = Browser::default();
+    load(
+        &mut browser,
+        Some(course.clone()),
+        Page::from_items(vec![folder.clone()]),
+        false,
+    );
+    // The folder is selected, but on the course's own page S means the course.
+    let sync = browser.handle_key_event(KeyCode::Char('S').into());
+    assert!(
+        matches!(sync, Some(Action::Sync(ref roots)) if roots == std::slice::from_ref(&course)),
+        "{sync:?}"
+    );
+    // Inside a folder, a selected subfolder is what S syncs.
+    let sub = item("fold", 3, "Woche 1");
+    load(
+        &mut browser,
+        Some(folder),
+        Page::from_items(vec![sub.clone()]),
+        false,
+    );
+    let sync = browser.handle_key_event(KeyCode::Char('S').into());
+    assert!(
+        matches!(sync, Some(Action::Sync(ref roots)) if roots == &[sub]),
+        "{sync:?}"
+    );
+}
