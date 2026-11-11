@@ -18,42 +18,37 @@
 //!   would save the same file into the same folder again (`Blatt 3 (1).pdf`, …).
 //! - Every course and folder page read on the way is cached, so synced courses can be
 //!   browsed offline.
-//! - Two-way sync (settings, off by default) also plans what to send to ILIAS: your new
-//!   and edited files, and deletions to propose for the trash ([`review`]).
+//! - Two-way sync (settings, off by default) also decides what to send to ILIAS: your new
+//!   and edited files, and deletions to propose for the trash.
+//!
+//! One model for both: the [`model::Base`], ILIAS now ([`model::Remote`]) and your disk now
+//! ([`model::Local`]) go into the pure [`diff::diff`], which gives one [`ops::Op`] per path;
+//! the [`run`] executor carries them out. A sync runs what doesn't write to ILIAS (the
+//! downloads) straight away; two-way, what writes waits for the review.
 
-use std::collections::{HashMap, HashSet};
+use std::collections::HashMap;
 use std::path::{Path, PathBuf};
-use std::sync::atomic::{AtomicUsize, Ordering};
 use std::sync::{Mutex, PoisonError};
-use std::thread;
 
 use color_eyre::Result;
 
 use crate::cache::Cache;
-use crate::downloads::{Downloads, Local, Saved};
 use crate::ilias::{Client, Id, Item, Kind, Page};
 
 pub mod ask;
+pub mod diff;
 pub mod journal;
 pub mod local;
-// Used by the app from the switch-over on; until then only by its tests.
-#[allow(dead_code)]
 pub mod model;
-#[allow(dead_code)]
-pub mod diff;
-#[allow(dead_code)]
 pub mod ops;
-pub mod push;
-pub mod review;
+pub mod report;
+pub mod run;
 
-use review::{Candidates, Place};
-pub use review::{Change, Review};
+pub use ops::Op;
+pub use report::{Review, Summary};
 
-/// The report's section of proposed deletions, which the review shows as checkboxes.
-pub const PROPOSALS: &str = "Deleted by you: to the ILIAS trash (Space unticks)";
-
-/// Downloads running at the same time; polite to the server, still much faster than one.
-const PARALLEL: usize = 3;
+use model::Remote;
+use ops::Settle;
 
 /// How sync decides, from the settings.
 #[derive(Debug, Clone, Copy, PartialEq)]
@@ -91,7 +86,7 @@ impl Rules {
         }
     }
 
-    fn max_bytes(&self) -> u64 {
+    pub fn max_bytes(&self) -> u64 {
         (self.max_mb * 1e6) as u64
     }
 }
@@ -100,30 +95,6 @@ impl Default for Rules {
     fn default() -> Self {
         Self::new(&crate::config::Config::default())
     }
-}
-
-/// What sync does with one file.
-#[derive(Debug, Clone, PartialEq)]
-pub enum Plan {
-    /// Not saved yet (or deleted and since changed on ILIAS): download it.
-    New,
-    /// Changed on ILIAS, your copy is untouched: replace it.
-    Update(PathBuf),
-    /// Changed on ILIAS, but you edited your copy: save the new version beside it.
-    Beside(PathBuf),
-    /// Saved before this index knew versions: assume it is current, remember the version.
-    Adopt,
-    Unchanged,
-    /// You deleted it and it hasn't changed since.
-    Deleted,
-    TooBig,
-    /// Two-way: you edited it, ILIAS hasn't changed it: your copy replaces ILIAS' file.
-    Replace(PathBuf),
-    /// Two-way: you deleted it, ILIAS hasn't changed it: propose the trash.
-    Trash(PathBuf),
-    /// Two-way: changed on disk, but saved before content hashes were recorded, so whether
-    /// you edited it can't be told: left as it is.
-    Unsure(PathBuf),
 }
 
 /// The file's version as ILIAS lists it now: size and last change, e.g. `6.92 MB ·
@@ -154,17 +125,6 @@ pub fn absolute(version: &str, day: jiff::civil::Date) -> String {
         .join(" · ")
 }
 
-/// The version recorded for a saved file, comparable with [`version`]: one recorded with
-/// ILIAS' relative dates (by older versions) reads them on the day the copy was saved.
-pub fn saved_version(saved: &Saved) -> String {
-    let day = jiff::Timestamp::from_millisecond(saved.modified_ms as i64)
-        .ok()
-        .filter(|_| saved.modified_ms > 0)
-        .map(|t| t.to_zoned(jiff::tz::TimeZone::system()).date())
-        .unwrap_or_else(|| jiff::Zoned::now().date());
-    absolute(&saved.version, day)
-}
-
 /// `"107.9 MB"` → 107.9; `"512 KB"` → 0.512.
 fn size_mb(property: &str) -> Option<f64> {
     let (number, unit) = property.trim().rsplit_once(' ')?;
@@ -179,59 +139,6 @@ fn size_mb(property: &str) -> Option<f64> {
     Some(number * factor)
 }
 
-/// Decides what to do with `item`, given what was saved before and how the file on disk is.
-pub fn plan(item: &Item, saved: Option<(&Saved, Local)>, rules: Rules) -> Plan {
-    let version = version(item);
-    let too_big = item
-        .properties
-        .iter()
-        .find_map(|p| size_mb(p))
-        .is_some_and(|mb| mb > rules.max_mb);
-    let fetch = |plan| if too_big { Plan::TooBig } else { plan };
-    let Some((saved, local)) = saved else {
-        return fetch(Plan::New);
-    };
-    let changed = saved_version(saved) != version;
-    let path = || saved.path.clone();
-    match local {
-        _ if saved.version.is_empty() && local != Local::Missing => Plan::Adopt,
-        Local::Missing if rules.missing_only => fetch(Plan::New),
-        Local::Edited if rules.two_way && !changed && !saved.has_hash() => Plan::Unsure(path()),
-        Local::Edited if rules.two_way && !changed => Plan::Replace(path()),
-        _ if rules.missing_only => Plan::Unchanged,
-        Local::Missing if changed => fetch(Plan::New),
-        Local::Missing if rules.two_way => Plan::Trash(path()),
-        Local::Missing => Plan::Deleted,
-        _ if !changed => Plan::Unchanged,
-        Local::Untouched => fetch(Plan::Update(saved.path.clone())),
-        Local::Edited => fetch(Plan::Beside(saved.path.clone())),
-    }
-}
-
-#[derive(Debug, Default)]
-pub struct Summary {
-    pub new: usize,
-    pub updated: usize,
-    pub unchanged: usize,
-    pub deleted: usize,
-    /// Changed on ILIAS but edited by you: where the new version was saved beside.
-    pub beside: Vec<PathBuf>,
-    /// Skipped for their size: `Course › Folder › File (107.9 MB)`.
-    pub too_big: Vec<String>,
-    /// `Course › Folder › File: error`.
-    pub failed: Vec<String>,
-    /// Ref ids of files that are saved now.
-    pub saved: Vec<u64>,
-    /// What's new on the pages read, compared to their cached copies, for
-    /// [`crate::seen::Seen::record`].
-    pub unseen: Vec<FoundNew>,
-    /// Two-way: what to send to ILIAS, once you agree.
-    pub review: Review,
-    pub two_way: bool,
-    /// What was synced, for the status line: `DEMO.101`, `Unterlagen and 2 more`.
-    pub places: String,
-}
-
 /// New items a sync found on one page.
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct FoundNew {
@@ -243,159 +150,16 @@ pub struct FoundNew {
     pub new: crate::seen::New,
 }
 
-impl Summary {
-    /// One line for the status bar.
-    pub fn text(&self, max_mb: f64) -> String {
-        let mut parts = vec![
-            format!("{} new", self.new),
-            format!("{} updated", self.updated),
-        ];
-        if !self.beside.is_empty() {
-            parts.push(format!(
-                "{} edited by you (new version saved beside)",
-                self.beside.len()
-            ));
-        }
-        parts.push(format!("{} unchanged", self.unchanged));
-        let review = &self.review;
-        // Files: those proposed one by one, and those in a folder proposed as a whole.
-        let one_by_one = review
-            .proposals()
-            .filter(|c| !matches!(c, Change::Trash { file, .. } if file.kind == Kind::Folder))
-            .count();
-        let (trash, renamed) = (one_by_one + review.in_folders, review.renames().count());
-        let kept = self.deleted.saturating_sub(trash + renamed);
-        if trash > 0 {
-            parts.push(format!("{trash} deleted by you (to the ILIAS trash)"));
-        }
-        if kept > 0 && self.two_way {
-            parts.push(format!(
-                "{kept} deleted by you (ILIAS doesn't let you delete them there)"
-            ));
-        } else if kept > 0 {
-            parts.push(format!("{kept} deleted by you (not downloaded again)"));
-        }
-        let to_send = self.review.changes.len();
-        if to_send > 0 {
-            parts.push(format!("{to_send} to send to ILIAS (see the report)"));
-        }
-        if to_send > 0 && self.review.dry_run {
-            parts.push("dry run: nothing will be sent".into());
-        }
-        if !self.too_big.is_empty() {
-            parts.push(format!("{} over {max_mb} MB skipped", self.too_big.len()));
-        }
-        if !self.failed.is_empty() {
-            parts.push(format!("{} failed", self.failed.len()));
-        }
-        match self.places.as_str() {
-            "" => format!("Synced: {}", parts.join(", ")),
-            places => format!("Synced {places}: {}", parts.join(", ")),
-        }
-    }
-
-    /// The files worth a closer look, by section; empty if there are none. `dir` shortens
-    /// the paths of new versions to where they are below the download folder.
-    pub fn report(&self, dir: &Path, max_mb: f64) -> Vec<(String, Vec<String>)> {
-        let shorten = |path: &Path| path.strip_prefix(dir).unwrap_or(path).display().to_string();
-        let review = &self.review;
-        let changes = |changes: &mut dyn Iterator<Item = &Change>| {
-            changes
-                .map(|c| match c {
-                    Change::Upload {
-                        renamed_from: Some(old),
-                        path,
-                        ..
-                    } => format!("{} (renamed from {})", shorten(path), shorten(old)),
-                    Change::Trash { file, path, .. } if file.kind == Kind::Folder => {
-                        format!("{}/ (the folder, with what is in it)", shorten(path))
-                    }
-                    Change::Rename { from, path, .. } => {
-                        format!("{} (was {})", shorten(path), shorten(from))
-                    }
-                    Change::NewFolder { dir, contents, .. } => {
-                        let files = contents.iter().filter(|p| !p.is_dir()).count();
-                        format!("{}/ ({files} files in it)", shorten(dir))
-                    }
-                    c => shorten(c.path()),
-                })
-                .collect()
-        };
-        let paths = |paths: &[PathBuf]| paths.iter().map(|p| shorten(p)).collect();
-        // Conflicts name full paths; shorten them too.
-        let prefix = format!("{}{}", dir.display(), std::path::MAIN_SEPARATOR);
-        let conflicts = review
-            .conflicts
-            .iter()
-            .map(|c| c.replace(&prefix, ""))
-            .collect();
-        [
-            (
-                "Changed on ILIAS, kept your edited copy; new version saved as".to_string(),
-                self.beside.iter().map(|p| shorten(p)).collect(),
-            ),
-            (
-                "New on your disk: to upload".to_string(),
-                changes(&mut review.uploads()),
-            ),
-            (
-                "Edited by you: to replace on ILIAS (its earlier versions are deleted)".to_string(),
-                changes(&mut review.replacements()),
-            ),
-            (
-                "Renamed by you: to rename on ILIAS (its earlier versions are deleted)".to_string(),
-                changes(&mut review.renames()),
-            ),
-            (PROPOSALS.to_string(), changes(&mut review.proposals())),
-            (
-                "New folders on your disk: to create on ILIAS, with what is in them".to_string(),
-                changes(&mut review.new_folders()),
-            ),
-            (
-                "Conflicts: nothing sent, both copies kept".to_string(),
-                conflicts,
-            ),
-            (
-                "Gone on ILIAS, edited by you: kept on your disk".to_string(),
-                paths(&review.gone),
-            ),
-            (
-                "Gone on ILIAS, unchanged on your disk: to your Trash (asks)".to_string(),
-                paths(&review.gone_untouched),
-            ),
-            (
-                "Only on your disk: ILIAS doesn't let you upload or change it there".to_string(),
-                paths(&review.local_only),
-            ),
-            (
-                "Changed on your disk, saved by an older version: can't tell if edited, not sent"
-                    .to_string(),
-                paths(&review.unsure),
-            ),
-            (
-                format!("Not sent: bigger than {max_mb} MB"),
-                paths(&review.too_big),
-            ),
-            (
-                format!("Skipped: bigger than {max_mb} MB"),
-                self.too_big.clone(),
-            ),
-            ("Failed".to_string(), self.failed.clone()),
-        ]
-        .into_iter()
-        .filter(|(_, lines): &(String, Vec<String>)| !lines.is_empty())
-        .collect()
-    }
-}
-
-/// Syncs every file below `roots` into `dir`. Every course and folder page read on the way
-/// goes into `cache`, so the synced courses can be browsed offline. `progress` gets a
-/// status line now and then.
+/// Syncs every file below `roots` into the download folder (the base's root): reads ILIAS,
+/// your disk and the base, decides every path ([`diff::diff`]), settles the base and runs
+/// what doesn't write to ILIAS (the downloads). What would write is in the summary's
+/// review. Every course and folder page read on the way goes into `cache`, so the synced
+/// courses can be browsed offline. `progress` gets a status line now and then.
 pub fn sync(
     client: &Client,
     roots: &[Item],
-    dir: &Path,
-    downloads: &mut Downloads,
+    base: &mut model::Base,
+    journal: &mut journal::Journal,
     cache: &Cache,
     rules: Rules,
     progress: impl Fn(String) + Sync,
@@ -405,20 +169,50 @@ pub fn sync(
         [one] => one.title.clone(),
         [one, rest @ ..] => format!("{} and {} more", one.title, rest.len()),
     };
-    let mut summary = Summary {
-        places,
+    let (remote, unseen) = crawl(client, roots, cache, &progress)?;
+    let local = model::Local::read(base, &remote, rules.two_way);
+    let plan = diff::diff(base, &remote, &local, &rules);
+    settle(base, &plan.settle)?;
+    // Straight away: what only saves from ILIAS. What writes waits for the review, your
+    // Trash for its question.
+    let now: Vec<Op> = (plan.ops.iter())
+        .filter(|op| !op.writes() && !matches!(op, Op::TrashLocal { .. }))
+        .cloned()
+        .collect();
+    let done = run::run(client, &now, base, journal, &progress);
+    // Folders the downloads just made are saved folders too.
+    let made: Vec<Settle> = (remote.places.iter())
+        .filter(|p| !base.has_folder(&p.dir) && base.abs(&p.dir).is_dir())
+        .map(|p| Settle::Folder {
+            path: p.dir.clone(),
+            id: p.item.key(),
+        })
+        .collect();
+    settle(base, &made)?;
+    Ok(Summary {
+        review: Review::new(&plan.ops, client.is_dry_run()),
+        ops: plan.ops,
+        unchanged: plan.unchanged,
+        done,
+        saved: base.saved(),
+        unseen,
         two_way: rules.two_way,
-        ..Summary::default()
-    };
-    let mut work: Vec<(Item, Plan)> = Vec::new();
+        places,
+    })
+}
+
+/// Reads ILIAS below `roots`: the places and files, and what's new on each page.
+fn crawl(
+    client: &Client,
+    roots: &[Item],
+    cache: &Cache,
+    progress: &(impl Fn(String) + Sync),
+) -> Result<(Remote, Vec<FoundNew>)> {
+    let remote = Mutex::new(Remote::default());
     let mut unseen = Vec::new();
-    // Ref ids of the containers read and the files planned so far.
-    let mut read: HashSet<Id> = HashSet::new();
-    let mut planned: HashSet<Id> = HashSet::new();
-    // Two-way: the places read, the files ILIAS lists, and what the per-file plan leaves.
-    let places = Mutex::new(Vec::new());
-    let mut on_ilias = HashSet::new();
-    let mut candidates = Candidates::default();
+    // Ids of the containers read so far.
+    let mut read: std::collections::HashSet<Id> = std::collections::HashSet::new();
+    let mut files = Vec::new();
     for root in roots {
         // Listed twice, or already read as part of an earlier root (a group in its course).
         if !read.insert(root.id) {
@@ -432,18 +226,10 @@ pub fn sync(
             for child in page.items().filter(|i| i.is_container()) {
                 parents.entry(child.key()).or_insert(item.key());
             }
-            if rules.two_way && !page.path.is_empty() {
-                let place = Place {
-                    item: item.clone(),
-                    dir: crate::ilias::local_folder(dir, &page.path),
-                    rights: page.rights.clone(),
-                    items: page.items().cloned().collect(),
-                };
-                places
-                    .lock()
-                    .unwrap_or_else(PoisonError::into_inner)
-                    .push(place);
-            }
+            remote
+                .lock()
+                .unwrap_or_else(PoisonError::into_inner)
+                .add_page(item, page);
             let new = cache.update(&Cache::key(Some(&item.url), false), page);
             if !new.is_empty() {
                 let mut found = found.lock().unwrap_or_else(PoisonError::into_inner);
@@ -465,96 +251,45 @@ pub fn sync(
             });
         }
         read.extend(items.iter().filter(|i| i.kind != Kind::File).map(|i| i.id));
-        on_ilias.extend(items.iter().filter(|i| i.kind == Kind::File).map(Item::key));
-        let files = items
-            .into_iter()
-            .filter(|i| i.kind == Kind::File && planned.insert(i.id));
-        for mut item in files {
+        for mut item in items.into_iter().filter(|i| i.kind == Kind::File) {
             // Titles are paths below the root; name the course too.
             item.title = format!("{} › {}", root.title, item.title);
-            let saved = base(downloads, item.key(), dir).map(|s| (s, s.local()));
-            let has_hash = saved.is_some_and(|(s, _)| s.has_hash());
-            match plan(&item, saved, rules) {
-                Plan::Unchanged => {
-                    if !has_hash {
-                        downloads.add_hash(item.key())?;
-                    }
-                    summary.unchanged += 1;
-                }
-                Plan::Deleted => summary.deleted += 1,
-                Plan::Replace(path) => {
-                    summary.unchanged += 1;
-                    candidates.edited.push((item, path));
-                }
-                Plan::Trash(path) => {
-                    summary.deleted += 1;
-                    candidates.deleted.push((item, path));
-                }
-                Plan::Unsure(path) => {
-                    summary.unchanged += 1;
-                    candidates.unsure.push(path);
-                }
-                Plan::TooBig => {
-                    let size = item.properties.iter().find(|p| size_mb(p).is_some());
-                    summary.too_big.push(match size {
-                        Some(size) => format!("{} ({size})", item.title),
-                        None => item.title.clone(),
-                    });
-                }
-                Plan::Adopt => {
-                    downloads.set_version(item.key(), version(&item))?;
-                    summary.unchanged += 1;
-                }
-                plan => work.push((item, plan)),
-            }
+            files.push(item);
         }
     }
-
-    let total = work.len();
-    let next = AtomicUsize::new(0);
-    let done = AtomicUsize::new(0);
-    let downloads = Mutex::new(downloads);
-    let summary = Mutex::new(summary);
-    thread::scope(|scope| {
-        for _ in 0..PARALLEL.min(total) {
-            scope.spawn(|| {
-                while let Some((item, plan)) = work.get(next.fetch_add(1, Ordering::Relaxed)) {
-                    let result = fetch(client, item, plan, dir, &downloads);
-                    let mut summary = summary.lock().unwrap_or_else(PoisonError::into_inner);
-                    match (result, plan) {
-                        (Ok(_), Plan::New) => summary.new += 1,
-                        (Ok(_), Plan::Update(_)) => summary.updated += 1,
-                        (Ok(path), _) => summary.beside.push(path),
-                        (Err(e), _) => summary.failed.push(format!("{}: {e:#}", item.title)),
-                    }
-                    let n = done.fetch_add(1, Ordering::Relaxed) + 1;
-                    progress(format!("Sync: {n}/{total} files"));
-                }
-            });
-        }
-    });
-    let mut summary = summary.into_inner().unwrap_or_else(PoisonError::into_inner);
-    let downloads = downloads
-        .into_inner()
-        .unwrap_or_else(PoisonError::into_inner);
-    summary.saved = downloads.saved().collect();
-    summary.unseen = unseen;
-    if rules.two_way {
-        let places = places.into_inner().unwrap_or_else(PoisonError::into_inner);
-        summary.review =
-            review::decide(&places, &on_ilias, candidates, downloads, rules.max_bytes());
-        summary.review.dry_run = client.is_dry_run();
+    let mut remote = remote.into_inner().unwrap_or_else(PoisonError::into_inner);
+    for file in files {
+        remote.add_file(file);
     }
-    Ok(summary)
+    Ok((remote, unseen))
 }
 
-/// What sync saved of file `key` in the download folder `dir`, if anything. A copy saved
-/// elsewhere (before the download folder changed) is left as it is: it is neither updated
-/// nor taken as deleted, and the file is saved again in `dir`.
-fn base<'a>(downloads: &'a Downloads, key: u64, dir: &Path) -> Option<&'a Saved> {
-    downloads
-        .entry(key)
-        .filter(|saved| saved.path.starts_with(dir))
+/// Changes to the base alone, in one write.
+fn settle(base: &mut model::Base, settle: &[Settle]) -> Result<()> {
+    if settle.is_empty() {
+        return Ok(());
+    }
+    base.change(|e| {
+        for change in settle {
+            match change {
+                Settle::Forget(path) => e.forget_file(path),
+                Settle::ForgetFolder(path) => {
+                    e.folders.remove(path);
+                }
+                Settle::Adopt { path, version } => {
+                    if let Some(entry) = e.files.get_mut(path) {
+                        entry.version.clone_from(version);
+                    }
+                }
+                Settle::Hash { path, hash } => {
+                    if let Some(entry) = e.files.get_mut(path) {
+                        entry.hash.clone_from(hash);
+                    }
+                }
+                Settle::Folder { path, id } => e.record_folder(path, Some(*id)),
+            }
+        }
+    })
 }
 
 /// The folders between `root` and `container`, from the top, following each folder's
@@ -573,49 +308,9 @@ fn path_below(root: u64, container: u64, parents: &HashMap<u64, u64>) -> Vec<u64
     path
 }
 
-/// Downloads one file and puts it where `plan` says; returns where it ended up.
-fn fetch(
-    client: &Client,
-    item: &Item,
-    plan: &Plan,
-    dir: &Path,
-    downloads: &Mutex<&mut Downloads>,
-) -> Result<PathBuf> {
-    // Always into a new file first; nothing existing is touched until it is complete.
-    let fresh = client.download(item, dir)?;
-    let record = |path: PathBuf| {
-        downloads
-            .lock()
-            .unwrap_or_else(PoisonError::into_inner)
-            .record(item.key(), path, version(item))
-    };
-    match plan {
-        Plan::Update(path) => {
-            std::fs::rename(&fresh, path)?;
-            record(path.clone())?;
-            Ok(path.clone())
-        }
-        Plan::Beside(path) => {
-            // Your edited file keeps its place and stays "edited"; only the version is new.
-            let today = jiff::Zoned::now().date().to_string();
-            let beside = beside_name(path, &today);
-            std::fs::rename(&fresh, &beside)?;
-            downloads
-                .lock()
-                .unwrap_or_else(PoisonError::into_inner)
-                .set_version(item.key(), version(item))?;
-            Ok(beside)
-        }
-        _ => {
-            record(fresh.clone())?;
-            Ok(fresh)
-        }
-    }
-}
-
 /// `…/Blatt 3.pdf` → `…/Blatt 3 (ILIAS 2026-11-02).pdf`, or `… (ILIAS 2026-11-02) (1).pdf`
 /// if that exists.
-fn beside_name(path: &Path, date: &str) -> PathBuf {
+pub fn beside_name(path: &Path, date: &str) -> PathBuf {
     let stem = path.file_stem().and_then(|s| s.to_str()).unwrap_or("file");
     let name = match path.extension().and_then(|e| e.to_str()) {
         Some(ext) => format!("{stem} (ILIAS {date}).{ext}"),

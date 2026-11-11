@@ -186,15 +186,16 @@ pub enum Action {
     /// the ref ids of all files saved now and (two-way) what it would send to ILIAS.
     Synced {
         summary: String,
-        report: Vec<(String, Vec<String>)>,
+        report: crate::sync::report::Report,
         saved: Vec<u64>,
         review: Box<crate::sync::Review>,
     },
     /// Two-way sync: send what the review sends (uploads, new folders, replaced files, the
     /// ticked deletions); asks once more first if it is a lot at once.
-    AskPush(Vec<crate::sync::Change>),
-    /// Move these saved files, gone on ILIAS and untouched, to your computer's trash.
-    TrashLocal(Vec<PathBuf>),
+    AskPush(Vec<crate::sync::Op>),
+    /// Move these saved files (below the download folder), gone on ILIAS and untouched, to
+    /// your computer's trash.
+    TrashLocal(Vec<String>),
     /// How many went to the trash, the ones kept with why, and the keys of all files
     /// still saved on disk.
     LocalTrashed {
@@ -202,13 +203,13 @@ pub enum Action {
         kept: Vec<String>,
         saved: Vec<u64>,
     },
-    /// Two-way sync: send these changes to ILIAS (you agreed to them).
-    Push(Vec<crate::sync::Change>),
+    /// Two-way sync: send these ops to ILIAS (you agreed to them).
+    Push(Vec<crate::sync::Op>),
     /// What a push sent (one line), what deserves a look (by section), and the keys of all
     /// files saved on disk now.
     Pushed {
         summary: String,
-        report: Vec<(String, Vec<String>)>,
+        report: crate::sync::report::Report,
         saved: Vec<u64>,
     },
     /// The app runs offline: only cached pages and saved files, nothing is sent.

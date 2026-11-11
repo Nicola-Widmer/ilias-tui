@@ -2,6 +2,8 @@
 //! [`App::effect`] routes; every effect is a method of its own below.
 
 use super::*;
+use crate::sync::Op;
+use crate::sync::model::{Base, Disk};
 
 /// Whether the components see an action after its effect.
 #[derive(Debug, PartialEq, Eq)]
@@ -61,7 +63,7 @@ impl App {
             } => self.load(item.clone(), url.clone(), *refresh, *deep)?,
             // Opening a file that was saved before: use the local copy.
             Action::Download { item, open: true } => {
-                if let Some(path) = self.downloads.get(item.key()).cloned() {
+                if let Some(path) = self.base.path(item.key()) {
                     self.tx.send(Action::OpenFile(path))?;
                     return Ok(Broadcast::No);
                 }
@@ -94,18 +96,16 @@ impl App {
                 self.send_post(draft.clone(), title.clone(), text.clone())
             }
             Action::DownloadSubmissions(items) => self.download_submissions(items.clone()),
-            Action::SubmissionsSaved { .. } => {
-                self.downloads = Downloads::load(&self.client.base);
-            }
+            Action::SubmissionsSaved { .. } => self.reload_base(),
             Action::Sync(roots) => self.sync(roots.clone()),
             Action::Synced { review, .. } => {
                 self.synced()?;
-                self.ask_local_trash(&review.gone_untouched)?;
+                self.ask_local_trash(&review.trash_local)?;
             }
             Action::TrashLocal(paths) => self.trash_local(paths)?,
-            Action::AskPush(changes) => self.ask_push(changes)?,
-            Action::Push(changes) => self.push(changes.clone()),
-            Action::Pushed { .. } => self.downloads = Downloads::load(&self.client.base),
+            Action::AskPush(ops) => self.ask_push(ops)?,
+            Action::Push(ops) => self.push(ops.clone()),
+            Action::Pushed { .. } => self.reload_base(),
             Action::SetConfig(config) => self.set_config(config.clone())?,
             Action::Login => self.login(),
             _ => {}
@@ -231,8 +231,8 @@ impl App {
     }
 
     fn downloaded(&mut self, item: &Item, path: &Path, open: bool) -> Result<()> {
-        self.downloads
-            .record(item.key(), path.to_path_buf(), sync::version(item))?;
+        // Saved like sync saves it: the next sync finds it in sync, not as your new file.
+        self.base.record(path, item.key(), sync::version(item))?;
         if open {
             self.tx.send(Action::OpenFile(path.to_path_buf()))?;
         }
@@ -342,11 +342,11 @@ impl App {
 
     /// Saves each participant's submission into its own folder, one after the other. A copy
     /// saved before is kept if the submission didn't change (same files and date) and the
-    /// copy is still there. The job writes the saved-files list itself, as sync does.
+    /// copy is still there. The job records them itself, as sync does.
     fn download_submissions(&self, items: Vec<Item>) {
         let dir = self.download_dir.clone();
         self.spawn(move |client, tx| {
-            let mut downloads = Downloads::load(&client.base);
+            let mut base = Base::load(&client.base, &dir);
             let (mut saved, mut unchanged, mut failed) = (Vec::new(), 0, Vec::new());
             for (n, item) in items.iter().enumerate() {
                 let _ = tx.send(Action::Progress(format!(
@@ -355,9 +355,8 @@ impl App {
                     items.len()
                 )));
                 let version = sync::version(item);
-                let kept = downloads.entry(item.key()).is_some_and(|s| {
-                    sync::saved_version(s) == version
-                        && s.local() == crate::downloads::Local::Untouched
+                let kept = base.find(item.key()).is_some_and(|(rel, s)| {
+                    s.version == version && s.now(&base.abs(rel)) == Disk::Untouched
                 });
                 if kept {
                     unchanged += 1;
@@ -365,7 +364,7 @@ impl App {
                 }
                 match client.download(item, &dir) {
                     Ok(path) => {
-                        downloads.record(item.key(), path, version)?;
+                        base.record(&path, item.key(), version)?;
                         saved.push(item.key());
                     }
                     Err(e) => failed.push(format!("{}: {e:#}", item.title)),
@@ -398,18 +397,27 @@ impl App {
         self.spawn(move |client, tx| {
             // Cleared when the job ends, whether it succeeds or fails.
             let _syncing = syncing;
-            let mut downloads = Downloads::load(&client.base);
-            let summary = sync::sync(client, &roots, &dir, &mut downloads, &cache, rules, |p| {
-                let _ = tx.send(Action::Progress(p));
-            })?;
+            let mut base = Base::load(&client.base, &dir);
+            let mut journal = sync::journal::Journal::open(&client.base);
+            let summary = sync::sync(
+                client,
+                &roots,
+                &mut base,
+                &mut journal,
+                &cache,
+                rules,
+                |p| {
+                    let _ = tx.send(Action::Progress(p));
+                },
+            )?;
             let mut seen = Seen::load(&client.base);
             for new in &summary.unseen {
                 seen.record(new.root, &new.path, new.container, &new.new);
             }
             Ok(Action::Synced {
                 summary: summary.text(rules.max_mb),
-                report: summary.report(&dir, rules.max_mb),
-                saved: summary.saved,
+                report: summary.report(rules.max_mb),
+                saved: summary.saved.clone(),
                 review: Box::new(summary.review),
             })
         });
@@ -418,7 +426,7 @@ impl App {
     /// The sync wrote its own copies of the index and of what's new; read them again. (What
     /// two-way sync would send is in the review, which `Report` shows.)
     fn synced(&mut self) -> Result<()> {
-        self.downloads = Downloads::load(&self.client.base);
+        self.reload_base();
         self.seen = Seen::load(&self.client.base);
         self.tx.send(Action::NewCounts(self.seen.counts()))?;
         Ok(())
@@ -426,12 +434,12 @@ impl App {
 
     /// Files gone on ILIAS and untouched on your disk: ask whether they go to your trash
     /// (not in a dry run).
-    fn ask_local_trash(&self, paths: &[PathBuf]) -> Result<()> {
+    fn ask_local_trash(&self, paths: &[String]) -> Result<()> {
         if paths.is_empty() || self.client.is_dry_run() {
             return Ok(());
         }
         self.tx.send(Action::Ask {
-            question: sync::ask::local_trash(paths, &self.download_dir),
+            question: sync::ask::local_trash(paths),
             then: Box::new(Action::TrashLocal(paths.to_vec())),
         })?;
         Ok(())
@@ -439,48 +447,43 @@ impl App {
 
     /// Moves files to your computer's trash (where they can be restored), each only if it
     /// is still exactly as sync saved it; every move goes into the journal.
-    fn trash_local(&mut self, paths: &[PathBuf]) -> Result<()> {
-        self.downloads = Downloads::load(&self.client.base);
-        let base = sync::model::Base::load(&self.client.base, &self.download_dir);
-        let rels: Vec<String> = paths.iter().filter_map(|p| base.rel(p)).collect();
-        let (ok, mut kept) = sync::local::trashable(&rels, &base);
-        if rels.len() < paths.len() {
-            kept.push("not saved by sync; kept".into());
-        }
+    fn trash_local(&mut self, paths: &[String]) -> Result<()> {
+        let ops: Vec<Op> = (paths.iter())
+            .map(|path| Op::TrashLocal { path: path.clone() })
+            .collect();
+        self.reload_base();
         let mut journal = sync::journal::Journal::open(&self.client.base);
-        let mut moved = 0;
-        for path in ok.iter().map(|rel| base.abs(rel)) {
-            let result = match sync::local::to_trash(&path) {
-                Ok(()) => {
-                    moved += 1;
-                    "ok: in your trash".to_string()
-                }
-                Err(e) => {
-                    kept.push(format!("{}: {e}", path.display()));
-                    format!("failed: {e}")
-                }
-            };
-            let _ = journal.write("local trash", &path, "gone on ILIAS", &result);
-        }
-        self.downloads = Downloads::load(&self.client.base);
+        let done = sync::run::run(&self.client, &ops, &mut self.base, &mut journal, |_| {});
+        let moved = done.iter().filter(|(_, d)| *d == sync::run::OK).count();
+        let kept = (done.into_iter())
+            .filter_map(|(_, d)| match d {
+                sync::run::Done::Conflict(why) | sync::run::Done::Failed(why) => Some(why),
+                _ => None,
+            })
+            .collect();
         self.tx.send(Action::LocalTrashed {
             moved,
             kept,
-            saved: self.downloads.saved().collect(),
+            saved: self.base.saved(),
         })?;
         Ok(())
     }
 
+    /// The saved files, as the last job (sync, push, submissions) left them.
+    fn reload_base(&mut self) {
+        self.base = Base::load(&self.client.base, &self.download_dir);
+    }
+
     /// What the review sends: ask first (twice, for more than usual). In a dry run there is
     /// nothing to ask: it stops at the plan.
-    fn ask_push(&mut self, changes: &[sync::Change]) -> Result<()> {
-        if changes.is_empty() || self.client.is_dry_run() {
+    fn ask_push(&mut self, ops: &[Op]) -> Result<()> {
+        if ops.is_empty() || self.client.is_dry_run() {
             self.tx
                 .send(Action::Progress("Dry run: nothing sent to ILIAS".into()))?;
             return Ok(());
         }
-        let push = Action::Push(changes.to_vec());
-        self.tx.send(match sync::ask::brake(changes) {
+        let push = Action::Push(ops.to_vec());
+        self.tx.send(match sync::ask::brake(ops) {
             Some(question) => Action::Ask {
                 question,
                 then: Box::new(push),
@@ -491,21 +494,21 @@ impl App {
     }
 
     /// Sends what you agreed to after a two-way sync, on a worker; one at a time, like syncs.
-    fn push(&self, changes: Vec<sync::Change>) {
+    fn push(&self, ops: Vec<Op>) {
         let dir = self.download_dir.clone();
         self.syncing.store(true, Ordering::SeqCst);
         let syncing = Running(self.syncing.clone());
         self.spawn(move |client, tx| {
             let _syncing = syncing;
-            let mut downloads = Downloads::load(&client.base);
+            let mut base = Base::load(&client.base, &dir);
             let mut journal = sync::journal::Journal::open(&client.base);
-            let pushed = sync::push::push(client, &changes, &mut downloads, &mut journal, |p| {
+            let done = sync::run::run(client, &ops, &mut base, &mut journal, |p| {
                 let _ = tx.send(Action::Progress(p));
             });
             Ok(Action::Pushed {
-                summary: pushed.text(),
-                report: pushed.report(&dir),
-                saved: downloads.saved().collect(),
+                summary: sync::report::pushed_text(&done),
+                report: sync::report::pushed_report(&done),
+                saved: base.saved(),
             })
         });
     }
@@ -521,6 +524,7 @@ impl App {
             // Chosen here, it applies now, even over ILIAS_DOWNLOAD_DIR.
             self.download_dir =
                 (self.config.download_dir.clone()).unwrap_or_else(|| self.config.download_dir());
+            self.reload_base();
             self.tx
                 .send(Action::DownloadDirSet(self.download_dir.clone()))?;
         }

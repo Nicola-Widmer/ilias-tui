@@ -19,18 +19,19 @@ use ratatui::widgets::{Block, BorderType, Clear, Padding, Paragraph, Wrap};
 use super::Component;
 use crate::action::Action;
 use crate::keymap::{self, Command};
-use crate::sync::{Change, PROPOSALS};
+use crate::sync::Op;
+use crate::sync::report::{Report as Sections, Section};
 use crate::theme;
 
 #[derive(Default)]
 pub struct Report {
     /// The report's sections while it is open.
-    sections: Option<Vec<(String, Vec<String>)>>,
+    sections: Option<Sections>,
     scroll: u16,
     /// Review: what Enter sends besides the ticked proposals.
-    send: Vec<Change>,
+    send: Vec<Op>,
     /// Review: the proposed deletions and whether each is ticked.
-    proposals: Vec<(Change, bool)>,
+    proposals: Vec<(Op, bool)>,
     /// Review: the proposal under the cursor.
     cursor: usize,
 }
@@ -71,17 +72,17 @@ impl Report {
                 Some(Action::Handled)
             }
             Some(Command::Send) => {
-                let mut changes = std::mem::take(&mut self.send);
-                changes.extend(
+                let mut ops = std::mem::take(&mut self.send);
+                ops.extend(
                     self.proposals
                         .drain(..)
                         .filter(|(_, ticked)| *ticked)
-                        .map(|(change, _)| change),
+                        .map(|(op, _)| op),
                 );
                 *self = Self::default();
-                Some(match changes.is_empty() {
+                Some(match ops.is_empty() {
                     true => Action::Cancelled,
-                    false => Action::AskPush(changes),
+                    false => Action::AskPush(ops),
                 })
             }
             Some(Command::Back) => {
@@ -113,21 +114,21 @@ impl Report {
                 Span::styled(" sends nothing.", theme::muted()),
             ]));
         }
-        for (title, items) in self.sections.iter().flatten() {
+        for (section, items) in self.sections.iter().flatten() {
             if !lines.is_empty() {
                 lines.push(Line::raw(""));
             }
-            let (icon, color) = section_look(title);
+            let (icon, color) = look(section);
             let bold = Style::new().fg(color).add_modifier(Modifier::BOLD);
             lines.push(Line::from(vec![
                 Span::styled(format!("{icon}  "), bold),
-                Span::styled(title.clone(), bold),
+                Span::styled(section.title(), bold),
                 Span::styled(
                     format!("  {} ", items.len()),
                     Style::new().fg(colors.bar_bg).bg(color),
                 ),
             ]));
-            if title == PROPOSALS && !self.proposals.is_empty() {
+            if *section == Section::Proposals && !self.proposals.is_empty() {
                 for (i, (item, (_, ticked))) in items.iter().zip(&self.proposals).enumerate() {
                     let (mark, mark_color) = match ticked {
                         true => (theme::checked(), colors.red),
@@ -157,26 +158,23 @@ impl Report {
     }
 }
 
-/// A section's icon and colour, by its title (as `sync` and `push` name them).
-fn section_look(title: &str) -> (&'static str, ratatui::style::Color) {
+/// A section's icon and colour.
+fn look(section: &Section) -> (&'static str, ratatui::style::Color) {
     let c = theme::colors();
-    let starts = |prefix: &str| title.starts_with(prefix);
-    match () {
-        _ if starts("New on your disk") => (theme::upload(), c.green),
-        _ if starts("New folders") => (theme::folder(), c.green),
-        _ if starts("Edited by you") => (theme::edit(), c.blue),
-        _ if starts("Renamed by you") => (theme::rename(), c.cyan),
-        _ if starts("Deleted by you") => (theme::trash(), c.red),
-        _ if starts("Gone on ILIAS, unchanged") => (theme::trash(), c.orange),
-        _ if starts("Gone on ILIAS") => (theme::unlink(), c.orange),
-        _ if starts("Conflicts") || starts("Changed on ILIAS since") => {
-            (theme::warning(), c.yellow)
-        }
-        _ if starts("Changed on ILIAS") => (theme::copy(), c.yellow),
-        _ if starts("Only on your disk") => (theme::lock(), c.muted),
-        _ if starts("Changed on your disk") => (theme::question(), c.muted),
-        _ if starts("Failed") => (theme::failed(), c.red),
-        _ => (theme::ban(), c.muted),
+    match section {
+        Section::Upload => (theme::upload(), c.green),
+        Section::NewFolders => (theme::folder(), c.green),
+        Section::Replace => (theme::edit(), c.blue),
+        Section::Rename => (theme::rename(), c.cyan),
+        Section::Proposals => (theme::trash(), c.red),
+        Section::TrashLocal => (theme::trash(), c.orange),
+        Section::GoneEdited => (theme::unlink(), c.orange),
+        Section::Conflicts | Section::ChangedSince => (theme::warning(), c.yellow),
+        Section::Beside => (theme::copy(), c.yellow),
+        Section::NotAllowed => (theme::lock(), c.muted),
+        Section::CantTell => (theme::question(), c.muted),
+        Section::Failed => (theme::failed(), c.red),
+        Section::TooBig { .. } | Section::TooBigToSend { .. } => (theme::ban(), c.muted),
     }
 }
 
@@ -218,8 +216,12 @@ impl Component for Report {
                     ..Self::default()
                 };
                 if !review.dry_run {
-                    self.send = review.sendable();
-                    self.proposals = review.proposals().map(|c| (c.clone(), true)).collect();
+                    self.send.clone_from(&review.send);
+                    self.proposals = review
+                        .proposals
+                        .iter()
+                        .map(|op| (op.clone(), true))
+                        .collect();
                 }
             }
             Action::Pushed { report, .. } if !report.is_empty() => {
@@ -298,13 +300,11 @@ impl Component for Report {
 
 #[cfg(test)]
 mod tests {
-    use std::path::PathBuf;
-
     use super::*;
     use crate::ilias::{Id, Item};
     use crate::sync::Review;
 
-    fn synced(report: Vec<(String, Vec<String>)>) -> Action {
+    fn synced(report: Sections) -> Action {
         Action::Synced {
             summary: String::new(),
             report,
@@ -344,7 +344,7 @@ mod tests {
         let big: Vec<String> = (1..=40)
             .map(|i| format!("Lecture {i} (107.9 MB)"))
             .collect();
-        report.update(&synced(vec![("Skipped: bigger than 50 MB".into(), big)]));
+        report.update(&synced(vec![(Section::TooBig { max_mb: 50.0 }, big)]));
         let shown = screen(&mut report);
         assert!(shown.contains("Skipped: bigger than 50 MB  40 "), "{shown}");
 
@@ -370,48 +370,44 @@ mod tests {
         }
     }
 
-    fn trash(n: u64) -> Change {
-        Change::Trash {
+    fn trash(n: u64) -> Op {
+        Op::TrashRemote {
             place: folder(),
-            file: Item {
+            item: Item {
                 kind: "file".into(),
                 id: Id::Ref(n),
                 ..Item::default()
             },
-            path: PathBuf::from(format!("/dl/Unterlagen/Blatt {n}.pdf")),
+            path: format!("Unterlagen/Blatt {n}.pdf"),
             base: "v1".into(),
+            files: 1,
         }
     }
 
     /// A review of one upload and two proposed deletions, as `sync` reports it.
     fn review(dry_run: bool) -> Action {
-        let upload = Change::Upload {
+        let upload = Op::Upload {
             place: folder(),
-            path: PathBuf::from("/dl/Unterlagen/Notizen.md"),
-            renamed_from: None,
+            path: "Unterlagen/Notizen.md".into(),
+            from: None,
         };
         Action::Synced {
             summary: String::new(),
             report: vec![
+                (Section::Upload, vec!["Unterlagen/Notizen.md".into()]),
                 (
-                    "New on your disk: to upload".into(),
-                    vec!["Unterlagen/Notizen.md".into()],
-                ),
-                (
-                    PROPOSALS.into(),
+                    Section::Proposals,
                     vec![
                         "Unterlagen/Blatt 1.pdf".into(),
                         "Unterlagen/Blatt 2.pdf".into(),
                     ],
                 ),
-                (
-                    "Gone on ILIAS, kept on your disk".into(),
-                    vec!["Unterlagen/Alt.pdf".into()],
-                ),
+                (Section::GoneEdited, vec!["Unterlagen/Alt.pdf".into()]),
             ],
             saved: Vec::new(),
             review: Box::new(Review {
-                changes: vec![upload, trash(1), trash(2)],
+                send: vec![upload],
+                proposals: vec![trash(1), trash(2)],
                 dry_run,
                 ..Review::default()
             }),
@@ -447,7 +443,7 @@ mod tests {
             panic!("Enter goes on to the question");
         };
         assert_eq!(changes.len(), 2);
-        assert!(matches!(changes[0], Change::Upload { .. }));
+        assert!(matches!(changes[0], Op::Upload { .. }));
         assert_eq!(changes[1], trash(1));
         assert!(key(&mut report, KeyCode::Char('j')).is_none(), "closed");
     }
@@ -468,7 +464,7 @@ mod tests {
         assert_eq!(
             changes
                 .iter()
-                .filter(|c| matches!(c, Change::Trash { .. }))
+                .filter(|c| matches!(c, Op::TrashRemote { .. }))
                 .count(),
             2
         );

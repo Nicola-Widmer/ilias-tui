@@ -3,8 +3,8 @@
 
 use std::collections::HashMap;
 
-use super::Change;
-use crate::ilias::Item;
+use super::Op;
+use crate::ilias::{Item, Kind};
 
 /// More files than this to upload in one run (new ones, those in new folders, replaced
 /// ones), or to move to the trash, and sync asks once more before sending.
@@ -13,18 +13,14 @@ pub const MAX_FILES: usize = 20;
 /// more.
 pub const MAX_IN_FOLDER: usize = 5;
 
-/// The question before moving `paths` (gone on ILIAS, untouched on your disk) to your
-/// computer's trash; `dir` shortens them.
-pub fn local_trash(paths: &[std::path::PathBuf], dir: &std::path::Path) -> String {
-    let names: Vec<String> = paths
-        .iter()
-        .map(|p| p.strip_prefix(dir).unwrap_or(p).display().to_string())
-        .collect();
-    let mut lines: Vec<String> = names.iter().take(8).cloned().collect();
-    if names.len() > 8 {
-        lines.push(format!("and {} more (see the report)", names.len() - 8));
+/// The question before moving `paths` (gone on ILIAS, untouched on your disk; below the
+/// download folder) to your computer's trash.
+pub fn local_trash(paths: &[String]) -> String {
+    let mut lines: Vec<String> = paths.iter().take(8).cloned().collect();
+    if paths.len() > 8 {
+        lines.push(format!("and {} more (see the report)", paths.len() - 8));
     }
-    let files = match names.len() {
+    let files = match paths.len() {
         1 => "this file".to_string(),
         n => format!("these {n} files"),
     };
@@ -34,33 +30,32 @@ pub fn local_trash(paths: &[std::path::PathBuf], dir: &std::path::Path) -> Strin
     )
 }
 
-/// Why `changes` are more than usual, for a second question; `None` if they aren't.
-pub fn brake(changes: &[Change]) -> Option<String> {
-    let in_folders: usize = changes
-        .iter()
-        .map(|c| match c {
-            Change::NewFolder { contents, .. } => contents.iter().filter(|p| !p.is_dir()).count(),
-            _ => 0,
-        })
-        .sum();
-    let count = |f: fn(&Change) -> bool| changes.iter().filter(|c| f(c)).count();
-    let uploads = count(|c| {
-        matches!(
-            c,
-            Change::Upload { .. } | Change::Replace { .. } | Change::Rename { .. }
-        )
-    }) + in_folders;
-    let trash = count(|c| matches!(c, Change::Trash { .. }));
+/// Why `ops` are more than usual, for a second question; `None` if they aren't.
+pub fn brake(ops: &[Op]) -> Option<String> {
+    let mut uploads = 0;
+    let mut trash = 0;
     // A whole folder is more than its one line in the review: always asked about.
-    let folders: Vec<&str> = changes
-        .iter()
-        .filter_map(|c| match c {
-            Change::Trash { file, .. } if file.kind == crate::ilias::Kind::Folder => {
-                Some(file.title.as_str())
+    let mut folders: Vec<&str> = Vec::new();
+    let mut touched: HashMap<u64, (&Item, usize)> = HashMap::new();
+    for op in ops {
+        match op {
+            Op::Upload { .. } | Op::Replace { .. } | Op::Rename { .. } => uploads += 1,
+            Op::MkdirRemote { files, .. } => uploads += files.len(),
+            Op::TrashRemote { item, .. } if item.kind == Kind::Folder => {
+                trash += 1;
+                folders.push(&item.title);
             }
-            _ => None,
-        })
-        .collect();
+            Op::TrashRemote { .. } => trash += 1,
+            Op::Download { .. } | Op::TrashLocal { .. } | Op::Conflict { .. } | Op::Keep { .. } => {
+            }
+        }
+        if let Op::Replace { place, .. }
+        | Op::Rename { place, .. }
+        | Op::TrashRemote { place, .. } = op
+        {
+            touched.entry(place.key()).or_insert((place, 0)).1 += 1;
+        }
+    }
     if !folders.is_empty() {
         return Some(format!(
             "Move these folders, with everything in them, to the ILIAS trash?\n{}",
@@ -72,15 +67,6 @@ pub fn brake(changes: &[Change]) -> Option<String> {
             "That is a lot at once: {uploads} files to upload and {trash} to move to the trash \
              (more than {MAX_FILES}). If you moved or renamed a folder, say no. Send them all?"
         ));
-    }
-    let mut touched: HashMap<u64, (&Item, usize)> = HashMap::new();
-    for change in changes {
-        if let Change::Replace { place, .. }
-        | Change::Rename { place, .. }
-        | Change::Trash { place, .. } = change
-        {
-            touched.entry(place.key()).or_insert((place, 0)).1 += 1;
-        }
     }
     let mut places: Vec<_> = touched.into_values().collect();
     places.sort_by_key(|(place, _)| place.title.clone());
@@ -98,10 +84,8 @@ pub fn brake(changes: &[Change]) -> Option<String> {
 
 #[cfg(test)]
 mod tests {
-    use std::path::PathBuf;
-
     use super::*;
-    use crate::ilias::{Id, Kind};
+    use crate::ilias::Id;
 
     fn folder() -> Item {
         Item {
@@ -120,24 +104,33 @@ mod tests {
         }
     }
 
+    fn trash(id: u64) -> Op {
+        Op::TrashRemote {
+            place: folder(),
+            item: file(id),
+            path: format!("{id}.pdf"),
+            base: "v1".into(),
+            files: 1,
+        }
+    }
+
     #[test]
     fn asks_once_more_for_more_than_20_files() {
-        let uploads: Vec<Change> = (0..=MAX_FILES)
-            .map(|n| Change::Upload {
+        let uploads: Vec<Op> = (0..=MAX_FILES)
+            .map(|n| Op::Upload {
                 place: folder(),
-                path: PathBuf::from(format!("/dl/{n}.pdf")),
-                renamed_from: None,
+                path: format!("{n}.pdf"),
+                from: None,
             })
             .collect();
         assert!(brake(&uploads[..MAX_FILES]).is_none());
         assert!(brake(&uploads).unwrap().contains("21 files to upload"));
         // The files in a new folder count too.
-        let folder_of = |n: usize| Change::NewFolder {
+        let folder_of = |n: usize| Op::MkdirRemote {
             place: folder(),
-            dir: PathBuf::from("/dl/Eigenes"),
-            contents: (0..n)
-                .map(|i| PathBuf::from(format!("/dl/Eigenes/{i}.md")))
-                .collect(),
+            dir: "Eigenes".into(),
+            folders: Vec::new(),
+            files: (0..n).map(|i| format!("Eigenes/{i}.md")).collect(),
         };
         assert!(brake(&[folder_of(MAX_FILES)]).is_none());
         assert!(brake(&[folder_of(MAX_FILES + 1)]).is_some());
@@ -145,25 +138,20 @@ mod tests {
 
     #[test]
     fn asks_once_more_for_more_than_5_files_of_one_folder_whatever_its_size() {
-        let replace = |id| Change::Replace {
+        let replace = |id| Op::Replace {
             place: folder(),
             file: file(id),
-            path: PathBuf::from(format!("/dl/{id}.pdf")),
+            path: format!("{id}.pdf"),
             base: "v1".into(),
         };
         // One file of a small folder: no second question.
         assert!(brake(&[replace(1)]).is_none());
-        let mut changes: Vec<Change> = (1..=4).map(replace).collect();
-        changes.push(Change::Trash {
-            place: folder(),
-            file: file(5),
-            path: PathBuf::from("/dl/5.pdf"),
-            base: "v1".into(),
-        });
-        assert!(brake(&changes).is_none(), "5 in one folder");
-        changes.push(replace(6));
+        let mut ops: Vec<Op> = (1..=4).map(replace).collect();
+        ops.push(trash(5));
+        assert!(brake(&ops).is_none(), "5 in one folder");
+        ops.push(replace(6));
         assert!(
-            brake(&changes)
+            brake(&ops)
                 .unwrap()
                 .contains("6 files in Unterlagen would be replaced or moved to the trash")
         );
@@ -171,15 +159,12 @@ mod tests {
 
     #[test]
     fn names_the_files_for_the_trash_on_your_disk() {
-        let dir = std::path::Path::new("/dl");
         assert_eq!(
-            local_trash(&[PathBuf::from("/dl/DEMO/Alt.pdf")], dir),
+            local_trash(&["DEMO/Alt.pdf".into()]),
             "Deleted on ILIAS, unchanged on your disk. Move this file to your Trash?\nDEMO/Alt.pdf"
         );
-        let many: Vec<PathBuf> = (0..10)
-            .map(|n| PathBuf::from(format!("/dl/{n}.pdf")))
-            .collect();
-        let question = local_trash(&many, dir);
+        let many: Vec<String> = (0..10).map(|n| format!("{n}.pdf")).collect();
+        let question = local_trash(&many);
         assert!(
             question.contains("these 10 files")
                 && question.ends_with("and 2 more (see the report)")
@@ -188,19 +173,20 @@ mod tests {
 
     #[test]
     fn a_folder_to_the_trash_is_always_asked_about() {
-        let trash = Change::Trash {
+        let folder_trash = Op::TrashRemote {
             place: folder(),
-            file: Item {
+            item: Item {
                 kind: Kind::Folder,
                 id: Id::Ref(5),
                 title: "Unterlagen › Woche 1".into(),
                 ..Item::default()
             },
-            path: PathBuf::from("/dl/DEMO/Unterlagen/Woche 1"),
+            path: "DEMO/Unterlagen/Woche 1".into(),
             base: String::new(),
+            files: 2,
         };
         assert_eq!(
-            brake(&[trash]).unwrap(),
+            brake(&[folder_trash]).unwrap(),
             "Move these folders, with everything in them, to the ILIAS trash?\nUnterlagen › Woche 1"
         );
     }

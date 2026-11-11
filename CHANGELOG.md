@@ -15,6 +15,18 @@ features and changes in behaviour, the last one for fixes only. See
 
 ### Changed
 
+- **Sync rebuilt on one model**: the base (what sync recorded), ILIAS now and your disk
+  now go into one pure diff with one decision per path, which gives a list of ops
+  (download, upload, replace, rename, new folder, ILIAS trash, your Trash, conflict,
+  keep); the review, the report, the status line and the brake are built from those ops.
+  The saved files move to `<host>.base.json`, with paths relative to the download folder
+  and the folders sync saved or created; `<host>.downloads.json` is taken over the first
+  time, and entries go once a file is gone on both sides. Behaviour stays as it was, with
+  these differences: a saved folder that is gone on ILIAS is no longer offered for upload
+  as a new folder (its untouched files are offered for your Trash instead), a file
+  downloaded with `d` counts as saved by sync, a rename where ILIAS offers no Versions is
+  uploaded as new with the old file proposed for the trash, and a file saved outside the
+  current download folder is downloaded again when you open it.
 - **`S` on a course's page syncs the whole course**, even when a folder in it is selected.
   Inside a folder it still syncs the selected subfolder (or the folder on screen).
 - **The status line names what was synced** ("Synced Test: …"), so it shows when `S`

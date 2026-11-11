@@ -514,20 +514,21 @@ fn the_review_sends_at_once_and_asks_again_only_for_a_lot() {
         title: "Unterlagen".into(),
         ..Item::default()
     };
-    let upload = |n: usize| crate::sync::Change::Upload {
+    let upload = |n: usize| crate::sync::Op::Upload {
         place: folder.clone(),
-        path: dir.join(format!("{n}.md")),
-        renamed_from: None,
+        path: format!("{n}.md"),
+        from: None,
     };
-    let trash = |n: u64| crate::sync::Change::Trash {
+    let trash = |n: u64| crate::sync::Op::TrashRemote {
         place: folder.clone(),
-        file: Item {
+        item: Item {
             kind: "file".into(),
             id: Id::Ref(n),
             ..Item::default()
         },
-        path: dir.join(format!("{n}.pdf")),
+        path: format!("{n}.pdf"),
         base: "v1".into(),
+        files: 1,
     };
     let drain =
         |app: &mut App| -> Vec<Action> { std::iter::from_fn(|| app.rx.try_recv().ok()).collect() };
@@ -537,7 +538,7 @@ fn the_review_sends_at_once_and_asks_again_only_for_a_lot() {
         report: Vec::new(),
         saved: Vec::new(),
         review: Box::new(crate::sync::Review {
-            changes: vec![upload(1)],
+            send: vec![upload(1)],
             ..Default::default()
         }),
     })
@@ -603,13 +604,13 @@ fn the_review_sends_at_once_and_asks_again_only_for_a_lot() {
 fn files_gone_on_ilias_go_to_your_trash_only_after_asking() {
     let dir = std::env::temp_dir().join(format!("ilias-tui-local-trash-{}", std::process::id()));
     let mut app = app(&dir);
-    let gone = vec![dir.join("Alt.pdf")];
+    let gone = vec!["Alt.pdf".to_string()];
     let synced = || Action::Synced {
         summary: String::new(),
         report: Vec::new(),
         saved: Vec::new(),
         review: Box::new(crate::sync::Review {
-            gone_untouched: gone.clone(),
+            trash_local: gone.clone(),
             ..Default::default()
         }),
     };
