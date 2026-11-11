@@ -221,6 +221,8 @@ pub struct Summary {
     /// Two-way: what to send to ILIAS, once you agree.
     pub review: Review,
     pub two_way: bool,
+    /// What was synced, for the status line: `DEMO.101`, `Unterlagen and 2 more`.
+    pub places: String,
 }
 
 /// New items a sync found on one page.
@@ -279,7 +281,10 @@ impl Summary {
         if !self.failed.is_empty() {
             parts.push(format!("{} failed", self.failed.len()));
         }
-        format!("Synced: {}", parts.join(", "))
+        match self.places.as_str() {
+            "" => format!("Synced: {}", parts.join(", ")),
+            places => format!("Synced {places}: {}", parts.join(", ")),
+        }
     }
 
     /// The files worth a closer look, by section; empty if there are none. `dir` shortens
@@ -388,7 +393,13 @@ pub fn sync(
     rules: Rules,
     progress: impl Fn(String) + Sync,
 ) -> Result<Summary> {
+    let places = match roots {
+        [] => String::new(),
+        [one] => one.title.clone(),
+        [one, rest @ ..] => format!("{} and {} more", one.title, rest.len()),
+    };
     let mut summary = Summary {
+        places,
         two_way: rules.two_way,
         ..Summary::default()
     };

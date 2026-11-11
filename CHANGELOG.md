@@ -15,6 +15,8 @@ features and changes in behaviour, the last one for fixes only. See
 
 ### Changed
 
+- **The status line names what was synced** ("Synced Test: …"), so it shows when `S`
+  synced the selected folder rather than the course on screen.
 - **A folder you delete goes to the ILIAS trash as a whole** (where ILIAS lets you delete
   it, and only if none of its files changed on ILIAS since): one proposal in the review
   instead of one per file, and always asked about once more. Before, its files went but

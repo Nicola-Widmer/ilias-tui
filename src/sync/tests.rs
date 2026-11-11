@@ -770,3 +770,17 @@ fn files_in_a_folder_for_the_trash_count_as_going_there() {
     );
     assert!(!text.contains("doesn't let you"), "{text}");
 }
+
+#[test]
+fn the_status_line_names_what_was_synced() {
+    let one = Summary {
+        places: "Test".into(),
+        ..Summary::default()
+    };
+    assert!(
+        one.text(50.0).starts_with("Synced Test: 0 new"),
+        "{}",
+        one.text(50.0)
+    );
+    assert!(Summary::default().text(50.0).starts_with("Synced: "));
+}
