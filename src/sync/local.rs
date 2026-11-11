@@ -4,6 +4,8 @@
 use std::fs;
 use std::path::{Path, PathBuf};
 
+use super::model::Disk;
+
 /// Files and folders two-way sync never sends: system and editor leftovers (`.DS_Store`,
 /// `Thumbs.db`, Office's `~$…` lock files, `*.tmp`), hidden files and folders (`.git/`
 /// among them), and the copies sync itself saves beside your edited files.
@@ -65,20 +67,17 @@ pub fn scan(dir: &Path) -> Found {
 
 /// Which of `paths` (files gone on ILIAS) may go to your computer's trash now: those still
 /// exactly as sync saved them (by content). The others are returned with why not.
-pub fn trashable(
-    paths: &[PathBuf],
-    downloads: &crate::downloads::Downloads,
-) -> (Vec<PathBuf>, Vec<String>) {
+pub fn trashable(paths: &[String], base: &super::model::Base) -> (Vec<String>, Vec<String>) {
     let (mut ok, mut skipped) = (Vec::new(), Vec::new());
     for path in paths {
-        let saved = downloads.entries().find(|(_, s)| &s.path == path);
-        match saved.map(|(_, s)| s.local()) {
-            Some(crate::downloads::Local::Untouched) => ok.push(path.clone()),
-            Some(crate::downloads::Local::Missing) => {}
-            Some(crate::downloads::Local::Edited) => {
-                skipped.push(format!("{}: changed since the sync; kept", path.display()))
+        let saved = base.file(path);
+        match saved.map(|s| s.now(&base.abs(path))) {
+            Some(Disk::Untouched) => ok.push(path.clone()),
+            Some(Disk::Missing) => {}
+            Some(Disk::Edited | Disk::Unsure) => {
+                skipped.push(format!("{path}: changed since the sync; kept"))
             }
-            None => skipped.push(format!("{}: not saved by sync; kept", path.display())),
+            None => skipped.push(format!("{path}: not saved by sync; kept")),
         }
     }
     (ok, skipped)
@@ -165,16 +164,16 @@ mod tests {
         let dir = std::env::temp_dir().join(format!("ilias-tui-trashable-{}", std::process::id()));
         let _ = fs::remove_dir_all(&dir);
         fs::create_dir_all(&dir).unwrap();
-        let mut downloads = crate::downloads::Downloads::in_file(dir.join("index.json"));
-        let (same, edited, other) = (dir.join("a.pdf"), dir.join("b.pdf"), dir.join("c.pdf"));
-        for (key, path) in [(1, &same), (2, &edited)] {
-            fs::write(path, "as saved").unwrap();
-            downloads.record(key, path.clone(), "v1".into()).unwrap();
+        let mut base = crate::sync::model::Base::new(&dir);
+        for (key, name) in [(1, "a.pdf"), (2, "b.pdf")] {
+            fs::write(dir.join(name), "as saved").unwrap();
+            base.record(&dir.join(name), key, "v1".into()).unwrap();
         }
-        fs::write(&edited, "with my notes").unwrap();
-        fs::write(&other, "never synced").unwrap();
-        let (ok, kept) = trashable(&[same.clone(), edited, other], &downloads);
-        assert_eq!(ok, [same]);
+        fs::write(dir.join("b.pdf"), "with my notes").unwrap();
+        fs::write(dir.join("c.pdf"), "never synced").unwrap();
+        let paths = ["a.pdf", "b.pdf", "c.pdf"].map(String::from);
+        let (ok, kept) = trashable(&paths, &base);
+        assert_eq!(ok, ["a.pdf"]);
         assert_eq!(kept.len(), 2, "{kept:?}");
         assert!(
             kept[0].contains("changed since the sync") && kept[1].contains("not saved by sync")

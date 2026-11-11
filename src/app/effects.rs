@@ -441,10 +441,15 @@ impl App {
     /// is still exactly as sync saved it; every move goes into the journal.
     fn trash_local(&mut self, paths: &[PathBuf]) -> Result<()> {
         self.downloads = Downloads::load(&self.client.base);
-        let (ok, mut kept) = sync::local::trashable(paths, &self.downloads);
+        let base = sync::model::Base::load(&self.client.base, &self.download_dir);
+        let rels: Vec<String> = paths.iter().filter_map(|p| base.rel(p)).collect();
+        let (ok, mut kept) = sync::local::trashable(&rels, &base);
+        if rels.len() < paths.len() {
+            kept.push("not saved by sync; kept".into());
+        }
         let mut journal = sync::journal::Journal::open(&self.client.base);
         let mut moved = 0;
-        for path in ok {
+        for path in ok.iter().map(|rel| base.abs(rel)) {
             let result = match sync::local::to_trash(&path) {
                 Ok(()) => {
                     moved += 1;
