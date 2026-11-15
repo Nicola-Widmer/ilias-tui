@@ -647,6 +647,7 @@ fn a_failed_download_leaves_the_base_as_it_was_and_the_order_is_the_plans() {
         version: "v2".into(),
         dir: String::new(),
         replace: None,
+        same: None,
     };
     let ops = [upload("Notizen.md").remove(0), download];
     let outcomes = run(&client, &ops, &mut s.base, &mut s.journal, |_| {});
@@ -657,4 +658,85 @@ fn a_failed_download_leaves_the_base_as_it_was_and_the_order_is_the_plans() {
         "{outcomes:?}"
     );
     assert!(s.base.find(9).is_none());
+}
+
+/// A download that just arrived as `fresh` (with `content`), put where `f` says.
+fn place(s: &mut Setup, f: Fetch, content: &str) -> Done {
+    let fresh = s.dir.join("fresh.tmp");
+    std::fs::write(&fresh, content).unwrap();
+    let client = Client::with_pages(base(), ilias(UPLOAD, &[]));
+    let mut run = Run {
+        client: &client,
+        base: &mut s.base,
+        journal: &mut s.journal,
+        done: Vec::new(),
+    };
+    run.place(&f, fresh).unwrap()
+}
+
+#[test]
+fn ilias_copy_beside_yours_is_remembered_so_yours_waits() {
+    let mut s = Setup::new("beside");
+    s.base
+        .record(&s.dir.join("Notizen.md"), 7, "v1".into())
+        .unwrap();
+    std::fs::write(s.dir.join("Notizen.md"), "mine, edited").unwrap();
+    let file = file_item(7, "Notizen");
+    let f = Fetch {
+        file: &file,
+        version: "v2",
+        replace: None,
+        beside: Some("Notizen.md"),
+        same: None,
+    };
+    let Done::Ok {
+        saved: Some(beside),
+    } = place(&mut s, f, "theirs")
+    else {
+        panic!("not saved");
+    };
+    assert!(beside.starts_with("Notizen (ILIAS "), "{beside}");
+    let entry = s.base.file("Notizen.md").unwrap();
+    assert_eq!(
+        (entry.version.as_str(), entry.beside.as_ref()),
+        ("v2", Some(&beside))
+    );
+    assert_eq!(
+        std::fs::read_to_string(s.dir.join("Notizen.md")).unwrap(),
+        "mine, edited"
+    );
+}
+
+#[test]
+fn a_file_of_yours_with_ilias_content_is_taken_as_saved_else_both_stay() {
+    let mut s = Setup::new("same");
+    let file = file_item(140, "Notizen");
+    let f = || Fetch {
+        file: &file,
+        version: "v1",
+        replace: None,
+        beside: None,
+        same: Some("Notizen.md"),
+    };
+    // The same content ("mine"): your file is ILIAS' one, nothing saved twice.
+    assert_eq!(
+        place(&mut s, f(), "mine"),
+        Done::Ok {
+            saved: Some("Notizen.md".into())
+        }
+    );
+    assert_eq!(s.base.find(140).map(|(p, _)| p), Some("Notizen.md"));
+    assert!(!s.dir.join("fresh.tmp").exists());
+    // Other content: ILIAS' copy stays beside under its own name, yours as it is.
+    let mut s = Setup::new("same-other");
+    assert_eq!(
+        place(&mut s, f(), "theirs"),
+        Done::Ok {
+            saved: Some("fresh.tmp".into())
+        }
+    );
+    assert_eq!(
+        std::fs::read_to_string(s.dir.join("Notizen.md")).unwrap(),
+        "mine"
+    );
 }

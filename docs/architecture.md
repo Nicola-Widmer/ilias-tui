@@ -540,17 +540,24 @@ is built on one model, in four parts:
    first pass decides every recorded file in one exhaustive `match` over (your disk:
    missing, untouched, edited, changed without a hash; ILIAS: unchanged, changed, gone,
    not read), with the rules (missing files only, entries without a version) as guards;
-   the table is in the module docs. ILIAS files the base doesn't know are downloads; your
+   the table is in the module docs. An edited file whose ILIAS copy from an earlier
+   conflict is still beside it (`FileEntry::beside`, `Local::besides`) is a conflict
+   until you delete that copy, so yours never replaces ILIAS' newer one unmerged. ILIAS
+   files the base doesn't know are downloads; one with a file of yours of that name in
+   its folder that the base doesn't know either carries it as `same`, and the download
+   checks whether it is that very file (an upload whose recording was lost). Your other
    files and folders the base doesn't know, in a place's folder, are uploads and new
-   folders (a file of that name on ILIAS, a folder shared by two ILIAS places, a folder
-   name sync would save differently are conflicts). Then passes over the ops: `renames`
+   folders (a file of that name that sync saved, a folder shared by two ILIAS places, a
+   folder name sync would save differently are conflicts). Then passes over the ops: `renames`
    pairs an upload with deletions of the same content proposed now (exactly one in the
    same folder, where `rights.versions` has it: a `Rename`; elsewhere or several: the
-   upload stays, the deletions too; none, but another saved file has that content: a
-   conflict); `deleted_folders` turns the deletions of every file below a saved folder you
+   upload stays with the old one as `from`, the deletions too; none, but another saved
+   file has that content: a conflict); `deleted_folders` turns the deletions of every file below a saved folder you
    deleted (none changed on ILIAS, the parent's Delete offers it, never a course) into one
-   `TrashRemote` of the folder; `rights` keeps what ILIAS doesn't let you do; a one-way
-   sync instead drops every op that writes. `Plan::settle` holds changes to the base alone
+   `TrashRemote` of the folder; `rights` keeps what ILIAS doesn't let you do, and makes a
+   move whose old file ILIAS doesn't let you delete a conflict (else it would be on ILIAS
+   twice). A one-way sync decides the same rows without the ops that write, and runs none
+   of these passes. Unchanged files are only counted (`Plan::unchanged`). `Plan::settle` holds changes to the base alone
    (forget what is gone on both sides, adopt versions, add hashes, record the places'
    folders), made right away.
 3. **Ops** (`sync/ops.rs`): `Op::{Download, Upload, Replace, Rename, MkdirRemote,
@@ -559,9 +566,11 @@ is built on one model, in four parts:
    `components/report.rs`), the status line (`Summary::text`, from `Summary::counts`), the
    brake (`ask::brake`) and the question for your Trash are all built from ops by their
    variant, never from their text.
-4. **Executor** (`sync/run.rs`): `run(client, ops, Books { base, downloads, journal })`
-   runs ops in dependency order: downloads (3 at a time, into fresh files, then in place
-   of your copy or beside it as `… (ILIAS <date>).ext`), new folders (each before what is
+4. **Executor** (`sync/run.rs`): `run(client, ops, base, journal, progress)` runs ops in
+   dependency order: downloads (3 at a time, into fresh files, then in place of your copy
+   or beside it as `… (ILIAS <date>).ext`, which the base remembers; one with the same
+   content as the file of yours it was checked against makes that file the saved one and
+   the fresh copy goes again), new folders (each before what is
    in it), uploads by place, replacements and renames, the ILIAS trash (files, then
    folders), your Trash. Each one first re-checks that ILIAS and your disk are still as
    planned (the place's page read again: a file of that name now, a version other than the

@@ -11,7 +11,7 @@ use std::sync::Mutex;
 use std::sync::atomic::{AtomicUsize, Ordering};
 
 use super::journal::Journal;
-use super::model::{Base, Disk, Rel, name, parent};
+use super::model::{Base, Disk, Rel, hash_file, name, parent};
 use super::ops::{Op, Why};
 use super::version;
 use crate::ilias::{Client, Item, Kind, Page, lists_as, sanitize};
@@ -42,6 +42,8 @@ struct Fetch<'a> {
     version: &'a str,
     replace: Option<&'a str>,
     beside: Option<&'a str>,
+    /// A file of yours that may be this very file.
+    same: Option<&'a str>,
 }
 
 fn fetch(op: &Op) -> Option<Fetch<'_>> {
@@ -50,12 +52,14 @@ fn fetch(op: &Op) -> Option<Fetch<'_>> {
             file,
             version,
             replace,
+            same,
             ..
         } => Some(Fetch {
             file,
             version,
             replace: replace.as_deref(),
             beside: None,
+            same: same.as_deref(),
         }),
         Op::Conflict {
             path,
@@ -65,6 +69,7 @@ fn fetch(op: &Op) -> Option<Fetch<'_>> {
             version,
             replace: None,
             beside: Some(path),
+            same: None,
         }),
         _ => None,
     }
@@ -194,9 +199,12 @@ impl Run<'_> {
                 let today = jiff::Zoned::now().date().to_string();
                 let path = super::beside_name(&base.abs(yours), &today);
                 std::fs::rename(&fresh, &path)?;
+                // Remembered, so yours isn't sent over ILIAS' newer one until you merged.
+                let beside = base.rel(&path);
                 base.change(|e| {
                     if let Some(entry) = e.files.get_mut(yours) {
                         entry.version = f.version.to_string();
+                        entry.beside = beside;
                     }
                 })?;
                 return Ok(Done::Ok {
@@ -208,7 +216,17 @@ impl Run<'_> {
                 std::fs::rename(&fresh, &path)?;
                 path
             }
-            (None, None) => fresh,
+            (None, None) => match f.same.map(|mine| base.abs(mine)) {
+                // Your file is ILIAS' one (an upload whose recording was lost): it is taken
+                // as saved, and the copy just downloaded goes again.
+                Some(mine)
+                    if hash_file(&mine).is_some() && hash_file(&mine) == hash_file(&fresh) =>
+                {
+                    std::fs::remove_file(&fresh)?;
+                    mine
+                }
+                _ => fresh,
+            },
         };
         base.record(&path, f.file.key(), f.version.to_string())?;
         Ok(Done::Ok {

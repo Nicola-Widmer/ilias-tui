@@ -59,6 +59,15 @@ features and changes in behaviour, the last one for fixes only. See
 
 ### Fixed
 
+- **Your older edit no longer replaces ILIAS' newer file after a conflict**: once ILIAS'
+  copy was saved beside your edited one, the next sync proposed replacing ILIAS' file with
+  yours (deleting its earlier versions). Now yours waits as a conflict until you delete the
+  copy beside it, the sign that you merged what you need.
+- **An upload whose recording was lost no longer leaves a duplicate**: if sync stopped
+  after ILIAS took an upload, the next sync saved ILIAS' file again as `… (1)` and called
+  yours a conflict. Now a file of yours with the same content is taken as that file.
+- **A move where ILIAS doesn't let you delete the old file** is a conflict instead of an
+  upload, which left the file on ILIAS twice.
 - **Idle CPU**: the TUI drew the whole screen 20 times a second even when nothing
   changed (about 12% CPU in a debug build). It now draws only after a key, a click, a
   resize or a result, and while the spinner turns; idle it uses next to none.

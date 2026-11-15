@@ -115,6 +115,9 @@ pub struct FileEntry {
     /// SHA-256 of your copy then (hex); empty for entries saved before hashes were.
     #[serde(default, skip_serializing_if = "String::is_empty")]
     pub hash: String,
+    /// Where ILIAS' newer copy was saved beside your edited one, after a conflict.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub beside: Option<Rel>,
 }
 
 impl FileEntry {
@@ -127,6 +130,7 @@ impl FileEntry {
             len,
             modified_ms,
             hash: hash_file(path).unwrap_or_default(),
+            beside: None,
         }
     }
 
@@ -387,6 +391,7 @@ pub fn migrate(old: Option<&Path>, root: &Path) -> Entries {
                             len,
                             modified_ms,
                             hash,
+                            beside: None,
                         },
                     )
                 }
@@ -525,6 +530,9 @@ pub struct LocalFile {
 pub struct Local {
     pub files: BTreeMap<Rel, LocalFile>,
     pub folders: BTreeSet<Rel>,
+    /// ILIAS' copies saved beside your edited files that are still there (the scan leaves
+    /// them out, as it never sends them).
+    pub besides: BTreeSet<Rel>,
 }
 
 impl Local {
@@ -563,11 +571,12 @@ impl Local {
                 }
             }
         }
-        let recorded: Vec<&str> = base.files().map(|(rel, _)| rel).collect();
-        for rel in recorded {
+        for (rel, entry) in base.files() {
             if !local.files.contains_key(rel) {
                 local.add(base, &base.abs(rel), false);
             }
+            let beside = entry.beside.as_ref().filter(|b| base.abs(b).is_file());
+            local.besides.extend(beside.cloned());
         }
         local
     }

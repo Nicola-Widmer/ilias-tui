@@ -20,11 +20,15 @@ pub struct Plan {
 #[derive(Debug, Clone, PartialEq)]
 pub enum Op {
     /// Save ILIAS' `file` into `dir`; `replace`: in place of your untouched copy there.
+    /// `same`: a file of yours there named like it that sync didn't save (an upload whose
+    /// recording was lost, say): if the download has the same content, that file is taken
+    /// as it, and nothing is saved twice.
     Download {
         file: Item,
         version: String,
         dir: Rel,
         replace: Option<Rel>,
+        same: Option<Rel>,
     },
     /// Upload your new file `path` into `place`. `from`: a saved file with the same content
     /// that you deleted, shown as where it may come from (it stays proposed for the trash).
@@ -87,6 +91,12 @@ pub enum Why {
     SharedFolder,
     /// A folder of this name would come back from ILIAS as another name.
     ComesBackAs(String),
+    /// Edited by you, and ILIAS' newer copy is still beside it (this path): sent only once
+    /// you deleted that copy (you merged what you need).
+    Merging(Rel),
+    /// Moved here from this path, which ILIAS doesn't let you delete there: uploading it
+    /// would put the file on ILIAS twice.
+    CantDeleteOld(Rel),
 }
 
 /// Why something is left as it is.

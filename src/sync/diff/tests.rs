@@ -122,6 +122,7 @@ impl World {
             len: 4,
             modified_ms: 1,
             hash: hash.into(),
+            beside: None,
         };
         self.base.change(|e| e.record_file(path, entry)).unwrap();
     }
@@ -188,21 +189,90 @@ fn a_new_file_is_uploaded_where_ilias_lets_you() {
 }
 
 #[test]
-fn a_new_file_named_like_an_ilias_file_sync_did_not_save_is_a_conflict() {
+fn a_new_file_named_like_an_ilias_file_sync_did_not_save_is_checked_by_its_download() {
     let mut w = World::new();
     w.on_ilias(file(9, "Blatt 3", V1, DIR));
     w.disk(&path("Blatt 3.pdf"), 4, 9, Some("from the browser"));
-    let ops = w.ops(two_way());
-    assert!(ops.contains(&Op::Conflict {
-        path: path("Blatt 3.pdf"),
-        why: Why::SameName
-    }));
-    // ILIAS' one is saved (beside, under a free name), yours is not sent.
-    assert!(
-        ops.iter()
-            .any(|op| matches!(op, Op::Download { replace: None, .. }))
+    // The download is taken as your file if it has the same content (an upload whose
+    // recording was lost); otherwise both are kept. Yours is not sent either way.
+    assert_eq!(
+        w.ops(two_way()),
+        [Op::Download {
+            file: file(9, "Blatt 3", V1, DIR),
+            version: V1.into(),
+            dir: DIR.into(),
+            replace: None,
+            same: Some(path("Blatt 3.pdf")),
+        }]
     );
-    assert!(!ops.iter().any(Op::writes), "{ops:?}");
+    // ILIAS' file of that name is one sync saved elsewhere: a conflict, nothing sent.
+    let mut w = World::new();
+    w.on_ilias(file(9, "Blatt 3", V1, DIR));
+    w.saved("DEMO/Blatt 3.pdf", 9, V1, "h");
+    w.untouched("DEMO/Blatt 3.pdf");
+    w.disk(&path("Blatt 3.pdf"), 4, 9, Some("from the browser"));
+    assert_eq!(
+        w.ops(two_way()),
+        [Op::Conflict {
+            path: path("Blatt 3.pdf"),
+            why: Why::SameName
+        }]
+    );
+}
+
+#[test]
+fn an_edit_is_not_sent_while_ilias_newer_copy_is_beside_it() {
+    let mut w = World::new();
+    w.on_ilias(file(9, "Blatt 3", V2, DIR));
+    // After a conflict: the base has ILIAS' version, and where its copy went.
+    let entry = crate::sync::model::FileEntry {
+        id: 9,
+        version: V2.into(),
+        len: 4,
+        modified_ms: 1,
+        hash: "h".into(),
+        beside: Some(path("Blatt 3 (ILIAS 2026-11-15).pdf")),
+    };
+    w.base
+        .change(|e| e.record_file(&path("Blatt 3.pdf"), entry))
+        .unwrap();
+    w.edited(&path("Blatt 3.pdf"));
+    w.local
+        .besides
+        .insert(path("Blatt 3 (ILIAS 2026-11-15).pdf"));
+    assert_eq!(
+        w.ops(two_way()),
+        [Op::Conflict {
+            path: path("Blatt 3.pdf"),
+            why: Why::Merging(path("Blatt 3 (ILIAS 2026-11-15).pdf")),
+        }]
+    );
+    // You deleted that copy: merged, so yours replaces ILIAS' one.
+    w.local.besides.clear();
+    assert!(matches!(w.ops(two_way()).as_slice(), [Op::Replace { .. }]));
+}
+
+#[test]
+fn a_move_whose_old_file_ilias_doesnt_let_you_delete_is_not_uploaded() {
+    let mut w = World::new();
+    let week = "DEMO/Unterlagen/Woche 1";
+    w.place(item("fold", 5, "Woche 1"), week, Vec::new());
+    w.local.folders.insert(week.into());
+    w.base.change(|e| e.record_folder(week, Some(5))).unwrap();
+    w.on_ilias(file(10, "Blatt 4", V1, DIR));
+    w.saved(&path("Blatt 4.pdf"), 10, V1, "four");
+    w.disk(&format!("{week}/Blatt 4.pdf"), 4, 9, Some("four"));
+    w.rights(DIR, |r| r.delete.clear());
+    assert_eq!(
+        w.ops(two_way()),
+        [
+            keep(&path("Blatt 4.pdf"), Reason::Deleted),
+            Op::Conflict {
+                path: format!("{week}/Blatt 4.pdf"),
+                why: Why::CantDeleteOld(path("Blatt 4.pdf")),
+            },
+        ]
+    );
 }
 
 #[test]
@@ -312,6 +382,7 @@ fn unchanged_by_you_and_changed_on_ilias_is_downloaded_in_place_of_your_copy() {
                 version: V2.into(),
                 dir: DIR.into(),
                 replace: Some(path("Blatt 3.pdf")),
+                same: None,
             }]
         );
     }
@@ -411,7 +482,7 @@ fn a_file_moved_to_another_folder_is_uploaded_there_and_the_old_one_trashed() {
             Op::Upload {
                 place: item("fold", 5, "Woche 1"),
                 path: format!("{week}/Blatt 4.pdf"),
-                from: None,
+                from: Some(path("Blatt 4.pdf")),
             },
         ]
     );
@@ -651,6 +722,7 @@ fn new_on_ilias_is_downloaded_unless_too_big() {
                 version: V1.into(),
                 dir: DIR.into(),
                 replace: None,
+                same: None,
             },
             keep("Aufzeichnung (107.9 MB)", Reason::TooBig),
         ]

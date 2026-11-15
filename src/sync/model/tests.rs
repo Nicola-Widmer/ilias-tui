@@ -68,6 +68,7 @@ fn takes_over_the_old_list_once_keeping_out_copies_elsewhere() {
             len: 5,
             modified_ms: 1700000000000,
             hash: "ab12".into(),
+            beside: None,
         })
     );
     // The folders they are in, ids unknown until a sync reads them.

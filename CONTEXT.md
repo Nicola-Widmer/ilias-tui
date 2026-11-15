@@ -157,9 +157,10 @@ _Avoid_: change, action (an `Action` is the TUI's message).
 
 **Conflict**:
 A path sync can't decide about safely: edited by you and changed on ILIAS (ILIAS' copy is
-saved beside yours), or something unclear (a new file named like an ILIAS file sync didn't
-save, a copy of a saved file, a folder shared by two ILIAS folders, something changed since
-the plan). Nothing is sent for it and both copies stay.
+saved beside yours, and yours waits until you deleted that copy), or something unclear (a
+new file named like an ILIAS file with other content, a copy of a saved file, a folder
+shared by two ILIAS folders, a move whose old file ILIAS doesn't let you delete, something
+changed since the plan). Nothing is sent for it and both copies stay.
 _Avoid_: clash, collision.
 
 **Your Trash**:

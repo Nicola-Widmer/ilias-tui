@@ -87,6 +87,10 @@ impl Diff<'_> {
 
     /// Download `file`, unless it is over the size limit.
     fn fetch(&mut self, file: &RemoteFile, replace: Option<&str>) {
+        self.fetch_as(file, replace, None);
+    }
+
+    fn fetch_as(&mut self, file: &RemoteFile, replace: Option<&str>, same: Option<Rel>) {
         let mb = file.item.properties.iter().find_map(|p| super::size_mb(p));
         if mb.is_some_and(|mb| mb > self.rules.max_mb) {
             let size = file
@@ -105,6 +109,7 @@ impl Diff<'_> {
             version: file.version.clone(),
             dir: file.dir.clone(),
             replace: replace.map(str::to_string),
+            same,
         });
     }
 
@@ -158,6 +163,18 @@ impl Diff<'_> {
                     self.fetch(f, None)
                 }
                 (Unsure, Ilias::Unchanged(_)) if two => self.keep(path, Reason::CantTell),
+                // ILIAS' newer copy is still beside yours: not merged yet, nothing sent.
+                (Edited, Ilias::Unchanged(_))
+                    if two
+                        && (entry.beside.as_ref()).is_some_and(|b| local.besides.contains(b)) =>
+                {
+                    let beside = entry.beside.clone().unwrap_or_default();
+                    let why = Why::Merging(beside);
+                    self.op(Op::Conflict {
+                        path: path.into(),
+                        why,
+                    });
+                }
                 (Edited, Ilias::Unchanged(f)) if two => match place(f) {
                     Some(place) => self.op(Op::Replace {
                         place: place.item.clone(),
@@ -211,13 +228,24 @@ impl Diff<'_> {
         }
     }
 
-    /// Files on ILIAS that sync never saved.
+    /// Files on ILIAS that sync never saved. A file of yours named like one, in its folder,
+    /// that sync didn't save either may be that very file (an upload whose recording was
+    /// lost): the download checks.
     fn remote_only(&mut self) {
-        let (base, remote) = (self.base, self.remote);
+        let (base, remote, local) = (self.base, self.remote, self.local);
         for file in &remote.files {
-            if base.find(file.item.key()).is_none() {
-                self.fetch(file, None);
+            if base.find(file.item.key()).is_some() {
+                continue;
             }
+            let listed = (file.place.map(|i| &remote.places[i]))
+                .and_then(|p| p.items.iter().find(|i| i.id == file.item.id));
+            let title = listed.map_or(file.item.title.as_str(), |i| i.title.as_str());
+            let same = (local.files.keys()).find(|path| {
+                parent(path) == file.dir
+                    && base.file(path).is_none()
+                    && crate::ilias::lists_as(title, name(path))
+            });
+            self.fetch_as(file, None, same.cloned());
         }
     }
 
@@ -225,6 +253,13 @@ impl Diff<'_> {
     fn local_only(&mut self) {
         let (base, remote, local) = (self.base, self.remote, self.local);
         let max = self.rules.max_bytes();
+        // Your files a download checks against (see `remote_only`).
+        let checked: HashSet<Rel> = (self.plan.ops.iter())
+            .filter_map(|op| match op {
+                Op::Download { same, .. } => same.clone(),
+                _ => None,
+            })
+            .collect();
         let mut seen = HashSet::new();
         for dir in remote.places.iter().map(|p| p.dir.as_str()) {
             if !seen.insert(dir) {
@@ -235,7 +270,9 @@ impl Diff<'_> {
             let new_files: Vec<(&Rel, &LocalFile)> = local
                 .files
                 .iter()
-                .filter(|(path, _)| parent(path) == dir && base.file(path).is_none())
+                .filter(|(path, _)| {
+                    parent(path) == dir && base.file(path).is_none() && !checked.contains(*path)
+                })
                 .collect();
             let new_folders: Vec<&Rel> = local
                 .folders
@@ -404,12 +441,11 @@ impl Diff<'_> {
                 }
                 // Moved, or which one was renamed can't be told: an upload; the deleted
                 // ones stay proposed.
-                None if same.len() > 1 => {
+                None => {
                     if let Op::Upload { from, .. } = &mut ops[at] {
                         *from = Some(old);
                     }
                 }
-                None => {}
             }
         }
         ops.retain(|op| !matches!(op, Op::TrashRemote { path, .. } if renamed.contains(path)));
@@ -486,7 +522,34 @@ impl Diff<'_> {
             .map(|p| (p.item.key(), p))
             .collect();
         let rights = |place: &Item| places.get(&place.key()).map(|p| &p.rights);
+        // Deletions ILIAS doesn't let you make there.
+        let kept: HashSet<Rel> = (self.plan.ops.iter())
+            .filter_map(|op| match op {
+                Op::TrashRemote {
+                    place, item, path, ..
+                } if !rights(place).is_some_and(|r| r.delete.contains(&item.key())) => {
+                    Some(path.clone())
+                }
+                _ => None,
+            })
+            .collect();
         for op in &mut self.plan.ops {
+            // Moved from where the old one can't be deleted: it would be on ILIAS twice.
+            if let Op::Upload {
+                path,
+                from: Some(old),
+                place,
+            } = &*op
+                && kept.contains(old)
+                && rights(place).is_some_and(|r| r.upload)
+            {
+                let why = Why::CantDeleteOld(old.clone());
+                *op = Op::Conflict {
+                    path: path.clone(),
+                    why,
+                };
+                continue;
+            }
             let refused = match &*op {
                 Op::Upload { place, .. } => !rights(place).is_some_and(|r| r.upload),
                 Op::Replace { place, file, .. } => {

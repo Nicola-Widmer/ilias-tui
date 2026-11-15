@@ -122,6 +122,14 @@ pub fn conflict(path: &str, why: &Why) -> String {
         Why::ComesBackAs(name) => {
             format!("{path}: a folder of this name would come back as {name}; not sent")
         }
+        Why::Merging(beside) => format!(
+            "{path}: ILIAS' newer copy is beside it ({beside}); merge what you need, delete \
+             that copy, and the next sync sends yours"
+        ),
+        Why::CantDeleteOld(old) => format!(
+            "{path}: moved from {old}, which ILIAS doesn't let you delete there; not uploaded, \
+             or it would be on ILIAS twice"
+        ),
     }
 }
 
@@ -132,7 +140,7 @@ fn line(op: &Op) -> String {
             path,
             from: Some(old),
             ..
-        } => format!("{path} (renamed from {old})"),
+        } => format!("{path} (from {old})"),
         Op::Rename { path, from, .. } => format!("{path} (was {from})"),
         Op::TrashRemote { path, item, .. } if item.kind == Kind::Folder => {
             format!("{path}/ (the folder, with what is in it)")
@@ -245,6 +253,13 @@ impl Summary {
             match (op, done) {
                 (_, Done::Failed(_)) => c.failed += 1,
                 _ if beside(op, done).is_some() => c.beside += 1,
+                // Your file was ILIAS' one already.
+                (
+                    Op::Download {
+                        same: Some(mine), ..
+                    },
+                    Done::Ok { saved },
+                ) if saved.as_ref() == Some(mine) => c.unchanged += 1,
                 (Op::Download { replace: None, .. }, Done::Ok { .. }) => c.new += 1,
                 (Op::Download { .. }, Done::Ok { .. }) => c.updated += 1,
                 _ => {}
@@ -301,8 +316,17 @@ impl Summary {
     pub fn report(&self, max_mb: f64) -> Report {
         let mut lines: Vec<(Section, String)> = Vec::new();
         for (op, done) in &self.done {
-            match done {
-                Done::Failed(why) => lines.push((Section::Failed, why.clone())),
+            match (op, done) {
+                (_, Done::Failed(why)) => lines.push((Section::Failed, why.clone())),
+                // A file of yours of that name, with other content: both kept.
+                (
+                    Op::Download {
+                        same: Some(mine), ..
+                    },
+                    Done::Ok { saved },
+                ) if saved.as_ref() != Some(mine) => {
+                    lines.push((Section::Conflicts, conflict(mine, &Why::SameName)))
+                }
                 _ => lines.extend(beside(op, done).map(|p| (Section::Beside, p.clone()))),
             }
         }
