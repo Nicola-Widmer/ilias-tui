@@ -59,6 +59,9 @@ features and changes in behaviour, the last one for fixes only. See
 
 ### Fixed
 
+- **Idle CPU**: the TUI drew the whole screen 20 times a second even when nothing
+  changed (about 12% CPU in a debug build). It now draws only after a key, a click, a
+  resize or a result, and while the spinner turns; idle it uses next to none.
 - **Renames among files with the same content**: a saved file already gone from ILIAS
   made a rename look unclear, so it was uploaded again and the old one trashed. Only files
   proposed for the trash now count as what you renamed.

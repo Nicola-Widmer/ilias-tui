@@ -30,6 +30,13 @@ pub struct StatusBar {
     keep: bool,
 }
 
+impl StatusBar {
+    /// Something runs: the spinner turns, so the bar changes without any action.
+    pub fn is_busy(&self) -> bool {
+        matches!(self.status, Status::Busy(_))
+    }
+}
+
 impl Default for StatusBar {
     fn default() -> Self {
         Self {
@@ -349,6 +356,21 @@ mod tests {
 #[cfg(test)]
 mod sync_tests {
     use super::*;
+
+    #[test]
+    fn is_busy_only_while_a_job_runs_so_the_spinner_alone_redraws() {
+        let mut bar = StatusBar::default();
+        assert!(!bar.is_busy(), "idle draws nothing");
+        bar.update(&Action::Sync(Vec::new()));
+        assert!(bar.is_busy());
+        bar.update(&Action::Synced {
+            summary: "Synced: 0 new".into(),
+            report: Vec::new(),
+            saved: Vec::new(),
+            review: Box::default(),
+        });
+        assert!(!bar.is_busy());
+    }
 
     #[test]
     fn what_a_push_sent_stays_shown_through_the_reload_after_it() {

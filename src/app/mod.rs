@@ -112,11 +112,15 @@ impl App {
 
     pub fn run(mut self, terminal: &mut DefaultTerminal) -> Result<()> {
         self.start()?;
+        // Whether the screen may have changed since it was last drawn. Only then is it drawn
+        // again (and while the spinner turns): an idle TUI draws nothing.
+        let mut changed = true;
         loop {
             // Actions first, so that even the first frame shows what they bring (the cached
             // My courses), not an empty screen.
             while let Ok(action) = self.rx.try_recv() {
                 self.dispatch(action)?;
+                changed = true;
             }
             if self.should_quit {
                 break;
@@ -128,9 +132,15 @@ impl App {
                     Err(e) => Action::Error(format!("{e:#}")),
                 };
                 self.tx.send(next)?;
+                changed = true;
             }
-            terminal.draw(|frame| self.draw(frame))?;
+            if changed || self.status_bar.is_busy() {
+                terminal.draw(|frame| self.draw(frame))?;
+                changed = false;
+            }
             if event::poll(Duration::from_millis(50))? {
+                // Keys, clicks, a resize: draw again whatever they were.
+                changed = true;
                 let action = match event::read()? {
                     Event::Key(key) if key.kind == KeyEventKind::Press => self.handle_key(key),
                     Event::Mouse(mouse) => self
