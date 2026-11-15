@@ -64,6 +64,9 @@ features and changes in behaviour, the last one for fixes only. See
   and report the new one as a copy of the old one. It now renames ILIAS' file (or, without
   Versions there, uploads it and proposes the old one for the trash), as for any rename.
   Folders renamed only in case still keep their ILIAS name on your disk.
+- **Large syncs record their downloads in one write**: the saved-files list was rewritten
+  once per file downloaded, which took several seconds on a first sync of a few thousand
+  files; the diff also looks ILIAS' files up by id instead of searching the list for each.
 - **Your older edit no longer replaces ILIAS' newer file after a conflict**: once ILIAS'
   copy was saved beside your edited one, the next sync proposed replacing ILIAS' file with
   yours (deleting its earlier versions). Now yours waits as a conflict until you delete the

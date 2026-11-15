@@ -237,6 +237,8 @@ impl Entries {
 pub struct Base {
     file: Option<PathBuf>,
     entries: Entries,
+    /// Changes are kept in memory until [`Base::release`].
+    held: bool,
 }
 
 impl Base {
@@ -253,6 +255,7 @@ impl Base {
         let mut base = Self {
             entries: stored.unwrap_or_else(|| migrate(old.as_deref(), root)),
             file,
+            held: false,
         };
         if taken_over {
             // Once; an unwritable file only means it is taken over again next time.
@@ -276,6 +279,7 @@ impl Base {
                 root: root.to_path_buf(),
                 ..Entries::default()
             },
+            held: false,
         }
     }
 
@@ -330,11 +334,32 @@ impl Base {
     /// Applies `change` and writes the base. The file is read again first and wins for
     /// everything else, so a sync in the background and the TUI don't undo each other.
     pub fn change(&mut self, change: impl FnOnce(&mut Entries)) -> Result<()> {
-        let mut all = read(self.file.as_deref());
+        if self.held {
+            change(&mut self.entries);
+            return Ok(());
+        }
+        let all = read(self.file.as_deref());
         if let Some(on_disk) = all.iter().find(|e| e.root == self.entries.root) {
             self.entries = on_disk.clone();
         }
         change(&mut self.entries);
+        self.write(all)
+    }
+
+    /// Keeps the next changes in memory, for many in a row (writing the whole file for each
+    /// would take longer than they do); [`Base::release`] writes them at once.
+    pub fn hold(&mut self) {
+        let _ = self.change(|_| {});
+        self.held = true;
+    }
+
+    pub fn release(&mut self) -> Result<()> {
+        self.held = false;
+        self.write(read(self.file.as_deref()))
+    }
+
+    /// Writes these entries into `all`, the base file as read.
+    fn write(&self, mut all: Vec<Entries>) -> Result<()> {
         let Some(file) = &self.file else {
             return Ok(());
         };
@@ -531,10 +556,6 @@ impl Remote {
 
     pub fn place_at(&self, dir: &str) -> impl Iterator<Item = &Place> {
         self.places.iter().filter(move |p| p.dir == dir)
-    }
-
-    pub fn file(&self, id: u64) -> Option<&RemoteFile> {
-        self.files.iter().find(|f| f.item.key() == id)
     }
 }
 

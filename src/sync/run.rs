@@ -176,12 +176,23 @@ impl Run<'_> {
                 });
             }
         });
+        // Placing them takes moments: recorded in one write.
+        self.base.hold();
         for (op, fresh) in fetched.into_inner().unwrap_or_else(|e| e.into_inner()) {
             let Some(f) = fetch(op) else { continue };
             let done = fresh
                 .and_then(|fresh| self.place(&f, fresh))
                 .unwrap_or_else(|e| Done::Failed(format!("{}: {e:#}", f.file.title)));
             self.done.push((op.clone(), done));
+        }
+        if let Err(e) = self.base.release() {
+            for (_, done) in self
+                .done
+                .iter_mut()
+                .filter(|(_, d)| matches!(d, Done::Ok { .. }))
+            {
+                *done = Done::Failed(format!("saved, but not recorded: {e:#}"));
+            }
         }
     }
 

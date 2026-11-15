@@ -287,3 +287,23 @@ fn a_rename_that_only_changes_the_case_is_seen_as_one() {
     assert!(present(&dir.join("DEMO/Skript.pdf")));
     let _ = fs::remove_dir_all(dir);
 }
+
+#[test]
+fn held_changes_are_written_at_once_keeping_other_folders() {
+    let dir = temp("hold");
+    let (file, empty) = (dir.join("base.json"), dir.join("none.json"));
+    let mut other = Base::in_file(file.clone(), &dir.join("other"), &empty);
+    other.change(|e| e.record_folder("kept", None)).unwrap();
+    let mut base = Base::in_file(file.clone(), &dir, &empty);
+    base.hold();
+    base.change(|e| e.record_folder("a", None)).unwrap();
+    base.change(|e| e.record_folder("b", None)).unwrap();
+    assert_eq!(
+        Base::in_file(file.clone(), &dir, &empty).folders().count(),
+        0
+    );
+    base.release().unwrap();
+    assert_eq!(Base::in_file(file.clone(), &dir, &empty), base);
+    assert_eq!(Base::in_file(file, &dir.join("other"), &empty), other);
+    let _ = fs::remove_dir_all(dir);
+}

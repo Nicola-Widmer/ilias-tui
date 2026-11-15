@@ -581,7 +581,8 @@ is built on one model, in four parts:
    then it runs through the write module's own function (`Client::upload_files`,
    `replace_file` with the new name as title for a rename, `create_folder`,
    `delete_item`, which refuses without a trash; `local::to_trash`), updates the base, and
-   writes the journal.
+   writes the journal. The downloads placed in one go are recorded with one write of the
+   base (`Base::hold`, `Base::release`); everything else writes it right away.
    A dry run sends nothing and records nothing.
 
 `sync::sync` runs one sync on a worker: crawl, scan, diff, settle, then the ops that don't

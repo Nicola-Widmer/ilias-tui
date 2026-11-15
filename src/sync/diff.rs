@@ -52,7 +52,11 @@ pub fn diff(base: &Base, remote: &Remote, local: &Local, rules: &Rules) -> Plan 
         local,
         rules,
         plan: Plan::default(),
+        by_id: remote.files.iter().map(|f| (f.item.key(), f)).collect(),
+        saved: base.files().map(|(_, e)| e.id).collect(),
+        gone_dirs: Vec::new(),
     };
+    d.gone_dirs = d.gone_dirs().map(str::to_string).collect();
     d.files();
     d.remote_only();
     d.folders_settle();
@@ -71,6 +75,10 @@ struct Diff<'a> {
     local: &'a Local,
     rules: &'a Rules,
     plan: Plan,
+    /// ILIAS' files by id, the saved ids, and [`Diff::gone_dirs`]: looked up per file.
+    by_id: HashMap<u64, &'a RemoteFile>,
+    saved: HashSet<u64>,
+    gone_dirs: Vec<Rel>,
 }
 
 impl Diff<'_> {
@@ -117,7 +125,7 @@ impl Diff<'_> {
     /// list it, or the folder itself is gone.
     fn gone(&self, path: &str) -> bool {
         let dir = parent(path);
-        self.remote.place_at(dir).next().is_some() || self.gone_dirs().any(|d| within(dir, d))
+        self.remote.place_at(dir).next().is_some() || self.gone_dirs.iter().any(|d| within(dir, d))
     }
 
     /// Saved folders in a place that no longer lists them.
@@ -138,7 +146,7 @@ impl Diff<'_> {
         let place = |file: &RemoteFile| file.place.map(|i| &remote.places[i]);
         for (path, entry) in base.files() {
             let now = local.files.get(path);
-            let ilias = match remote.file(entry.id) {
+            let ilias = match self.by_id.get(&entry.id).copied() {
                 Some(f) if f.version == entry.version => Ilias::Unchanged(f),
                 Some(f) => Ilias::Changed(f),
                 None if self.gone(path) => Ilias::Gone,
@@ -234,7 +242,7 @@ impl Diff<'_> {
     fn remote_only(&mut self) {
         let (base, remote, local) = (self.base, self.remote, self.local);
         for file in &remote.files {
-            if base.find(file.item.key()).is_some() {
+            if self.saved.contains(&file.item.key()) {
                 continue;
             }
             let listed = (file.place.map(|i| &remote.places[i]))
@@ -358,10 +366,9 @@ impl Diff<'_> {
                 });
             }
         }
-        let gone: Vec<Rel> = self
-            .gone_dirs()
+        let gone: Vec<Rel> = (self.gone_dirs.iter())
             .filter(|dir| !self.local.folders.contains(*dir))
-            .map(str::to_string)
+            .cloned()
             .collect();
         for dir in gone {
             self.plan.settle.push(Settle::ForgetFolder(dir));
