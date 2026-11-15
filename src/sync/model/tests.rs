@@ -255,3 +255,35 @@ fn reads_the_disk_hashing_only_what_the_diff_needs() {
     assert!(local.files["DEMO/new.md"].hash.is_none());
     let _ = fs::remove_dir_all(dir);
 }
+
+#[test]
+fn a_rename_that_only_changes_the_case_is_seen_as_one() {
+    let dir = temp("case");
+    fs::create_dir_all(dir.join("DEMO")).unwrap();
+    fs::write(dir.join("DEMO/skript.pdf"), "s").unwrap();
+    let mut base = Base::new(&dir);
+    base.record(&dir.join("DEMO/skript.pdf"), 1, "v".into())
+        .unwrap();
+    fs::rename(dir.join("DEMO/skript.pdf"), dir.join("DEMO/Skript.pdf")).unwrap();
+    let remote = Remote {
+        places: vec![Place {
+            dir: "DEMO".into(),
+            ..Place::default()
+        }],
+        files: Vec::new(),
+    };
+    // Even where the disk ignores case and `skript.pdf` still opens it.
+    let local = Local::read(&base, &remote, true);
+    assert_eq!(
+        local.files.keys().map(String::as_str).collect::<Vec<_>>(),
+        ["DEMO/Skript.pdf"]
+    );
+    let old = dir.join("DEMO/skript.pdf");
+    assert_eq!(
+        base.file("DEMO/skript.pdf").unwrap().now(&old),
+        Disk::Missing
+    );
+    assert!(!present(&old));
+    assert!(present(&dir.join("DEMO/Skript.pdf")));
+    let _ = fs::remove_dir_all(dir);
+}

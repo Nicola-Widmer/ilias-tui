@@ -59,6 +59,11 @@ features and changes in behaviour, the last one for fixes only. See
 
 ### Fixed
 
+- **A rename that only changes the case is a rename**: on a disk that ignores case (macOS
+  and Windows by default), renaming `skript.pdf` to `Skript.pdf` made sync see both names
+  and report the new one as a copy of the old one. It now renames ILIAS' file (or, without
+  Versions there, uploads it and proposes the old one for the trash), as for any rename.
+  Folders renamed only in case still keep their ILIAS name on your disk.
 - **Your older edit no longer replaces ILIAS' newer file after a conflict**: once ILIAS'
   copy was saved beside your edited one, the next sync proposed replacing ILIAS' file with
   yours (deleting its earlier versions). Now yours waits as a conflict until you delete the

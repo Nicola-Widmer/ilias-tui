@@ -75,6 +75,28 @@ pub fn stat(path: &Path) -> Option<(u64, u64)> {
     Some((meta.len(), modified.as_millis() as u64))
 }
 
+/// Whether `path` is there under exactly this name. A disk that ignores case (as macOS'
+/// and Windows' do by default) opens `skript.pdf` for `Skript.pdf` too: after a rename
+/// that only changed the case, the old name would seem to be there still.
+pub fn present(path: &Path) -> bool {
+    path.exists() && !other_case(path)
+}
+
+/// Whether `path`'s folder has it only under a name that differs in case.
+fn other_case(path: &Path) -> bool {
+    let (Some(dir), Some(name)) = (path.parent(), path.file_name().and_then(|n| n.to_str())) else {
+        return false;
+    };
+    let Ok(entries) = fs::read_dir(dir) else {
+        return false;
+    };
+    let names: Vec<String> = (entries.flatten())
+        .filter_map(|e| e.file_name().into_string().ok())
+        .collect();
+    let lower = name.to_lowercase();
+    !names.iter().any(|n| n == name) && names.iter().any(|n| n.to_lowercase() == lower)
+}
+
 /// SHA-256 of a file's content, in hex; `None` if it can't be read.
 pub fn hash_file(path: &Path) -> Option<String> {
     let mut file = fs::File::open(path).ok()?;
@@ -156,7 +178,8 @@ impl FileEntry {
 
     /// The copy at `path` compared with this entry now: the executor's re-check.
     pub fn now(&self, path: &Path) -> Disk {
-        let now = stat(path).map(|(len, modified_ms)| LocalFile {
+        let now = stat(path).filter(|_| !other_case(path));
+        let now = now.map(|(len, modified_ms)| LocalFile {
             len,
             modified_ms,
             hash: (len == self.len).then(|| hash_file(path)).flatten(),
@@ -572,8 +595,12 @@ impl Local {
             }
         }
         for (rel, entry) in base.files() {
-            if !local.files.contains_key(rel) {
-                local.add(base, &base.abs(rel), false);
+            // Not found in a folder just scanned: there only under another case, if at all.
+            let path = base.abs(rel);
+            if !local.files.contains_key(rel)
+                && !(local.folders.contains(parent(rel)) && other_case(&path))
+            {
+                local.add(base, &path, false);
             }
             let beside = entry.beside.as_ref().filter(|b| base.abs(b).is_file());
             local.besides.extend(beside.cloned());

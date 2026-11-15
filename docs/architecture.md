@@ -533,7 +533,8 @@ is built on one model, in four parts:
    (`sync::version`: size and date in the listing, relative dates written out, so it
    doesn't change overnight). `Local::read` is your disk now: each place's folder one level
    deep (`local::scan`: no links, nothing on the ignore list), any other folder in them all
-   the way down (`local::walk`), and every file in the base. It hashes only what the diff
+   the way down (`local::walk`), and every file in the base (one the scan of its folder
+   didn't find is taken as missing if it is only there under another case). It hashes only what the diff
    needs: new files (two-way), and recorded ones whose size is the same but whose time
    isn't, or that have no hash yet.
 2. **Diff** (`sync/diff.rs`): `diff(&Base, &Remote, &Local, &Rules) -> Plan`, pure. The
@@ -574,7 +575,8 @@ is built on one model, in four parts:
    in it), uploads by place, replacements and renames, the ILIAS trash (files, then
    folders), your Trash. Each one first re-checks that ILIAS and your disk are still as
    planned (the place's page read again: a file of that name now, a version other than the
-   base, the old name back on disk, a file back on disk; your copy still untouched for a
+   base, the old name back on disk, a file back on disk (under exactly that name,
+   `model::present`: a disk that ignores case opens `skript.pdf` for `Skript.pdf`); your copy still untouched for a
    download in its place or for your Trash), else it is a conflict and nothing is sent;
    then it runs through the write module's own function (`Client::upload_files`,
    `replace_file` with the new name as title for a rename, `create_folder`,

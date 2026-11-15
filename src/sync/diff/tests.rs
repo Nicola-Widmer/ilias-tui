@@ -460,6 +460,23 @@ fn a_rename_in_the_same_folder_renames_the_ilias_file() {
 }
 
 #[test]
+fn a_rename_that_only_changes_the_case_renames_the_ilias_file() {
+    let mut w = World::new();
+    w.on_ilias(file(10, "skript", V1, DIR));
+    w.saved(&path("skript.pdf"), 10, V1, "four");
+    // The scan finds it under its new name only (see `Local::read`).
+    w.disk(&path("Skript.pdf"), 4, 9, Some("four"));
+    let rename = Op::Rename {
+        place: w.folder(),
+        file: file(10, "skript", V1, DIR),
+        from: path("skript.pdf"),
+        path: path("Skript.pdf"),
+        base: V1.into(),
+    };
+    assert_eq!(w.ops(two_way()), [rename]);
+}
+
+#[test]
 fn a_file_moved_to_another_folder_is_uploaded_there_and_the_old_one_trashed() {
     let mut w = World::new();
     let week = "DEMO/Unterlagen/Woche 1";

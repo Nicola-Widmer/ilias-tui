@@ -11,7 +11,7 @@ use std::sync::Mutex;
 use std::sync::atomic::{AtomicUsize, Ordering};
 
 use super::journal::Journal;
-use super::model::{Base, Disk, Rel, hash_file, name, parent};
+use super::model::{Base, Disk, Rel, hash_file, name, parent, present};
 use super::ops::{Op, Why};
 use super::version;
 use crate::ilias::{Client, Item, Kind, Page, lists_as, sanitize};
@@ -465,7 +465,7 @@ impl Run<'_> {
             Some(_) if !self.base.abs(path).is_file() => {
                 return self.failed(action, place, path, "no longer on your disk".into());
             }
-            Some(_) if from.is_some_and(|old| self.base.abs(old).exists()) => {
+            Some(_) if from.is_some_and(|old| present(&self.base.abs(old))) => {
                 return Done::Conflict(format!(
                     "{path}: the old name is back on your disk; not renamed"
                 ));
@@ -520,7 +520,7 @@ impl Run<'_> {
                     "{path}: changed on ILIAS since the plan ({base} → {now}); not moved to the trash"
                 ));
             }
-            Some(_) if self.base.abs(path).exists() => {
+            Some(_) if present(&self.base.abs(path)) => {
                 return Done::Conflict(format!(
                     "{path}: back on your disk; not moved to the trash"
                 ));
