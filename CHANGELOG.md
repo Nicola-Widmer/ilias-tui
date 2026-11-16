@@ -25,8 +25,10 @@ features and changes in behaviour, the last one for fixes only. See
   these differences: a saved folder that is gone on ILIAS is no longer offered for upload
   as a new folder (its untouched files are offered for your Trash instead), a file
   downloaded with `d` counts as saved by sync, a rename where ILIAS offers no Versions is
-  uploaded as new with the old file proposed for the trash, and a file saved outside the
-  current download folder is downloaded again when you open it.
+  uploaded as new with the old file proposed for the trash, and files saved into an earlier
+  download folder no longer count as saved: if you changed the download folder, the first
+  sync downloads them again into the current one (the copies in the earlier folder stay),
+  and opening one downloads it again too.
 - **`S` on a course's page syncs the whole course**, even when a folder in it is selected.
   Inside a folder it still syncs the selected subfolder (or the folder on screen).
 - **The status line names what was synced** ("Synced Test: …"), so it shows when `S`
