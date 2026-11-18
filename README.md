@@ -25,7 +25,10 @@ with any ILIAS 10 that logs in through OpenID Connect. Runs on macOS, Linux and 
 - `Enter` downloads a file into the same folders as on ILIAS and opens it; the next time
   the saved copy opens at once.
 - **Sync** whole courses (`S`, `A`): every file up to 50 MB, later only what changed, and
-  never over files you edited. See [Sync](#sync).
+  never over files you edited. **Two-way sync** (settings, off by default) also uploads
+  your new files and folders and your edits (in place of ILIAS' file), renames files you
+  renamed, and moves files you deleted to the ILIAS trash; it shows everything first and
+  you send it with `Enter`. See [Sync](#sync).
 - Works **offline** with what it has seen before. See [Offline](#offline).
 
 **Exercises and forums**
@@ -102,7 +105,7 @@ opens again when the HSLU login itself has expired.
 | `r`             | Reload current list                             |
 | **Sync**        |                                                 |
 | `Space`         | Mark a course or folder for sync                |
-| `S`             | Sync the marked courses (or the selected one)   |
+| `S`             | Sync the marked courses, else the selected one; on a course's page the whole course; with two-way sync, shows what it would send first |
 | `A`             | Sync all courses in My courses (asks first)     |
 | **Exercises**   |                                                 |
 | `H`             | On an assignment: hand in a file (asks first; `Tab` completes the path) |
@@ -119,6 +122,15 @@ opens again when the HSLU login itself has expired.
 | `?`             | Toggle help                                     |
 | `q` / `Ctrl-c`  | Quit                                            |
 
+In the sync review:
+
+| Key             | Action                                          |
+| --------------- | ----------------------------------------------- |
+| `↓` `j` / `↑` `k` | Next / previous proposal (else scroll)        |
+| `Space`         | Tick / untick: move this file to the ILIAS trash |
+| `Enter`         | Send what is listed and ticked (asks again only for a lot) |
+| `Esc` / `q`     | Close, send nothing                             |
+
 `?` shows the keys in the app. The mouse works too: click to select, double-click to open, scroll to move, click a tab or a
 breadcrumb. To select text, hold **Option** (iTerm2, Terminal.app) or **Shift** (most other
 terminals); `ILIAS_MOUSE=0` turns the mouse off.
@@ -128,7 +140,7 @@ Forum posts are written in `$VISUAL` / `$EDITOR` (give it by a name on your `PAT
 
 ### Configuration
 
-Press `c` for the settings: download folder, sync limit, icons, theme, which kinds of news
+Press `c` for the settings: download folder, sync limit, two-way sync, icons, theme, which kinds of news
 show, mouse, page cache, offline start, dry run. They are saved in `config.json`. Each also
 has an environment variable, which wins:
 
@@ -140,6 +152,7 @@ has an environment variable, which wins:
 | `ILIAS_MOUSE`         | `1`; `0` turns off mouse support     |
 | `ILIAS_CACHE`         | `1`; `0` turns off the page cache    |
 | `ILIAS_SYNC_MAX_MB`   | `50`; sync skips bigger files        |
+| `ILIAS_TWO_WAY`       | `0`; `1` turns on two-way sync       |
 | `ILIAS_OFFLINE`       | `0`; `1` always starts offline       |
 | `ILIAS_DRY_RUN`       | `0`; `1` never sends changes to ILIAS, it only says what it would have done |
 
@@ -167,10 +180,65 @@ files skipped for their size, saved beside your copy, or failed.
 - **Your edits are safe:** a file you changed is never overwritten. When it changes on
   ILIAS too, the new version is saved beside yours, e.g. `Blatt 3 (ILIAS 2026-11-02).pdf`.
 - **Deleted is deleted:** a file you removed comes back only if it changes on ILIAS.
+- **A new download folder starts fresh:** after you change it, sync saves the files there
+  again and leaves the copies in the old folder alone.
   "Sync missing files only" (settings) instead fetches everything missing and touches
   nothing else.
 - **Browsable offline:** every page sync reads is cached, so a synced course can be walked
   through offline.
+
+### Two-way sync
+
+With "Two-way sync" on (settings, or `ILIAS_TWO_WAY=1`), sync also compares your copy of each
+synced course and folder with what it recorded when it last saved them (the **base**: the
+file's version on ILIAS, its size, date and a hash of its content) and with ILIAS now.
+Then the **review** shows, grouped, what it would send and what it leaves alone: `Enter`
+sends it, `Esc` sends nothing (keys above). With `ILIAS_DRY_RUN=1` it
+is a plain report and nothing is sent.
+
+| Your copy vs base | ILIAS vs base | Sync                                                       |
+| --- | --- | --- |
+| new               | –             | uploads it, where ILIAS lets you; a new folder is created there with what is in it |
+| unchanged         | changed       | downloads it, as always                                    |
+| edited            | unchanged     | replaces ILIAS' file with yours (ILIAS keeps no earlier version) |
+| edited            | changed       | a **conflict**: saves ILIAS' copy beside yours, sends nothing |
+| renamed (same folder) | unchanged | renames ILIAS' file (through "Replace File" with the new name) |
+| moved (other folder)  | unchanged | uploads it there and moves the old one to the ILIAS trash |
+| deleted           | unchanged     | a **proposal**: moves it to the ILIAS trash; ticked, `Space` unticks it |
+| folder deleted    | none of it changed | moves the ILIAS folder to the trash, with what is in it (asks once more) |
+| deleted           | changed       | downloads it again                                         |
+| unchanged         | gone on ILIAS | asks (`y`/`n`) whether to move yours to your computer's Trash |
+| edited            | gone on ILIAS | keeps yours and lists it                                   |
+
+- **Edited means edited:** a file whose date changed but whose content didn't counts as
+  untouched. Files saved by an older version have no hash yet; sync adds it while they are
+  as saved, and lists changed ones as "can't tell" instead of sending them.
+- **Renames:** a new file with the content of exactly one saved file you no longer have,
+  in the same folder, is that file renamed: ILIAS' file gets the new name. Anywhere else,
+  or if several gone files have that content, it is uploaded and the gone ones go to the
+  trash, so ILIAS ends up as your folder is.
+- **Anything unclear is a conflict**, and nothing is sent for it: a new file named like an
+  ILIAS file sync didn't save, a copy of another saved file, two ILIAS folders saved into
+  one folder.
+- **Never sent:** `.DS_Store`, `Thumbs.db`, `~$…` (Office lock files), `*.tmp`, hidden
+  files and folders (`.git/` too), files over the sync limit, and the copies saved beside
+  your edits (`… (ILIAS 2026-11-02).pdf`).
+- **Checked again before sending:** each folder is read again right before its files go
+  up; a file of the same name that appeared there since, or a file changed on ILIAS since
+  the plan, is a conflict and isn't sent.
+- **Edits overwrite:** an edit goes up through the file's "Replace File", so ILIAS has
+  only your copy afterwards (its earlier versions are gone); only where its menu offers
+  Versions, and only if ILIAS still has the version you edited.
+- **More than usual, asked again:** more than 20 files at once, or more than 5 files of
+  one folder replaced or moved to the trash, and sync asks once more after `Enter`.
+- **In sync afterwards:** each uploaded file is recorded like a download, so the next sync
+  sees it as unchanged.
+- **A journal** of every write (time, action, file, ILIAS object, result) is kept next to
+  the session, as `<ilias host>.journal.jsonl`.
+- **Nothing is deleted for good** besides the earlier versions of a file you replace: on
+  your disk sync only moves files to your Trash (macOS Trash, Windows Recycle Bin, the
+  desktop trash on Linux), and only untouched ones gone on ILIAS, after you say `y`; on
+  ILIAS only into its trash (where they can be restored), never where ILIAS has no trash.
 
 ## Offline
 

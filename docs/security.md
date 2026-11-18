@@ -50,9 +50,14 @@ password.
   on Linux with mode `0700`, `%LOCALAPPDATA%\ilias-tui\ilias-tui\cache\` on Windows), which
   backup tools usually skip. Entries older than 30 days are deleted automatically;
   `ILIAS_CACHE=0` turns it off.
-- **The saved-files list**: which ILIAS file was saved to which path (in the data folder).
+- **The saved files** (`<host>.base.json`, in the data folder): which ILIAS file was
+  saved to which path below the download folder, with its version on ILIAS and the
+  size, date and SHA-256 hash of the saved copy, and the folders sync saved. Two-way sync
+  reads your synced course folders to compare them with it.
 - **The what's-new list** (`<host>.seen.json`, in the data folder): items a sync found new
   and the folders they are in, until you open those pages.
+- **The journal** (`<host>.journal.jsonl`, in the data folder): every write two-way sync
+  sent or tried, with the local path of the file.
 
 Downloaded files go to `~/Downloads/ILIAS` with normal permissions, like any browser
 download.
@@ -78,6 +83,11 @@ object:
 | `H` | Hands in a file for an assignment; your lecturer sees it | The assignment's own upload form |
 | `X` | Deletes a file you handed in, for good; ILIAS allows it only until the deadline | The Delete of that file on the assignment's page |
 | `u` | Uploads files into a course or folder; everyone who can open it sees them | That place's own upload form; files over ILIAS' size limit are not sent |
+| `S` / `A` with two-way sync | Uploads your new files of synced courses into their ILIAS folders | The same upload form, read again right before; nothing if a file of that name appeared since. Asks once more for more than 20 files, or more than 5 of one folder replaced or trashed; every write goes into the journal |
+| `S` / `A` with two-way sync | Creates your new local folders (and the folders in them) and uploads their files | As `n` and `u`: each place's own "Add New Item → Folder" and its form, then the new folder's own upload form; nothing if something of that name appeared since the plan |
+| `S` / `A` with two-way sync, unless unticked in the review | Moves a file you deleted (or moved to another folder) into the ILIAS trash (never empties it) | As `D`: that file's Delete from its folder's menu (also behind "Show more") and ILIAS' question; refused without a trash, or if the file changed on ILIAS or is back on your disk |
+| `S` / `A` with two-way sync | Replaces a file with the copy you edited; ILIAS deletes the file's earlier versions for good | The file's Versions entry in its menu, that tab's "Replace File" and its form (never "Create New Version"), all for that file; nothing if the file changed on ILIAS since the plan |
+| `S` / `A` with two-way sync | Renames a file you renamed in the same folder; ILIAS deletes the file's earlier versions for good | The same "Replace File" form, with your new name as the title; nothing if the file changed on ILIAS since the plan or the old name is back on your disk |
 | `n` | Creates a folder in a course or folder | That place's own "Add New Item → Folder" and the form it leads to |
 | `D` | Moves an item into the ILIAS trash (never empties it) | The Delete in that item's own menu and ILIAS' question for it; refused where ILIAS has no trash |
 | `n` in a forum, `R` | Starts a thread or replies to a post; everyone in the forum sees it | That forum's "New Thread" form, or that post's Reply form |
@@ -101,6 +111,11 @@ would write are deliberately not built; see the
   set, so Gatekeeper checks them before anything inside can run. On Windows they get the
   browsers' "Mark of the Web" (`Zone.Identifier`), so SmartScreen and Office's protected
   view treat them as downloaded. Linux has no equivalent mark.
+- **Your files go to your Trash, never away for good.** Two-way sync offers to move a
+  file of a synced course to your computer's trash only if it is gone on ILIAS and still
+  exactly as sync saved it (by content hash), and only after you answer `y`; it checks
+  that again right before. On macOS through the file manager API (no Finder automation
+  rights), elsewhere the system's trash (the `trash` crate). Each move is in the journal.
 - **No shell in between.** Files and links are handed to `open` (macOS), `xdg-open` (Linux)
   or `rundll32 url.dll,FileProtocolHandler` (Windows) as one argument, never through `cmd`,
   which would read the `&` in ILIAS links as a command separator.

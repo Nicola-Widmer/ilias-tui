@@ -11,8 +11,17 @@ src/
 ├── auth.rs              Interactive login in Chrome → CookieStore
 ├── session.rs           Cookie jar ⇄ private JSON file
 ├── clipboard.rs         `y`: copy a permalink (pbcopy on macOS, clip on Windows, else the terminal's OSC 52)
-├── downloads.rs         Saved files: path, ILIAS version, size + mtime when saved
-├── sync.rs              Sync whole courses: plan per file, parallel downloads
+├── sync/                Sync whole courses: model → diff → ops → executor
+│   ├── mod.rs           One sync: crawl, scan, diff, settle the base, run the downloads
+│   ├── model.rs         Base (the saved files and folders), Remote and Local snapshots
+│   ├── diff.rs          The pure three-way diff: one decision per path, then the passes
+│   ├── ops.rs           Op: what to do about one path, and why something is kept or a conflict
+│   ├── run.rs           The executor: re-check, do, update the base, journal
+│   ├── report.rs        Status line, report sections and the review, built from ops
+│   ├── local.rs         Your side: what is in a local folder (ignore list), and your Trash
+│   ├── ask.rs           Two-way: the mass-change brake, the question for your Trash
+│   ├── journal.rs       Two-way: every write, one JSON line each
+│   └── tests.rs         (and model/, diff/, run/ tests.rs)
 ├── cache.rs             Parsed pages on disk, for instant display (stale-while-revalidate)
 ├── seen.rs              What's new: page diff, and the unseen items per course on disk
 ├── ilias/
@@ -30,12 +39,13 @@ src/
 │   │   ├── rights.rs    Rights: what the page lets you change (upload, Add New Item, Delete)
 │   │   ├── show_more.rs "Show more" buttons
 │   │   ├── submissions.rs An assignment's submissions page: participants, assignments as tabs
+│   │   ├── versions.rs  A file's Versions tab: its versions, "Replace File" and its form
 │   │   ├── html.rs      Selectors, visible text, link base
 │   │   └── tests.rs
 │   ├── write.rs         The write guard, favourites, logout; every other write is in write/
 │   └── write/
 │       ├── exercise.rs  Handing in, deleting a handed-in file
-│       ├── container.rs Courses and folders: uploading files, new folders, into the trash
+│       ├── container.rs Courses and folders: uploading files, replacing a file, new folders, into the trash
 │       └── forum.rs     New threads and replies
 ├── action.rs            Action enum (the app's messages)
 ├── compose.rs           Forum posts: text from $EDITOR (TUI suspended), the question before sending
@@ -55,7 +65,8 @@ src/
     │   └── tests.rs
     ├── filter.rs        `/` search bar + matching
     ├── status_bar.rs    Footer messages
-    ├── confirm.rs       Yes/no dialog in front of every write
+    ├── report.rs        The sync report; after a two-way sync the review (ticks, Enter, Esc)
+    ├── confirm.rs       Yes/no dialog in front of every write: icon and title by kind, `y`/`n` buttons
     ├── pick_files.rs    Asks for the files to hand in (`H`) or upload (`u`)
     ├── complete.rs      `Tab` in that dialog: completes the path being typed, as a shell does
     ├── prompt.rs        Asks for a line of text (a new folder's name; posts without $EDITOR)
@@ -69,8 +80,11 @@ src/
 - **No usable API token.** ILIAS uses OpenID Connect only to log you in. Once you're in,
   it gives you a normal PHP session cookie, and none of its pages accept Bearer tokens.
   So even if we had a Keycloak token, ILIAS wouldn't take it.
-- **SOAP and WebDAV are out.** Both need a local ILIAS password, which SSO accounts don't
-  have.
+- **SOAP and WebDAV are out.** Both need a local ILIAS password to log in, which SSO
+  accounts don't have. SOAP would also take a browser session as its `sid`
+  (`<PHPSESSID>::<client>`; tried on the local test ILIAS), but on HSLU every SOAP call
+  fails with HTTP 500 and an empty answer, with a real session and a made-up one alike
+  (`soap/server.php`, checked 2026-11-09). Its WSDL is served all the same.
 
 The only reliable credential is therefore the **browser session**.
 
@@ -172,7 +186,7 @@ pub struct Todo { assignment: Item, course, deadline, due, urgency }   // My cou
   identifies by a link (attachments, handed-in files, text links, the Submission entry) gets
   `Id::Local`, a hash with the top bit set. `parse_target` is the one place that decides an
   id's type. On disk nothing changed: the cache stores `kind` as ILIAS' code and the id as
-  `ref_id` (`Stored`), and the saved-files list and the seen file use `Id::key()`, the same
+  `ref_id` (`Stored`), and the base of saved files and the seen file use `Id::key()`, the same
   number. To-Do entries cached in the old shape are skipped until the refresh.
 
 - **Tabs**: `#ilTab > li[id^=tab_]`. The active one has class `active`. Screen-reader text
@@ -266,11 +280,27 @@ pub struct Todo { assignment: Item, course, deadline, due, urgency }   // My cou
   form it leads to, and checks that the form posts to `ilObjFolderGUI` with
   `fallbackCmd=save` for that ref id and `new_type=fold` (`parse::create_form`). It posts the
   title (and an empty description), then checks that the page lists the folder.
+- **Replacing a file** (two-way sync, `Client::replace_file`): offered for files
+  whose menu on the container page has Versions (`Rights::versions`: a button to
+  `ilFileVersionsGUI` with that file's `ref_id` and no command). The client reads the
+  container page again and takes that entry (`parse::versions_link`), reads the tab
+  (`parse::versions`: the numbers in `#ilFileVersionsTableGUI`) and its "Replace File"
+  (`parse::replace_link`: `cmd=addReplacingVersion`, never `addNewVersion`), then the form
+  (`parse::replace_form`): it must post to `ilFileVersionsGUI` with
+  `fallbackCmd=createReplacingVersion` and upload to
+  `ilFileVersionsUploadHandlerGUI&cmd=upload` with `upload_mode=replace`, all for that file
+  on this ILIAS. Files over the form's limit are
+  refused. It posts the file (as for uploads), then the form with ILIAS' own title, an
+  empty description and the file's id, and checks that the tab lists a higher version
+  number (on the local ILIAS 10 it then lists only that one: the earlier versions are
+  deleted). `saveVersion`, `createReplacingVersion`, `deleteVersions` and
+  `rollbackVersion` are in the write guard's list.
 - **Into the trash** (`D`, `Client::delete_item`): offered for the selected item if the
   rights' `delete` has it; `Ask` names title, kind and place and says it goes to the trash.
   The client reads the container's page again and takes that item's Delete from its action
   menu (`parse::delete_link`: `cmd=delete`, the container's `ref_id`, the item's
-  `item_ref_id`, this ILIAS), GETs it through the write path (its command is a write's) and
+  `item_ref_id`, this ILIAS; for an item behind "Show more" from its batch,
+  `Client::find_in_batches`), GETs it through the write path (its command is a write's) and
   reads ILIAS' question (`parse::confirm_delete`): a modal whose form posts to
   `fallbackCmd=confirmedDelete` for that container, with the item's ref id in its hidden
   field. Without a trash ILIAS adds "(WARNING: … irretrievably deleted …)" to the question,
@@ -308,7 +338,7 @@ pub struct Todo { assignment: Item, course, deadline, due, urgency }   // My cou
   participant as any file (`Client::download` follows `downloadReturned`; ILIAS sends a
   single file as it is, several as a zip). `a` sends `DownloadSubmissions`; the job saves
   them one after the other into their folders, skips copies that are still as saved with
-  the same version (files and date), writes the saved-files list itself like sync, and
+  the same version (files and date), records them in the base itself like sync, and
   reports `SubmissionsSaved`. Students never see this page.
 - **Handed-in files**: `parse_page` turns an assignment's Submission tab into a `sub` item
   (in place of the overview's heading of the same name), so it opens as a level like any
@@ -372,10 +402,10 @@ Downloads:
 
 - If the response is `text/html` instead of a file, that means "not logged in / no access".
   We try `silent_login` once, then give up with an error.
-- `Enter` on a file sends `Download { open: true }`. If `downloads.rs` knows a saved
-  copy that still exists, `App` turns that into `OpenFile(path)` without any request.
-  Otherwise it downloads, records the path in `<host>.downloads.json` next to the
-  session, and opens the file with `open` / `xdg-open` / `start`. `d` sends
+- `Enter` on a file sends `Download { open: true }`. If the base of saved files
+  (`sync::model::Base`) has a copy that still exists, `App` turns that into
+  `OpenFile(path)` without any request. Otherwise it downloads, records the file in the
+  base, and opens the file with `open` / `xdg-open` / `start`. `d` sends
   `Download { open: false }`, which always fetches a fresh copy.
 - The filename comes from `Content-Disposition` (`filename*=` first, then `filename=`).
 - Names are sanitised and never overwrite an existing file; ` (1)`, ` (2)`, … is appended.
@@ -484,21 +514,99 @@ cached. A deep search walks the cached pages instead (`Cache::descendants`, shar
 session check, and only opens Chrome if the session expired; if ILIAS still can't be
 reached it goes back to offline.
 
-**Sync** (`sync.rs`): `Client::descendants` lists every file below the chosen courses
-(their folder path and the listing's size and date come with them). `plan` decides per file
-from what `downloads.rs` recorded: `New`, `Update` (changed on ILIAS, copy untouched),
-`Beside` (changed on ILIAS, copy edited), `Adopt` (old entry without version), `Unchanged`,
-`Deleted`, `TooBig`. "Edited" means size or mtime differ from right after the download;
-old entries count as edited, so nothing saved before is ever overwritten. Downloads run 3
-at a time into fresh files, then replace or sit beside. The sync job writes the index
-itself (`Downloads::update` re-reads the file first, so it and the TUI don't drop each
-other's entries); `Synced` makes `App` read it again.
+**Sync** (`sync/`, see [CONTEXT.md](../CONTEXT.md): base, op, conflict, proposal, review)
+is built on one model, in four parts:
 
-The crawl uses `Client::descendants_with_pages`, which hands every course and folder page it
-reads to a callback; sync puts them in the page cache under the key the TUI uses when it
-opens that item (`Cache::key(item.url)`), so a synced course can be browsed offline. The
-`Summary` counts everything for the status bar and lists the files worth a look (`report`:
-skipped for size, saved beside, failed); the `Report` overlay shows them after the sync.
+1. **Model** (`sync/model.rs`). The `Base` is the saved files: what sync (or a download)
+   recorded when ILIAS and your disk were last in sync: files (ILIAS ref id, version,
+   size, mtime, SHA-256) and folders (the ILIAS course or folder they are for), by their
+   path relative to the download folder (`Rel`, `/` between folders on every system).
+   Opening a saved file and the "saved" marks read it too. It is kept as
+   `<host>.base.json`, one base per download folder; the first load for a folder takes
+   it over from the old `<host>.downloads.json` (`model::migrate`): only entries inside
+   that folder, versions made absolute with the day each copy was saved
+   (`model::saved_version`), the folders they are in. Every change re-reads the file first
+   (`Base::change`), so a background sync and the TUI don't undo each other. `Remote` is
+   ILIAS now, from the crawl (`Client::descendants_with_pages`): every page with a place
+   below a course (`Page::path`, its breadcrumb) is a `Place` (item, local folder as
+   downloads name it, rights, items), and every file a `RemoteFile` with its version
+   (`sync::version`: size and date in the listing, relative dates written out, so it
+   doesn't change overnight). `Local::read` is your disk now: each place's folder one level
+   deep (`local::scan`: no links, nothing on the ignore list), any other folder in them all
+   the way down (`local::walk`), and every file in the base (one the scan of its folder
+   didn't find is taken as missing if it is only there under another case). It hashes only what the diff
+   needs: new files (two-way), and recorded ones whose size is the same but whose time
+   isn't, or that have no hash yet.
+2. **Diff** (`sync/diff.rs`): `diff(&Base, &Remote, &Local, &Rules) -> Plan`, pure. The
+   first pass decides every recorded file in one exhaustive `match` over (your disk:
+   missing, untouched, edited, changed without a hash; ILIAS: unchanged, changed, gone,
+   not read), with the rules (missing files only, entries without a version) as guards;
+   the table is in the module docs. An edited file whose ILIAS copy from an earlier
+   conflict is still beside it (`FileEntry::beside`, `Local::besides`) is a conflict
+   until you delete that copy, so yours never replaces ILIAS' newer one unmerged. ILIAS
+   files the base doesn't know are downloads; one with a file of yours of that name in
+   its folder that the base doesn't know either carries it as `same`, and the download
+   checks whether it is that very file (an upload whose recording was lost). Your other
+   files and folders the base doesn't know, in a place's folder, are uploads and new
+   folders (a file of that name that sync saved, a folder shared by two ILIAS places, a
+   folder name sync would save differently are conflicts). Then passes over the ops: `renames`
+   pairs an upload with deletions of the same content proposed now (exactly one in the
+   same folder, where `rights.versions` has it: a `Rename`; elsewhere or several: the
+   upload stays with the old one as `from`, the deletions too; none, but another saved
+   file has that content: a conflict); `deleted_folders` turns the deletions of every file below a saved folder you
+   deleted (none changed on ILIAS, the parent's Delete offers it, never a course) into one
+   `TrashRemote` of the folder; `rights` keeps what ILIAS doesn't let you do, and makes a
+   move whose old file ILIAS doesn't let you delete a conflict (else it would be on ILIAS
+   twice). A one-way sync decides the same rows without the ops that write, and runs none
+   of these passes. Unchanged files are only counted (`Plan::unchanged`). `Plan::settle` holds changes to the base alone
+   (forget what is gone on both sides, adopt versions, add hashes, record the places'
+   folders), made right away.
+3. **Ops** (`sync/ops.rs`): `Op::{Download, Upload, Replace, Rename, MkdirRemote,
+   TrashRemote, TrashLocal, Conflict(Why), Keep(Reason)}`, each with what it needs. The
+   review, the report's sections (`report::Section`, with its icon and colour in
+   `components/report.rs`), the status line (`Summary::text`, from `Summary::counts`), the
+   brake (`ask::brake`) and the question for your Trash are all built from ops by their
+   variant, never from their text.
+4. **Executor** (`sync/run.rs`): `run(client, ops, base, journal, progress)` runs ops in
+   dependency order: downloads (3 at a time, into fresh files, then in place of your copy
+   or beside it as `… (ILIAS <date>).ext`, which the base remembers; one with the same
+   content as the file of yours it was checked against makes that file the saved one and
+   the fresh copy goes again), new folders (each before what is
+   in it), uploads by place, replacements and renames, the ILIAS trash (files, then
+   folders), your Trash. Each one first re-checks that ILIAS and your disk are still as
+   planned (the place's page read again: a file of that name now, a version other than the
+   base, the old name back on disk, a file back on disk (under exactly that name,
+   `model::present`: a disk that ignores case opens `skript.pdf` for `Skript.pdf`); your copy still untouched for a
+   download in its place or for your Trash), else it is a conflict and nothing is sent;
+   then it runs through the write module's own function (`Client::upload_files`,
+   `replace_file` with the new name as title for a rename, `create_folder`,
+   `delete_item`, which refuses without a trash; `local::to_trash`), updates the base, and
+   writes the journal. The downloads placed in one go are recorded with one write of the
+   base (`Base::hold`, `Base::release`); everything else writes it right away.
+   A dry run sends nothing and records nothing.
+
+`sync::sync` runs one sync on a worker: crawl, scan, diff, settle, then the ops that don't
+write to ILIAS (downloads, ILIAS' copy beside your edited one) straight away. The rest is
+the `Review` in `Synced`: one-way there is none. `Report` shows the review: the report's
+sections, the proposals (`TrashRemote`) as `[x]` rows, ticked by default, its own keys
+(`keymap::REVIEW`: move, `Space` unticks or ticks, `Enter`, `Esc`), the cursor kept on
+screen with `Paragraph::line_count`. `Enter` sends `AskPush` with the review's ops and the
+ticked proposals; `Esc` or a click sends `Cancelled`. In a dry run the review is a plain
+report. The review is the question: `App::ask_push` sends `Push` at once, unless
+`ask::brake` finds more than usual (over `MAX_FILES` = 20 files to upload, those in new
+folders included, or to trash; over `MAX_IN_FOLDER` = 5 files of one place replaced or
+trashed; any folder to the trash), which asks once more (`Ask`). `Push(ops)` runs the
+executor on a worker, one at a time like a sync, and `Pushed` shows the result. The
+review's `TrashLocal` paths (untouched files gone on ILIAS) are asked about after `Synced`
+(not in a dry run) with `ask::local_trash`; `y` sends `TrashLocal`, which runs those ops
+(`local::trashable` re-checks each against the base) and reports `LocalTrashed`. `Synced`,
+`Pushed` and `LocalTrashed` make `Browser` reload the page on screen and mark the hidden
+ones out of date (`Browser::reload_all`); the status line keeps the result through the
+reload. A single download (`d`) is recorded in the base too, so sync finds it in sync.
+
+The crawl hands every course and folder page it reads to the page cache under the key the
+TUI uses when it opens that item (`Cache::key(item.url)`), so a synced course can be
+browsed offline.
 
 **What's new** (`seen.rs`, see [CONTEXT.md](../CONTEXT.md)): `Cache::update` stores a
 freshly fetched page and returns `seen::diff` against the copy it replaces: the ids the old
@@ -599,7 +707,7 @@ pages.
 | `Browser`   | stack of `Level { item, deep, page, items, query, visible, cursor, list }` | Tab bar, then the page laid out as rows: headings, wrapped text, items with icon and details. Only item rows can be selected. `Tab` loads another tab into the same level. Back = pop (no request, unless the level went out of date while hidden: then it reloads once). `r` refreshes the top level. Only responses for the page asked for last are applied. |
 | `StatusBar` | `Status` (idle/busy/done/info/error), start time | Spinner while busy, ✓ / ⚠ icons for results and errors; key hints on the right. |
 | `Help`      | `visible: bool`                          | Overlay drawn last, on top of everything. Keys come from `keymap::SECTIONS` (a title like `Edit · where ILIAS lets you` shows its note beside the name), plus a few lines on the mouse. Texts wrap; two columns when the terminal is at least 154 wide. |
-| `Report`    | the last sync's report lines, `scroll`   | Overlay after a sync that skipped, kept or failed files. `j`/`k` scroll, any other key closes. Keys it uses up return `Action::Handled`. |
+| `Report`    | the last sync's report sections, `scroll`; for a review also what `Enter` sends, the proposals with their ticks, `cursor` | Overlay after a sync that skipped, kept or failed files: `j`/`k` scroll, any other key closes. After a two-way sync with something to send it is the review (`keymap::REVIEW`), which only `Enter` (to `AskPush`), `Esc`/`q` or a click close. Keys it uses up return `Action::Handled`. |
 | `Confirm`   | `pending: Option<(question, Action)>`    | Yes/no dialog, first in the z-order. `Action::Ask { question, then }` opens it; `y` sends `then`, anything that cancels sends `Cancelled`. Every write goes through it, and opening a link to another site. |
 
 ### Windows

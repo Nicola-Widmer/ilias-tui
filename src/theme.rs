@@ -212,6 +212,71 @@ pub fn keyboard() -> &'static str {
     glyph("\u{f11c}", "⌨")
 }
 
+// The sync review's sections and the dialogs (Font Awesome 4 glyphs, as above).
+pub fn upload() -> &'static str {
+    glyph("\u{f0ee}", "↑") // cloud-upload
+}
+
+pub fn edit() -> &'static str {
+    glyph("\u{f040}", "✎") // pencil
+}
+
+pub fn rename() -> &'static str {
+    glyph("\u{f044}", "✎") // pencil-square-o
+}
+
+pub fn trash() -> &'static str {
+    glyph("\u{f1f8}", "✗") // trash
+}
+
+pub fn folder() -> &'static str {
+    glyph("\u{f07b}", "+") // folder
+}
+
+pub fn unlink() -> &'static str {
+    glyph("\u{f127}", "⊘") // chain-broken
+}
+
+pub fn lock() -> &'static str {
+    glyph("\u{f023}", "⊘") // lock
+}
+
+pub fn question() -> &'static str {
+    glyph("\u{f128}", "?")
+}
+
+pub fn ban() -> &'static str {
+    glyph("\u{f05e}", "⊘")
+}
+
+pub fn failed() -> &'static str {
+    glyph("\u{f057}", "✗") // times-circle
+}
+
+pub fn copy() -> &'static str {
+    glyph("\u{f0c5}", "⧉")
+}
+
+pub fn send() -> &'static str {
+    glyph("\u{f1d8}", "➤") // paper-plane
+}
+
+pub fn external() -> &'static str {
+    glyph("\u{f08e}", "↗") // external-link
+}
+
+pub fn checked() -> &'static str {
+    glyph("\u{f046}", "[x]") // check-square-o
+}
+
+pub fn unchecked() -> &'static str {
+    glyph("\u{f096}", "[ ]") // square-o
+}
+
+pub fn bullet() -> &'static str {
+    glyph("\u{f0da}", "›") // caret-right
+}
+
 pub const SPINNER: [&str; 10] = ["⠋", "⠙", "⠹", "⠸", "⠼", "⠴", "⠦", "⠧", "⠇", "⠏"];
 
 #[cfg(test)]

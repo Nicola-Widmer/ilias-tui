@@ -30,6 +30,13 @@ pub struct StatusBar {
     keep: bool,
 }
 
+impl StatusBar {
+    /// Something runs: the spinner turns, so the bar changes without any action.
+    pub fn is_busy(&self) -> bool {
+        matches!(self.status, Status::Busy(_))
+    }
+}
+
 impl Default for StatusBar {
     fn default() -> Self {
         Self {
@@ -93,7 +100,18 @@ impl Component for StatusBar {
             Action::Sync(roots) => {
                 Status::Busy(format!("Sync: starting ({} selected)…", roots.len()))
             }
-            Action::Synced { summary, .. } => Status::Done(summary.clone()),
+            Action::LocalTrashed { moved, kept, .. } if kept.is_empty() => {
+                Status::Done(format!("Moved {} to your Trash", files(*moved)))
+            }
+            Action::LocalTrashed { moved, kept, .. } => Status::Warning(format!(
+                "Moved {} to your Trash; kept {}: {}",
+                files(*moved),
+                kept.len(),
+                kept.join("; ")
+            )),
+            Action::Synced { summary, .. } | Action::Pushed { summary, .. } => {
+                Status::Done(summary.clone())
+            }
             Action::Cancelled => Status::Info("Cancelled; nothing was sent to ILIAS".into()),
             Action::ToggleFavorite(_) => Status::Busy("Updating your favourites…".into()),
             Action::FavoriteToggled { item, dry_run } => {
@@ -222,6 +240,9 @@ impl Component for StatusBar {
                 | Action::FolderCreated { created: true, .. }
                 | Action::Deleted { deleted: true, .. }
                 | Action::Posted { sent: true, .. }
+                | Action::Synced { .. }
+                | Action::Pushed { .. }
+                | Action::LocalTrashed { .. }
         );
         None
     }
@@ -329,5 +350,52 @@ mod tests {
             deep: false,
         });
         assert!(matches!(bar.status, Status::Busy(_)));
+    }
+}
+
+#[cfg(test)]
+mod sync_tests {
+    use super::*;
+
+    #[test]
+    fn is_busy_only_while_a_job_runs_so_the_spinner_alone_redraws() {
+        let mut bar = StatusBar::default();
+        assert!(!bar.is_busy(), "idle draws nothing");
+        bar.update(&Action::Sync(Vec::new()));
+        assert!(bar.is_busy());
+        bar.update(&Action::Synced {
+            summary: "Synced: 0 new".into(),
+            report: Vec::new(),
+            saved: Vec::new(),
+            review: Box::default(),
+        });
+        assert!(!bar.is_busy());
+    }
+
+    #[test]
+    fn what_a_push_sent_stays_shown_through_the_reload_after_it() {
+        let mut bar = StatusBar::default();
+        bar.update(&Action::Pushed {
+            summary: "Sent to ILIAS: 1 uploaded".into(),
+            report: Vec::new(),
+            saved: Vec::new(),
+        });
+        for action in [
+            Action::Load {
+                item: None,
+                url: None,
+                refresh: true,
+                deep: false,
+            },
+            Action::Loaded {
+                item: None,
+                page: Default::default(),
+                refresh: true,
+                deep: false,
+            },
+        ] {
+            bar.update(&action);
+            assert!(matches!(bar.status, Status::Done(ref s) if s.contains("1 uploaded")));
+        }
     }
 }

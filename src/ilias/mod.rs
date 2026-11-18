@@ -88,6 +88,11 @@ impl Client {
         self.dry_run.store(dry_run, Ordering::Relaxed);
     }
 
+    /// Dry run: every write only says what it would have sent.
+    pub fn is_dry_run(&self) -> bool {
+        self.dry_run.load(Ordering::Relaxed)
+    }
+
     /// Offline mode: from now on nothing is sent to ILIAS.
     pub fn set_offline(&self, offline: bool) {
         self.offline.store(offline, Ordering::Relaxed);
@@ -261,6 +266,7 @@ impl Client {
             let batch = parse_page(&answer.html, &more.url);
             let items = batch.items().cloned().collect();
             page.rights.delete.extend(batch.rights.delete);
+            page.rights.versions.extend(batch.rights.versions);
             if page.insert_after(after, items) == 0 {
                 continue;
             }
@@ -273,6 +279,41 @@ impl Client {
             page.blocks.push(Block::Text(CUT_SHORT.into()));
         }
         Ok(())
+    }
+
+    /// Looks for something in a container's page with `find`, and if it isn't there, in
+    /// each "Show more" batch of it in turn (read only, as [`Client::show_all`]): an item
+    /// listed after a block limit brings its action menu along in its batch. For writes that
+    /// take a link from an item's menu.
+    pub(crate) fn find_in_batches<T>(
+        &self,
+        fetched: &Fetched,
+        find: impl Fn(&Fetched) -> Option<T>,
+    ) -> Result<Option<T>> {
+        if let Some(found) = find(fetched) {
+            return Ok(Some(found));
+        }
+        let mut pending = parse::show_more(&fetched.html, &fetched.url);
+        let mut requests = 0;
+        while let Some(more) = pending.pop() {
+            requests += 1;
+            if requests > MAX_SHOW_MORE || more.last_shown().is_none() {
+                break;
+            }
+            let answer = self.more_items(&more)?;
+            let batch = Fetched {
+                url: more.url.clone(),
+                html: answer.html,
+            };
+            if let Some(found) = find(&batch) {
+                return Ok(Some(found));
+            }
+            for mut next in parse::show_more(&batch.html, &more.url) {
+                next.shown.splice(0..0, more.shown.iter().cloned());
+                pending.push(next);
+            }
+        }
+        Ok(None)
     }
 
     /// The next items of a list cut short behind "Show more". ILIAS wants a POST of the
@@ -480,15 +521,28 @@ fn filename_from_disposition(header: &str) -> Option<String> {
 
 /// Same folders as on ILIAS: `<download dir>/<course>/<folder>/…`.
 fn folder_for(dir: &Path, item: &Item) -> PathBuf {
-    item.path
-        .iter()
+    local_folder(dir, &item.path)
+}
+
+/// The local folder of an ILIAS place (a page's or file's path from the course down).
+pub fn local_folder(dir: &Path, path: &[String]) -> PathBuf {
+    path.iter()
         .fold(dir.to_path_buf(), |dir, folder| dir.join(sanitize(folder)))
+}
+
+/// Whether ILIAS' title for a file is the file named `name`: ILIAS may leave out the
+/// extension, and a saved copy's name is sanitised.
+pub fn lists_as(title: &str, name: &str) -> bool {
+    let stem = Path::new(name).file_stem().and_then(|s| s.to_str());
+    [title.to_string(), sanitize(title)]
+        .iter()
+        .any(|title| title == name || stem == Some(title.as_str()))
 }
 
 /// A file or folder name that is safe on every system: no path separators or characters
 /// Windows refuses, no leading dots, no trailing dots or spaces (Windows drops them), and
 /// none of Windows' device names (`CON`, `NUL`, `COM1`, …).
-fn sanitize(name: &str) -> String {
+pub(crate) fn sanitize(name: &str) -> String {
     let name: String = name
         .chars()
         .map(|c| {
@@ -846,6 +900,62 @@ mod tests {
                     "{more} <- ids[]=lg_div_1_pref_9&ids[]=lg_div_2_pref_9&ids[]=lg_div_3_pref_9&ids[]=lg_div_4_pref_9"
                 ),
             ]
+        );
+    }
+
+    #[test]
+    fn an_items_delete_behind_show_more_is_found_in_its_batch() {
+        let deleted = Arc::new(AtomicBool::new(false));
+        let gone = deleted.clone();
+        let delete = "ilias.php?baseClass=ilrepositorygui&amp;cmdClass=ilObjFolderGUI&amp;cmd=delete&amp;ref_id=9&amp;item_ref_id=3";
+        let (client, ilias) = fake(move |url| {
+            let query = url.query().unwrap_or_default();
+            if query.contains("fallbackCmd=confirmedDelete") {
+                gone.store(true, Ordering::SeqCst);
+            }
+            if query.contains("cmd=delete&") {
+                return reply(
+                    url,
+                    r#"<dialog class="c-modal"><div class="modal-body"><div class="alert alert-warning" role="status">Are you sure that you want to delete the following?</div>
+                    <form class="c-form" action="ilias.php?cmdClass=ilObjFolderGUI&amp;cmd=post&amp;fallbackCmd=confirmedDelete&amp;ref_id=9&amp;rtoken=t" method="post"><input type="hidden" name="form/input_0" value="3" /></form></div></dialog>"#,
+                );
+            }
+            match url.path() {
+                "/ilias/goto.php/fold/9" => reply(
+                    url,
+                    &format!(r#"<div id="il_center_col">{}</div>"#, list_block(&[1, 2], true)),
+                ),
+                // The batch brings item 3 with its menu (until it is deleted).
+                "/ilias/ilias.php" if !gone.load(Ordering::SeqCst) => reply(
+                    url,
+                    &list_block(&[3], false).replace(
+                        "</a></div>",
+                        &format!(r#"</a><button class="btn btn-link" data-action="{delete}">Delete</button></div>"#),
+                    ),
+                ),
+                "/ilias/ilias.php" => reply(url, &list_block(&[4], false)),
+                other => Err(eyre!("unexpected request {other}")),
+            }
+        });
+        let folder = Item {
+            kind: "fold".into(),
+            id: Id::Ref(9),
+            url: "https://ilias.example/ilias/goto.php/fold/9".into(),
+            ..Item::default()
+        };
+        let exam = Item {
+            kind: "file".into(),
+            id: Id::Ref(3),
+            title: "Exam 3".into(),
+            ..Item::default()
+        };
+        assert!(client.delete_item(&folder, &exam).unwrap());
+        assert!(deleted.load(Ordering::SeqCst));
+        assert!(
+            ilias
+                .posts(&base())
+                .iter()
+                .any(|p| p.contains("fallbackCmd=confirmedDelete") && p.ends_with("form/input_0=3"))
         );
     }
 

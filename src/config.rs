@@ -24,6 +24,9 @@ pub struct Config {
     /// leaves every file that is there alone (no updates, no new versions beside).
     #[serde(default, skip_serializing_if = "std::ops::Not::not")]
     pub missing_only: bool,
+    /// Sync also sends your new and edited files to ILIAS (after showing what and asking).
+    #[serde(default, skip_serializing_if = "std::ops::Not::not")]
+    pub two_way: bool,
     /// `None` means on.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub nerd_font: Option<bool>,
@@ -156,6 +159,11 @@ impl Config {
 
     pub fn offline(&self) -> bool {
         env_flag("ILIAS_OFFLINE").unwrap_or(self.offline)
+    }
+
+    /// `ILIAS_TWO_WAY`, else the saved setting; off by default.
+    pub fn two_way(&self) -> bool {
+        env_flag("ILIAS_TWO_WAY").unwrap_or(self.two_way)
     }
 
     pub fn dry_run(&self) -> bool {

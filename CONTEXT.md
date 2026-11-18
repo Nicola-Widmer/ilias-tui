@@ -132,6 +132,58 @@ time (ilias-tui shows the assignments as tabs). Each participant is an entry of 
 `Participant`; `a` saves all of their submissions.
 _Avoid_: members page (ILIAS' command name), deliveries.
 
+**Two-way sync**:
+A sync that also sends your side to ILIAS: new and edited files, and deletions you choose.
+Off by default (settings). It decides each file three-way, from the base, your disk now and
+ILIAS now.
+
+**Base**:
+The saved files: what sync (or a download) recorded when ILIAS and your disk were last in
+sync: for every file its ILIAS reference id, its version on ILIAS (size and date in the
+listing) and the size, date and content hash of your copy; and the folders sync saved or
+created. Paths are relative to the download folder; only copies inside the current one
+count. Kept as `<host>.base.json` next to the session; the first time it is taken over
+from the old saved-files list (`<host>.downloads.json`). An entry goes once its file is
+gone on both sides. "Edited" means the content differs from the base; "changed on ILIAS"
+means the version does.
+_Avoid_: index, saved-files list (the old name).
+
+**Op**:
+One thing sync does about one path, as the diff decides it from the base, your disk now and
+ILIAS now: download, upload, replace, rename, new folder on ILIAS, to the ILIAS trash, to
+your Trash, a conflict, or keep (with why). Everything a sync shows (review, report, status
+line, the brake) is built from its ops.
+_Avoid_: change, action (an `Action` is the TUI's message).
+
+**Conflict**:
+A path sync can't decide about safely: edited by you and changed on ILIAS (ILIAS' copy is
+saved beside yours, and yours waits until you deleted that copy), or something unclear (a
+new file named like an ILIAS file with other content, a copy of a saved file, a folder
+shared by two ILIAS folders, a move whose old file ILIAS doesn't let you delete, something
+changed since the plan). Nothing is sent for it and both copies stay.
+_Avoid_: clash, collision.
+
+**Your Trash**:
+Your computer's trash (macOS Trash, Windows Recycle Bin, the desktop trash on Linux), where
+two-way sync moves a file gone on ILIAS that you left untouched, after you say `y`.
+_Avoid_: delete (locally), bin.
+
+**Proposal**:
+A deletion two-way sync suggests because you deleted a file (or a whole folder) it saved
+and ILIAS still has it as saved: moving it to the ILIAS trash. Ticked in the review;
+`Space` unticks it.
+
+**Review**:
+What a two-way sync shows before it sends anything, built from its ops: grouped, what
+`Enter` sends (uploads, new folders, replaced and renamed files), the proposals (ticked),
+and what stays as it is (conflicts, files gone on ILIAS, files ILIAS doesn't let you
+upload). Downloads don't wait for it. In a dry run it is a plain report.
+_Avoid_: preview, diff.
+
+**Journal**:
+The log of every write two-way sync sent or tried (time, action, file, ILIAS object,
+result), `<host>.journal.jsonl` next to the session. One sync's writes share a `run`.
+
 **Upload**:
 Putting files into a course, group or folder (`u`), as its "Upload Files" form does. Everyone
 who can open the place sees them. Only where the page's rights include it.

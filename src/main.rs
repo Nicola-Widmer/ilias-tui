@@ -6,7 +6,6 @@ mod clipboard;
 mod components;
 mod compose;
 mod config;
-mod downloads;
 mod icons;
 mod ilias;
 mod keymap;
@@ -185,11 +184,11 @@ fn main() -> Result<()> {
         ["get", urls @ ..] if !urls.is_empty() => {
             let client = connect(&base, false)?;
             let dir = config.download_dir();
-            let mut downloads = downloads::Downloads::load(&base);
+            let mut saved = sync::model::Base::load(&base, &dir);
             for url in urls {
                 let item = item_from_url(&base, url)?;
                 let path = client.download(&item, &dir)?;
-                downloads.record(item.key(), path.clone(), sync::version(&item))?;
+                saved.record(&path, item.key(), sync::version(&item))?;
                 println!("{}", path.display());
             }
             Ok(())

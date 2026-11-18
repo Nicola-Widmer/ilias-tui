@@ -19,16 +19,17 @@ use crate::components::{
     Browser, Component, Confirm, Filter, Help, PickFiles, Prompt, Report, Settings, StatusBar,
 };
 use crate::config::Config;
-use crate::downloads::Downloads;
 use crate::ilias::{Client, Item, Page};
 use crate::seen::Seen;
+use crate::sync::model::Base;
 use crate::{auth, open, session, sync};
 
 pub struct App {
     client: Arc<Client>,
     config: Config,
     download_dir: PathBuf,
-    downloads: Downloads,
+    /// The saved files (see `sync::model::Base`).
+    base: Base,
     cache: Cache,
     /// What's new since your last visit, until you open it.
     seen: Seen,
@@ -60,11 +61,11 @@ pub struct App {
 impl App {
     pub fn new(client: Client, config: Config) -> Self {
         let (tx, rx) = mpsc::channel();
-        let downloads = Downloads::load(&client.base);
+        let download_dir = config.download_dir();
+        let base = Base::load(&client.base, &download_dir);
         let cache = Cache::new(&client.base);
         let seen = Seen::load(&client.base);
-        let browser = Browser::new(downloads.saved().collect(), &config);
-        let download_dir = config.download_dir();
+        let browser = Browser::new(base.saved().into_iter().collect(), &config);
         let settings = Settings::new(config.clone(), download_dir.clone());
         crate::icons::set_nerd_font(config.nerd_font());
         crate::theme::apply(config.palette().0);
@@ -72,7 +73,7 @@ impl App {
             client: Arc::new(client),
             config,
             download_dir,
-            downloads,
+            base,
             cache,
             seen,
             confirm: Confirm::default(),
@@ -111,11 +112,15 @@ impl App {
 
     pub fn run(mut self, terminal: &mut DefaultTerminal) -> Result<()> {
         self.start()?;
+        // Whether the screen may have changed since it was last drawn. Only then is it drawn
+        // again (and while the spinner turns): an idle TUI draws nothing.
+        let mut changed = true;
         loop {
             // Actions first, so that even the first frame shows what they bring (the cached
             // My courses), not an empty screen.
             while let Ok(action) = self.rx.try_recv() {
                 self.dispatch(action)?;
+                changed = true;
             }
             if self.should_quit {
                 break;
@@ -127,9 +132,15 @@ impl App {
                     Err(e) => Action::Error(format!("{e:#}")),
                 };
                 self.tx.send(next)?;
+                changed = true;
             }
-            terminal.draw(|frame| self.draw(frame))?;
+            if changed || self.status_bar.is_busy() {
+                terminal.draw(|frame| self.draw(frame))?;
+                changed = false;
+            }
             if event::poll(Duration::from_millis(50))? {
+                // Keys, clicks, a resize: draw again whatever they were.
+                changed = true;
                 let action = match event::read()? {
                     Event::Key(key) if key.kind == KeyEventKind::Press => self.handle_key(key),
                     Event::Mouse(mouse) => self
