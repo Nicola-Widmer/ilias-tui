@@ -87,6 +87,12 @@ A web link in a page's text, such as the Zoom link on a course page. ilias-tui l
 entry below its paragraph. ILIAS links open in the browser at once, others after asking.
 _Avoid_: weblink (that is the ILIAS object `webr`).
 
+**Pane** (of an accordion)
+One part of an accordion in page text: a caption and the content it opens and closes.
+Panes start as ILIAS shows them (closed, the first one open, or all open); `Enter` on the
+caption switches it. Closed panes only hide their content on screen.
+_Avoid_: tab (ILIAS' page editor calls accordions "Tabs" internally).
+
 **Permalink**
 An object's lasting address on ILIAS 10, `goto.php/<kind>/<ref_id>` (what ILIAS shows as
 "Permanent Link"). `y` copies it; things without a reference id (assignments, threads,

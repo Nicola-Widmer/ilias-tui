@@ -34,12 +34,13 @@ impl Browser {
             Command::Up => level.move_cursor(|c, _| c.saturating_sub(1)),
             Command::First => level.move_cursor(|_, _| 0),
             Command::Last => level.move_cursor(|_, last| last),
-            Command::Open => return self.current()?.selected().map(|i| self.open(i)),
+            Command::Open => return self.open_selected(),
             Command::Back => return Some(self.back()),
             Command::NextTab => return self.switch_tab(1),
             Command::PreviousTab => return self.switch_tab(-1),
             Command::Download => {
-                let item = level.selected().filter(|i| {
+                let target = level.selected().and_then(Item::link_target);
+                let item = target.as_ref().or(level.selected()).filter(|i| {
                     i.kind == Kind::File || (i.kind == Kind::Participant && !i.url.is_empty())
                 })?;
                 return Some(Action::Download {

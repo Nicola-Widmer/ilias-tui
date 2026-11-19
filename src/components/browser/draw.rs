@@ -4,7 +4,7 @@ use ratatui::Frame;
 use ratatui::layout::Margin;
 use ratatui::layout::{Constraint, Layout, Rect};
 use ratatui::style::{Modifier, Style};
-use ratatui::text::{Line, Span};
+use ratatui::text::{Line, Span, Text};
 use ratatui::widgets::{
     Block as Border, BorderType, HighlightSpacing, List, ListItem, Padding, Paragraph, Scrollbar,
     ScrollbarOrientation, ScrollbarState,
@@ -13,6 +13,7 @@ use ratatui::widgets::{
 use crate::ilias::Page;
 use crate::theme;
 
+use super::level::PANE_BORDERS;
 use super::*;
 use crate::seen::Group;
 
@@ -136,50 +137,78 @@ impl Browser {
             .and_then(|n| level.posts().nth(n))
             .filter(|post| level.page.rights.reply.contains(&post.id))
             .and(level.top_post);
-        let selected = level.cursor.and_then(|c| level.visible.get(c));
+        let selected = level.cursor.and_then(|c| level.visible.get(c)).copied();
         let selected_row = rows
             .iter()
-            .position(|r| matches!(r, Row::Item(i) if Some(i) == selected));
+            .position(|r| r.entry().is_some_and(|e| Some(e) == selected));
         let row_count = rows.len();
         // Visible position of each item row, for mouse hit-testing.
         let positions: Vec<Option<usize>> = rows
             .iter()
-            .map(|r| match r {
-                Row::Item(i) => level.visible.iter().position(|v| v == i),
-                _ => None,
+            .map(|r| {
+                let entry = r.entry()?;
+                level.visible.iter().position(|v| *v == entry)
             })
             .collect();
+        // Columns beside the selection mark; panes span all of it.
+        let width = inner.width.saturating_sub(2) as usize;
+        // How many open panes the row is in.
+        let mut depth = 0;
         let list_items: Vec<ListItem> = rows
             .into_iter()
-            .map(|row| match row {
-                Row::Blank => ListItem::new(""),
-                Row::Heading(text) => heading_row(text),
-                Row::Text(text) => text_row(text),
-                Row::Styled(line) => ListItem::new(line),
-                Row::PostHeader(post, mut line) => {
-                    if Some(post) == reply_to {
-                        line.push_span(Span::styled("  ↩ R reply", theme::accent_bold()));
+            .map(|row| {
+                let mut row_depth = depth;
+                let text = match row {
+                    Row::Blank => Text::raw(""),
+                    Row::Heading(text) => heading_row(text),
+                    Row::Pane(_, title, open) => {
+                        row_depth += 1;
+                        pane_row(title, open)
                     }
-                    ListItem::new(line)
-                }
-                Row::Item(i) => {
-                    let item = &level.items[i];
-                    // Kinds of news switched off in the settings are neither marked nor counted.
-                    let shown = |group| !self.hide_new.contains(&group);
-                    let mut new_inside = self
-                        .new_counts
-                        .get(&item.key())
-                        .cloned()
-                        .unwrap_or_default();
-                    new_inside.0.retain(|group, _| shown(*group));
-                    let marks = Marks {
-                        saved: self.saved.contains(&item.key()),
-                        marked: self.marked.iter().any(|m| m.id == item.id),
-                        new: self.new.contains(&item.key()) && shown(Group::of(&item.kind)),
-                        new_inside,
-                    };
-                    item_row(item, &query, marks)
-                }
+                    Row::PaneTop(label) => {
+                        pane_border("╭", &label, "╮", width.saturating_sub(PANE_BORDERS * depth))
+                    }
+                    Row::PaneRule => {
+                        depth += 1;
+                        pane_border("├", "", "┤", width.saturating_sub(PANE_BORDERS * row_depth))
+                    }
+                    Row::PaneBottom { closes } => {
+                        if closes {
+                            depth -= 1;
+                            row_depth -= 1;
+                        }
+                        pane_border("╰", "", "╯", width.saturating_sub(PANE_BORDERS * row_depth))
+                    }
+                    Row::Text(text) => text_row(text),
+                    Row::Styled(line) => Text::from(line),
+                    Row::PostHeader(post, mut line) => {
+                        if Some(post) == reply_to {
+                            line.push_span(Span::styled("  ↩ R reply", theme::accent_bold()));
+                        }
+                        Text::from(line)
+                    }
+                    Row::Item(i) => {
+                        let item = &level.items[i];
+                        // A link to a file is saved under that file's number.
+                        let key = item.link_target().map_or(item.key(), |t| t.key());
+                        // Kinds of news switched off in the settings are neither marked nor counted.
+                        let shown = |group| !self.hide_new.contains(&group);
+                        let mut new_inside = self
+                            .new_counts
+                            .get(&item.key())
+                            .cloned()
+                            .unwrap_or_default();
+                        new_inside.0.retain(|group, _| shown(*group));
+                        let marks = Marks {
+                            saved: self.saved.contains(&key),
+                            marked: self.marked.iter().any(|m| m.id == item.id),
+                            new: self.new.contains(&item.key()) && shown(Group::of(&item.kind)),
+                            new_inside,
+                        };
+                        item_row(item, &query, marks)
+                    }
+                };
+                ListItem::new(framed(text, row_depth, width))
             })
             .collect();
         let heights: Vec<u16> = list_items.iter().map(|i| i.height() as u16).collect();

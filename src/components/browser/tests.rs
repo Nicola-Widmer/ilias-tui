@@ -178,7 +178,8 @@ fn links_in_page_text_can_be_selected_and_opened() {
     load(&mut browser, Some(item("crs", 1, "DEMO")), page, false);
     let shown = screen(&mut browser);
     assert!(shown.contains("Zoom-Meeting"), "{shown}");
-    assert!(shown.contains("https://zoom.us/j/1"), "{shown}");
+    // The address, without the scheme: the icon says it is a web link.
+    assert!(shown.contains("  zoom.us/j/1"), "{shown}");
 
     // The link is the first entry; j moves on to the file and k back.
     let opens = |browser: &mut Browser, key: KeyCode| match browser.handle_key_event(key.into()) {
@@ -1087,5 +1088,136 @@ fn s_on_a_course_page_syncs_the_course_and_in_a_folder_the_selected_folder() {
     assert!(
         matches!(sync, Some(Action::Sync(ref roots)) if roots == &[sub]),
         "{sync:?}"
+    );
+}
+
+#[test]
+fn accordion_panes_open_and_close_with_enter() {
+    let mut browser = Browser::default();
+    let pane = |title: &str, open| Block::Pane {
+        title: title.into(),
+        open,
+        label: String::new(),
+    };
+    let page = Page {
+        blocks: vec![
+            pane("Prüfung", false),
+            Block::Text("Written exam, open book.".into()),
+            Block::Items {
+                title: String::new(),
+                items: vec![item("file", 7, "Altklausur")],
+            },
+            Block::PaneEnd,
+            pane("Praktikum", true),
+            Block::Text("Thursdays.".into()),
+            Block::PaneEnd,
+            Block::Items {
+                title: "Content".into(),
+                items: vec![item("file", 8, "Skript")],
+            },
+        ],
+        ..Page::default()
+    };
+    load(
+        &mut browser,
+        Some(item("crs", 1, "Biologie")),
+        page.clone(),
+        false,
+    );
+    let shown = screen(&mut browser);
+    // Each pane is a box; an open one has a line between its caption and content.
+    assert!(
+        shown.contains("╭─") && shown.contains("├─") && shown.contains("╰─"),
+        "{shown}"
+    );
+    assert!(shown.contains("│  Thursdays."), "{shown}");
+    assert!(
+        shown.contains("Prüfung") && shown.contains("Thursdays."),
+        "{shown}"
+    );
+    assert!(
+        !shown.contains("Written exam") && !shown.contains("Altklausur"),
+        "{shown}"
+    );
+    // The closed pane's caption is selected; Enter opens it and it stays selected.
+    let level = browser.current().unwrap();
+    assert_eq!(level.visible[0], level::Entry::Pane(0));
+    assert!(level.selected().is_none());
+    assert!(browser.handle_key_event(KeyCode::Enter.into()).is_none());
+    let shown = screen(&mut browser);
+    assert!(
+        shown.contains("Written exam") && shown.contains("Altklausur"),
+        "{shown}"
+    );
+    assert_eq!(browser.current().unwrap().cursor, Some(0));
+    // Its file is selected next and opens like any other.
+    browser.handle_key_event(KeyCode::Down.into());
+    let open = browser.handle_key_event(KeyCode::Enter.into());
+    assert!(matches!(open, Some(Action::Download { item, .. }) if item.title == "Altklausur"));
+
+    // A newer copy of the page keeps the panes as you left them.
+    browser.update(&Action::Loaded {
+        item: Some(item("crs", 1, "Biologie")),
+        page: page.clone(),
+        refresh: true,
+        deep: false,
+    });
+    assert_eq!(browser.current().unwrap().open, [true, true]);
+
+    // Closing a pane hides its file; the filter still finds it.
+    let level = browser.stack.last_mut().unwrap();
+    level.cursor = Some(0);
+    assert!(level.toggle_pane());
+    assert!(!screen(&mut browser).contains("Altklausur"));
+    browser.update(&Action::Filter("klausur".into()));
+    let level = browser.current().unwrap();
+    assert_eq!(level.visible, [level::Entry::Item(0)]);
+    assert!(screen(&mut browser).contains("Altklausur"));
+}
+
+#[test]
+fn a_link_to_an_ilias_file_shows_and_opens_as_that_file() {
+    let mut browser = Browser::new([7].into(), &Default::default());
+    let link = Item {
+        kind: Kind::Link,
+        id: Id::local("x"),
+        title: "Skript".into(),
+        url: "https://ilias.example/ilias.php?baseClass=ilrepositorygui&cmdClass=ilObjFileGUI&cmd=sendfile&ref_id=7".into(),
+        description: "https://ilias.example/ilias.php?…".into(),
+        ..Item::default()
+    };
+    let page = Page {
+        blocks: vec![
+            Block::Text("Input:".into()),
+            Block::Items {
+                title: String::new(),
+                items: vec![
+                    link,
+                    Item {
+                        url: "https://ilias.example/goto.php/fold/8".into(),
+                        ..item("link", 8, "Ordner")
+                    },
+                ],
+            },
+        ],
+        ..Page::default()
+    };
+    load(&mut browser, Some(item("crs", 1, "DEMO")), page, false);
+    let shown = screen(&mut browser);
+    // Saved under the file's own number; no address line, and no gap between the links.
+    assert!(
+        shown.contains("Skript ") && shown.contains(" saved"),
+        "{shown}"
+    );
+    assert!(!shown.contains("ilias.php"), "{shown}");
+    let open = browser.handle_key_event(KeyCode::Enter.into());
+    assert!(
+        matches!(open, Some(Action::Download { item, open: true }) if item.kind == Kind::File && item.id == Id::Ref(7))
+    );
+    // A link to a folder opens it in ilias-tui.
+    browser.handle_key_event(KeyCode::Down.into());
+    let open = browser.handle_key_event(KeyCode::Enter.into());
+    assert!(
+        matches!(open, Some(Action::Load { item: Some(item), .. }) if item.kind == Kind::Folder && item.id == Id::Ref(8))
     );
 }

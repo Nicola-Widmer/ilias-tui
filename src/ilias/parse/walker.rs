@@ -129,6 +129,9 @@ impl<'a> Walker<'a> {
             }
             return;
         }
+        if self.accordion_pane(el) {
+            return;
+        }
         if is_item_container(el) {
             self.flush();
             if let Some(item) = self.item(el) {
@@ -215,6 +218,21 @@ impl<'a> Walker<'a> {
             }
             return;
         }
+        // A link around paragraphs (`<a href="goto.php/fold/7"><p>Unterlagen</p></a>`, as in
+        // page-editor navigation) is one line with its link.
+        let blocks_inside = || {
+            el.children()
+                .filter_map(ElementRef::wrap)
+                .any(|c| BLOCK_TAGS.contains(&c.value().name()))
+        };
+        if name == "a" && blocks_inside() {
+            self.flush();
+            self.line = visible_text(el);
+            let link = self.text_link(el);
+            self.links.extend(link);
+            self.flush();
+            return;
+        }
         if name == "a"
             && let Some(link) = self.text_link(el)
         {
@@ -233,6 +251,54 @@ impl<'a> Walker<'a> {
             }
             self.walk(el);
         }
+    }
+
+    /// One pane of an accordion (page editor accordions and `ilAccordionGUI` alike):
+    /// `<div class="ilc_va_icntr_AccordICntr"><div class="il_VAccordionToggleDef">caption</div>
+    /// <div class="il_VAccordionContentDef ilAccHideContent">content</div></div>`. ILIAS hides
+    /// the content with `ilAccHideContent` unless the accordion is "all open"; with "first
+    /// open", its script opens the first pane. A pane without content is left out.
+    fn accordion_pane(&mut self, el: ElementRef) -> bool {
+        let child = |suffix: &str| {
+            el.children().filter_map(ElementRef::wrap).find(|c| {
+                c.value().classes().any(|x| {
+                    x == format!("il_VAccordion{suffix}") || x == format!("il_HAccordion{suffix}")
+                })
+            })
+        };
+        let (Some(toggle), Some(content)) = (child("ToggleDef"), child("ContentDef")) else {
+            return false;
+        };
+        self.flush();
+        let first_open = el
+            .parent()
+            .and_then(ElementRef::wrap)
+            .is_some_and(|accordion| {
+                accordion.value().attr("data-copg-tabs-behaviour") == Some("FirstOpen")
+                    && accordion.children().filter_map(ElementRef::wrap).next() == Some(el)
+            });
+        let hidden = content.value().classes().any(|c| c == "ilAccHideContent");
+        // The label was walked already, as the last text.
+        let label = row_label(el)
+            .filter(|label| self.blocks.last() == Some(&Block::Text(label.clone())))
+            .unwrap_or_default();
+        if !label.is_empty() {
+            self.blocks.pop();
+        }
+        let start = self.blocks.len();
+        self.blocks.push(Block::Pane {
+            title: visible_text(toggle),
+            open: !hidden || first_open,
+            label,
+        });
+        self.walk(content);
+        self.flush();
+        if self.blocks.len() == start + 1 {
+            self.blocks.pop();
+        } else {
+            self.blocks.push(Block::PaneEnd);
+        }
+        true
     }
 
     /// `<tr><td><input name="delivered[]" value="2"></td><td><label>Bericht.pdf</label></td>
@@ -383,7 +449,12 @@ impl<'a> Walker<'a> {
     }
 
     pub(super) fn flush(&mut self) {
-        let text = clean(&std::mem::take(&mut self.line));
+        let mut text = clean(&std::mem::take(&mut self.line));
+        // `Input 1: Skript` with a link on "Skript": the link follows as an entry, so the
+        // line keeps only its label.
+        if let Some(label) = label_of_links(&text, &self.links) {
+            text = label;
+        }
         if !text.is_empty() && text != "•" {
             self.blocks.push(Block::Text(text));
         }
@@ -397,4 +468,71 @@ pub(super) fn is_item_container(el: ElementRef) -> bool {
     let e = el.value();
     e.classes()
         .any(|c| c == "ilContainerListItemOuter" || c == "il-std-item")
+}
+
+/// The short text beside a lone accordion pane in a table-like row, such as the date
+/// cell of an agenda: `<div class="…AgendaRow"><div><p>17.09.2026</p></div><div><div
+/// class="ilc_va_cntr_…">one pane</div><p>…</p></div></div>`. Going up from the accordion,
+/// the first ancestor with something visible before it must have exactly one such thing:
+/// a short text without links.
+fn row_label(pane: ElementRef) -> Option<String> {
+    let accordion = pane.parent().and_then(ElementRef::wrap)?;
+    let panes = accordion
+        .children()
+        .filter_map(ElementRef::wrap)
+        .filter(|c| c.value().classes().any(|x| x.contains("AccordICntr")))
+        .count();
+    if panes != 1 {
+        return None;
+    }
+    let shows = |el: &ElementRef| {
+        let e = el.value();
+        !SKIPPED_TAGS.contains(&e.name())
+            && !e
+                .attr("style")
+                .is_some_and(|s| s.replace(' ', "").contains("display:none"))
+            && !visible_text(*el).is_empty()
+    };
+    let mut node = accordion;
+    for _ in 0..4 {
+        if node.value().id() == Some("il_center_col") {
+            return None;
+        }
+        let before: Vec<ElementRef> = node
+            .prev_siblings()
+            .filter_map(ElementRef::wrap)
+            .filter(shows)
+            .collect();
+        match before.as_slice() {
+            [] => node = node.parent().and_then(ElementRef::wrap)?,
+            [cell] => {
+                let text = visible_text(*cell);
+                let plain = cell.select(&sel("a")).next().is_none();
+                return (plain && text.chars().count() <= 40).then_some(text);
+            }
+            _ => return None,
+        }
+    }
+    None
+}
+
+/// What is left of a line of text without its links' titles, if that is no more than a
+/// label: `Material: CBL26 | EBNF` with links on both → `Material:`. `None` if the line
+/// says more than that, or has no links.
+fn label_of_links(text: &str, links: &[Item]) -> Option<String> {
+    if links.is_empty() {
+        return None;
+    }
+    let mut rest = text.to_string();
+    for link in links {
+        let at = rest.find(link.title.as_str())?;
+        rest.replace_range(at..at + link.title.len(), " ");
+    }
+    let separators: &[char] = &[' ', '|', ',', ';', '/', '-', '–', '·', '(', ')'];
+    let label = clean(rest.trim_matches(separators));
+    let separated = rest
+        .trim_matches(separators)
+        .split(&label)
+        .all(|part| part.chars().all(|c| separators.contains(&c)));
+    (label.chars().count() <= 30 && separated).then_some(label)
 }

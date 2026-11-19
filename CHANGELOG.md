@@ -9,6 +9,16 @@ features and changes in behaviour, the last one for fixes only. See
 
 ### Added
 
+- **Accordions** in page text: each pane is a box with its caption, `▸` closed or `▾`
+  open as on ILIAS, and `Enter` opens or closes it. A short text beside a pane in a
+  table-like row, such as the date of an agenda entry, goes into the box's top border.
+  Files and links in closed panes are still synced, searched and found by the `/` filter.
+- **Links in page text to ILIAS files and folders** show and open as those: a file link
+  has its file icon, `Enter` downloads and opens it (or your saved copy, marked `✓ saved`)
+  and `d` downloads it; a folder or course link opens in ilias-tui. Sync still leaves them
+  alone. A line that is only a label and its links (`Material: CBL26 | EBNF`) keeps just
+  the label above the links, labels such as `Inhalt:` are bold, and web links show their
+  address without `https://`.
 - **Files deleted on ILIAS can go to your Trash**: after a two-way sync, a dialog lists the
   files ILIAS no longer has that you left untouched, and `y` moves them to your computer's
   trash (macOS Trash, Windows Recycle Bin, Linux desktop trash). Edited ones are kept.

@@ -227,6 +227,24 @@ impl From<Item> for Stored {
 }
 
 impl Item {
+    /// A link in page text to an ILIAS file, course or folder (`goto.php/file/7`,
+    /// `…cmdClass=ilObjFileGUI&cmd=sendfile&ref_id=7`), as that object: it shows and opens
+    /// like one. It stays a link in the page, so sync leaves it alone. `None` otherwise.
+    pub fn link_target(&self) -> Option<Item> {
+        if self.kind != Kind::Link {
+            return None;
+        }
+        let (kind, id) = super::parse_target(&Url::parse(&self.url).ok()?)?;
+        let target = Item {
+            kind,
+            id,
+            description: String::new(),
+            ..self.clone()
+        };
+        (matches!(id, Id::Ref(_)) && (target.kind == Kind::File || target.is_container()))
+            .then_some(target)
+    }
+
     /// The number indexes on disk use for it (see [`Id::key`]).
     pub fn key(&self) -> u64 {
         self.id.key()
@@ -351,6 +369,17 @@ pub enum Block {
         items: Vec<Item>,
     },
     Post(Post),
+    /// The start of an accordion pane: its caption, and whether ILIAS shows it open. The
+    /// blocks up to the matching [`Block::PaneEnd`] are its content (panes can nest).
+    /// `label` is a short text ILIAS shows beside it in a table-like row, e.g. the date
+    /// of an agenda entry.
+    Pane {
+        title: String,
+        open: bool,
+        #[serde(default, skip_serializing_if = "String::is_empty")]
+        label: String,
+    },
+    PaneEnd,
 }
 
 #[derive(Debug, Clone, Default, PartialEq, Eq, Serialize, Deserialize)]

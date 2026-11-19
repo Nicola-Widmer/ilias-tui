@@ -171,6 +171,17 @@ $second = next_assignment($past, 'Blatt 0b', 2);
 hand_in($second, $student, 'Teil 1.pdf', PDF);
 hand_in($second, $student, 'Teil 2.txt', "zwei\n");
 exercise($biology, 'Laborbericht', 'Hand in the lab report.', 10, $student);
+// Page text with an accordion whose first pane ILIAS opens.
+$page = new ilContainerPage();
+$page->setId(ilObject::_lookupObjId($biology));
+$page->setParentId(ilObject::_lookupObjId($biology));
+$pane = fn ($caption, $text) => '<Tab><PageContent><Paragraph Language="en" Characteristic="Standard">'
+    . $text . '</Paragraph></PageContent><TabCaption>' . $caption . '</TabCaption></Tab>';
+$page->setXMLContent('<PageObject><PageContent PCID="1"><Tabs Type="VerticalAccordion" Behavior="FirstOpen">'
+    . $pane('Prüfung', 'Written exam, 90 minutes, open book.')
+    . $pane('Praktikum', 'Lab sessions on Thursdays. Sign up on <ExtLink Href="https://example.org/praktikum">the list</ExtLink>.')
+    . '</Tabs></PageContent></PageObject>');
+$page->create(false);
 
 file_in($biology, 'Skript Zellbiologie.pdf', PDF);
 create($biology, 'fold', 'Praktikum');
