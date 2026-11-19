@@ -7,6 +7,8 @@ features and changes in behaviour, the last one for fixes only. See
 
 ## Unreleased
 
+## 0.5.0 - 2026-11-19
+
 ### Added
 
 - **Accordions** in page text: each pane is a box with its caption, `▸` closed or `▾`
