@@ -85,7 +85,7 @@ pub const SECTIONS: &[(&str, &[Binding])] = &[
             bind(
                 Open,
                 &[Enter, Right, Char('l')],
-                "Open folder, file (downloads it first) or link",
+                "Open folder, file (downloads it first) or link; open or close a pane",
             ),
             Binding {
                 also: &[Backspace],

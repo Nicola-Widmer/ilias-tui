@@ -131,6 +131,9 @@ impl Browser {
     }
 
     fn open(&self, item: &Item) -> Action {
+        if let Some(target) = item.link_target() {
+            return self.open(&target);
+        }
         if item.is_container() {
             Action::Load {
                 item: Some(item.clone()),
@@ -150,6 +153,14 @@ impl Browser {
         }
     }
 
+    /// Enter: opens the selected item, or opens or closes the selected accordion pane.
+    fn open_selected(&mut self) -> Option<Action> {
+        if self.stack.last_mut()?.toggle_pane() {
+            return None;
+        }
+        self.current()?.selected().map(|i| self.open(i))
+    }
+
     /// The To-Do entries of the page on screen.
     fn todo_items(&self) -> &[Todo] {
         self.current().map_or(&[], |l| l.page.todo.as_slice())
@@ -164,9 +175,7 @@ impl Browser {
             Hit::Item(position) => {
                 self.todo_focus = false;
                 self.stack.last_mut()?.cursor = Some(position);
-                double
-                    .then(|| self.current()?.selected().map(|i| self.open(i)))
-                    .flatten()
+                double.then(|| self.open_selected()).flatten()
             }
             Hit::Todo(index) => {
                 self.todo_focus = true;

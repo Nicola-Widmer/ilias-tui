@@ -16,7 +16,8 @@ with any ILIAS 10 that logs in through OpenID Connect. Runs on macOS, Linux and 
 - My courses: your **favourites**, then your courses by year, with a **To-Do** panel of the
   assignments still to hand in.
 - Courses, folders, forums and exercises the way ILIAS shows them: page text with its links,
-  sections, tabs, every item of long "Show more" lists.
+  sections, tabs, accordions (`Enter` opens and closes a pane), every item of long "Show
+  more" lists.
 - **What's new** since your last visit (`● new`, `● new posts`); after a sync, counts on
   each course and folder lead you to it.
 - Filter any list as you type (`/`), or search everything below here (`s`).
@@ -91,7 +92,7 @@ opens again when the HSLU login itself has expired.
 | **Navigate**    |                                                 |
 | `↑ ↓` / `k j`   | Move selection; scroll in a forum thread        |
 | `g` / `G`       | First / last item                               |
-| `Enter` `→` `l` | Open folder, forum, thread or exercise; open file (downloads it the first time); open a link or anything else in the browser (asks first for links to other sites) |
+| `Enter` `→` `l` | Open folder, forum, thread or exercise; open file (downloads it the first time); open a link or anything else in the browser (asks first for links to other sites); open or close an accordion pane |
 | `Esc` `←` `h`   | Clear filter, then go back                      |
 | `Tab` / `Shift-Tab` | Next / previous tab (Inhalt, Info, …); on My courses, in and out of the To-Do panel |
 | **Search**      |                                                 |

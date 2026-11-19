@@ -131,6 +131,14 @@ fn main() -> Result<()> {
             for block in &page.blocks {
                 match block {
                     ilias::Block::Heading(text) => println!("\n## {text}"),
+                    ilias::Block::Pane { title, open, label } => {
+                        let label = match label.is_empty() {
+                            true => String::new(),
+                            false => format!("{label} · "),
+                        };
+                        println!("\n{} {label}{title}", if *open { "▾" } else { "▸" })
+                    }
+                    ilias::Block::PaneEnd => {}
                     ilias::Block::Text(text) => println!("{text}"),
                     ilias::Block::Post(post) => {
                         let new = if post.unread { " [new]" } else { "" };

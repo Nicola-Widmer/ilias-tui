@@ -926,3 +926,159 @@ fn a_files_versions_entry_is_a_right_for_that_file() {
     );
     assert!(versions_link(html, &url, 134).is_none());
 }
+
+#[test]
+fn reads_accordion_panes_with_their_content() {
+    // As the local ILIAS 10 renders a page-editor accordion ("first open"), with a third pane
+    // in an accordion that shows all panes open, and an empty one.
+    let html = r##"<div id="il_center_col"><div>
+        <div id="ilc_accordion_447_1" data-copg-tabs-type="VerticalAccordion" class="ilc_va_cntr_AccordCntr" data-copg-tabs-behaviour="FirstOpen">
+          <div class="ilc_va_icntr_AccordICntr"><div class="il_VAccordionToggleDef"><div tabindex="0" role="button" aria-expanded="false" class="ilc_va_ihead_AccordIHead"><div class="ilc_va_ihcap_AccordIHeadCap">Prüfung<!--Break--></div></div></div>
+            <div class="il_VAccordionContentDef ilAccHideContent"><div class="ilc_va_icont_AccordICont" style=""><p class="ilc_Paragraph ilc_text_block_Standard">Written exam, 90 minutes, open book.</p></div></div></div>
+          <div class="ilc_va_icntr_AccordICntr"><div class="il_VAccordionToggleDef"><div tabindex="0" role="button" class="ilc_va_ihead_AccordIHead"><div class="ilc_va_ihcap_AccordIHeadCap">Praktikum</div></div></div>
+            <div class="il_VAccordionContentDef ilAccHideContent"><div class="ilc_va_icont_AccordICont"><p class="ilc_Paragraph">Sign up on <a class="ilc_link_ExtLink" href="https://example.org/praktikum">the list</a>.</p></div></div></div>
+          <div style="clear:both;"></div>
+        </div>
+        <div class="ilc_va_cntr_AccordCntr" data-copg-tabs-behaviour="ForceAllOpen">
+          <div class="ilc_va_icntr_AccordICntr"><div class="il_VAccordionToggleDef"><div class="ilc_va_ihead_AccordIHead"><div class="ilc_va_ihcap_AccordIHeadCap">FAQ</div></div></div>
+            <div class="il_VAccordionContentDef "><div class="ilc_va_icont_AccordICont"><p>Ask in the forum.</p></div></div></div>
+          <div class="ilc_va_icntr_AccordICntr"><div class="il_VAccordionToggleDef"><div class="ilc_va_ihead_AccordIHead"><div class="ilc_va_ihcap_AccordIHeadCap">Empty</div></div></div>
+            <div class="il_VAccordionContentDef"><div class="ilc_va_icont_AccordICont"></div></div></div>
+        </div></div>
+        <div class="ilContainerBlock"><h2>Content</h2>
+          <div class="ilContainerListItemOuter"><a class="il_ContainerItemTitle" href="goto.php/file/7">Skript</a></div></div>
+        </div>"##;
+    let page = parse_page(html, &url("https://ilias.example/ilias/goto.php/crs/1"));
+    let pane = |title: &str, open| Block::Pane {
+        title: title.into(),
+        open,
+        label: String::new(),
+    };
+    let link = Item {
+        kind: Kind::Link,
+        id: Id::local("https://example.org/praktikum"),
+        title: "the list".into(),
+        url: "https://example.org/praktikum".into(),
+        description: "https://example.org/praktikum".into(),
+        ..Item::default()
+    };
+    assert_eq!(
+        page.blocks[..10],
+        [
+            pane("Prüfung", true),
+            Block::Text("Written exam, 90 minutes, open book.".into()),
+            Block::PaneEnd,
+            pane("Praktikum", false),
+            Block::Text("Sign up on the list.".into()),
+            Block::Items {
+                title: String::new(),
+                items: vec![link],
+            },
+            Block::PaneEnd,
+            pane("FAQ", true),
+            Block::Text("Ask in the forum.".into()),
+            Block::PaneEnd,
+        ]
+    );
+    assert!(matches!(&page.blocks[10], Block::Items { title, .. } if title == "Content"));
+    assert_eq!(page.blocks.len(), 11, "the empty pane is left out");
+}
+
+#[test]
+fn an_agenda_row_gives_its_pane_the_date_beside_it() {
+    // As on an HSLU course page: a table-like row of page-editor sections, the date beside a
+    // one-pane accordion, and a note below the accordion.
+    let row = |date: &str, topic: &str| {
+        format!(
+            r##"<div class="ilc_section_AgendaRow ilCOPageSection">
+            <div class="ilc_section_AgendaDateContent ilCOPageSection"><p class="ilc_Paragraph ilc_text_block_AgendaDate">{date}<!--Break--></p></div>
+            <div class="ilc_section_AgendaTopicContent ilCOPageSection"><div><div class="ilc_va_cntr_VAccordCntr" data-copg-tabs-behaviour="AllClosed">
+              <div class="ilc_va_icntr_VAccordICntr"><div class="il_VAccordionToggleDef"><div role="button" class="ilc_va_ihead_VAccordIHead"><div class="ilc_va_ihead_VAccordIHeadCap">{topic}</div></div></div>
+                <div class="il_VAccordionContentDef ilAccHideContent"><div class="ilc_va_icont_VAccordICont"><p class="ilc_Paragraph">Inhalt: {topic}</p></div></div></div>
+              <div style="clear:both;"></div></div></div>
+              <p class="ilc_Paragraph ilc_text_block_Citation">Meilenstein</p></div></div>"##
+        )
+    };
+    let html = format!(
+        r#"<div id="il_center_col"><p>Die Agenda.</p>
+        <div class="ilc_section_AgendaHeaderRow"><div><p>Datum</p></div><div><p>Inhalt</p></div></div>
+        {}{}</div>"#,
+        row("17.09.2026", "Scanner"),
+        row("24.09.2026", "Grammatiken")
+    );
+    let page = parse_page(&html, &url("https://ilias.example/ilias/goto.php/crs/1"));
+    let pane = |label: &str, title: &str| Block::Pane {
+        title: title.into(),
+        open: false,
+        label: label.into(),
+    };
+    let text = |t: &str| Block::Text(t.into());
+    assert_eq!(
+        page.blocks,
+        [
+            text("Die Agenda."),
+            text("Datum"),
+            text("Inhalt"),
+            pane("17.09.2026", "Scanner"),
+            text("Inhalt: Scanner"),
+            Block::PaneEnd,
+            text("Meilenstein"),
+            pane("24.09.2026", "Grammatiken"),
+            text("Inhalt: Grammatiken"),
+            Block::PaneEnd,
+            text("Meilenstein"),
+        ]
+    );
+}
+
+#[test]
+fn a_line_of_a_label_and_links_keeps_only_the_label() {
+    // As on an HSLU agenda: `<strong>Material:</strong> <a>CBL26</a> | <a>EBNF</a>`; and
+    // page-editor navigation, a link around a paragraph.
+    let html = r##"<div id="il_center_col">
+        <a style="display:block;" href="goto.php/fold/7"><p class="ilc_Paragraph">Compilerprojekt</p></a>
+        <p class="ilc_Paragraph"><strong>Input 1: </strong><a href="ilias.php?cmdClass=ilObjFileGUI&amp;cmd=sendfile&amp;ref_id=5">Einführung</a><br/>
+        <strong>Material:</strong> <a href="goto.php/file/6">CBL26</a> | <a href="https://example.org/ebnf">EBNF</a><br/>
+        Siehe <a href="https://example.org/x">hier</a> für mehr.</p>
+        </div>"##;
+    let page = parse_page(html, &url("https://ilias.example/ilias/goto.php/crs/1"));
+    let shown: Vec<String> = page
+        .blocks
+        .iter()
+        .map(|b| match b {
+            Block::Text(t) => t.clone(),
+            Block::Items { items, .. } => items
+                .iter()
+                .map(|i| format!("[{}]", i.title))
+                .collect::<Vec<_>>()
+                .join(" "),
+            other => format!("{other:?}"),
+        })
+        .collect();
+    assert_eq!(
+        shown,
+        [
+            "[Compilerprojekt]",
+            "Input 1:",
+            "[Einführung]",
+            "Material:",
+            "[CBL26] [EBNF]",
+            "Siehe hier für mehr.",
+            "[hier]",
+        ]
+    );
+    let targets: Vec<Option<(Kind, Id)>> = page
+        .items()
+        .map(|i| i.link_target().map(|t| (t.kind, t.id)))
+        .collect();
+    assert_eq!(
+        targets,
+        [
+            Some((Kind::Folder, Id::Ref(7))),
+            Some((Kind::File, Id::Ref(5))),
+            Some((Kind::File, Id::Ref(6))),
+            None,
+            None,
+        ]
+    );
+}

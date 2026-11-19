@@ -9,6 +9,7 @@ use crate::ilias::{Item, Kind, Post, Todo, Urgency};
 use crate::seen::{Counts, Group};
 use crate::theme;
 
+use super::level::PANE_BORDERS;
 use super::*;
 
 /// A forum post: author line, then title and text behind a bar, indented by reply depth.
@@ -101,7 +102,7 @@ pub(super) fn todo_row(todo: &Todo, last: bool) -> ListItem<'static> {
 
 /// Separates a new section from what came before, without doubling up empty lines.
 pub(super) fn blank_line(rows: &mut Vec<Row>) {
-    if !rows.is_empty() && !matches!(rows.last(), Some(Row::Blank)) {
+    if !rows.is_empty() && !matches!(rows.last(), Some(Row::Blank | Row::PaneRule)) {
         rows.push(Row::Blank);
     }
 }
@@ -137,7 +138,10 @@ pub(super) struct Marks {
     pub(super) new_inside: Counts,
 }
 
-pub(super) fn item_row(item: &Item, query: &str, marks: Marks) -> ListItem<'static> {
+pub(super) fn item_row(item: &Item, query: &str, marks: Marks) -> Text<'static> {
+    // A link to an ILIAS file or folder looks like one.
+    let target = item.link_target();
+    let item = target.as_ref().unwrap_or(item);
     let (glyph, color) = icon(item);
     let title_style = if item.is_container() {
         Style::new()
@@ -188,12 +192,17 @@ pub(super) fn item_row(item: &Item, query: &str, marks: Marks) -> ListItem<'stat
     let mut lines = vec![Line::from(title)];
     // The icon already says "course" or "folder", and files show their type as a property;
     // only less obvious objects (exercise, forum, …) get their kind spelled out.
-    let kind = if item.is_container() || item.kind == Kind::File {
+    let kind = if item.is_container() || matches!(item.kind, Kind::File | Kind::Link) {
         ""
     } else {
         item.kind_label()
     };
-    let details: Vec<&str> = [kind, item.description.as_str()]
+    // A web link's address; the icon already says it is one.
+    let description = match item.kind {
+        Kind::Link => web_address(&item.description),
+        _ => &item.description,
+    };
+    let details: Vec<&str> = [kind, description]
         .into_iter()
         .chain(item.properties.iter().map(String::as_str))
         .filter(|s| !s.is_empty())
@@ -204,11 +213,26 @@ pub(super) fn item_row(item: &Item, query: &str, marks: Marks) -> ListItem<'stat
             theme::muted().add_modifier(Modifier::ITALIC),
         ));
     }
-    ListItem::new(Text::from(lines))
+    Text::from(lines)
 }
 
-pub(super) fn heading_row(text: String) -> ListItem<'static> {
-    ListItem::new(Line::from(vec![
+/// `https://example.org/a` → `example.org/a`.
+fn web_address(url: &str) -> &str {
+    url.strip_prefix("https://")
+        .or_else(|| url.strip_prefix("http://"))
+        .unwrap_or(url)
+}
+
+/// Whether `item_row` shows a line of details below the title.
+pub(super) fn has_details(item: &Item) -> bool {
+    let target = item.link_target();
+    let item = target.as_ref().unwrap_or(item);
+    let kind = !(item.is_container() || matches!(item.kind, Kind::File | Kind::Link));
+    kind || !item.description.is_empty() || !item.properties.is_empty()
+}
+
+pub(super) fn heading_row(text: String) -> Text<'static> {
+    Text::from(Line::from(vec![
         Span::styled("▍", Style::new().fg(theme::colors().accent)),
         Span::styled(
             text,
@@ -219,9 +243,118 @@ pub(super) fn heading_row(text: String) -> ListItem<'static> {
     ]))
 }
 
+/// An accordion pane's caption, `▸` closed or `▾` open (Enter switches).
+pub(super) fn pane_row(title: String, open: bool) -> Text<'static> {
+    let arrow = match open {
+        true => theme::glyph("\u{f078}", "▾"),  // chevron-down
+        false => theme::glyph("\u{f054}", "▸"), // chevron-right
+    };
+    Text::from(Line::from(vec![
+        Span::styled(
+            format!("{arrow}  "),
+            Style::new().fg(theme::colors().accent),
+        ),
+        Span::styled(
+            title,
+            Style::new()
+                .fg(theme::colors().fg)
+                .add_modifier(Modifier::BOLD),
+        ),
+    ]))
+}
+
+/// A horizontal border of a pane `width` columns wide: `╭─ 17.09.2026 ───╮`.
+pub(super) fn pane_border(left: &str, label: &str, right: &str, width: usize) -> Text<'static> {
+    let border = Style::new().fg(theme::colors().border);
+    let mut spans = vec![Span::styled(format!("{left}─"), border)];
+    if !label.is_empty() {
+        spans.push(Span::styled(format!(" {label} "), theme::accent_bold()));
+    }
+    let used: usize = spans.iter().map(Span::width).sum::<usize>() + right.chars().count();
+    spans.push(Span::styled(
+        format!("{}{right}", "─".repeat(width.saturating_sub(used))),
+        border,
+    ));
+    Text::from(Line::from(spans))
+}
+
+/// Puts each line of `text` into `depth` pane boxes, `width` columns wide in all: `│ `,
+/// the line (cut with `…` if too long), padding, ` │`.
+pub(super) fn framed(text: Text<'static>, depth: usize, width: usize) -> Text<'static> {
+    let border = Style::new().fg(theme::colors().border);
+    let mut lines = text.lines;
+    // Innermost box first.
+    for level in (0..depth).rev() {
+        let inner = width.saturating_sub(PANE_BORDERS * (level + 1));
+        lines = lines
+            .into_iter()
+            .map(|line| {
+                let line = fit(line, inner);
+                let pad = inner.saturating_sub(line.width());
+                let mut spans = vec![Span::styled("│ ", border)];
+                spans.extend(line.spans);
+                spans.push(Span::raw(" ".repeat(pad)));
+                spans.push(Span::styled(" │", border));
+                Line::from(spans)
+            })
+            .collect();
+    }
+    Text::from(lines)
+}
+
+/// `line` with its own style on every span, cut to `width` columns.
+fn fit(line: Line<'static>, width: usize) -> Line<'static> {
+    let (style, fits) = (line.style, line.width() <= width);
+    let spans = line.spans.into_iter().map(|s| {
+        let patched = style.patch(s.style);
+        s.style(patched)
+    });
+    if fits {
+        return Line::from(spans.collect::<Vec<_>>());
+    }
+    let mut out = Vec::new();
+    let mut left = width.saturating_sub(1);
+    for span in spans {
+        let mut content = String::new();
+        for c in span.content.chars() {
+            let w = Span::raw(c.to_string()).width();
+            if w > left {
+                break;
+            }
+            left -= w;
+            content.push(c);
+        }
+        let full = content.chars().count() == span.content.chars().count();
+        out.push(Span::styled(content, span.style));
+        if !full {
+            break;
+        }
+    }
+    out.push(Span::styled("…", theme::muted()));
+    Line::from(out)
+}
+
 /// Page text; URLs are highlighted like links.
-pub(super) fn text_row(text: String) -> ListItem<'static> {
+pub(super) fn text_row(text: String) -> Text<'static> {
     let mut spans = vec![Span::raw(" ")];
+    // A short label such as `Inhalt:` or `Input 1:` in bold, as ILIAS pages tend to have.
+    let label_end = text
+        .find(": ")
+        .map(|at| at + 1)
+        .or_else(|| text.ends_with(':').then_some(text.len()))
+        .filter(|&end| text[..end].chars().count() <= 30 && !text[end..].starts_with("//"));
+    let text = match label_end {
+        Some(end) => {
+            spans.push(Span::styled(
+                text[..end].to_string(),
+                Style::new()
+                    .fg(theme::colors().fg)
+                    .add_modifier(Modifier::BOLD),
+            ));
+            text[end..].to_string()
+        }
+        None => text,
+    };
     for (i, word) in text.split(' ').enumerate() {
         if i > 0 {
             spans.push(Span::raw(" "));
@@ -235,7 +368,7 @@ pub(super) fn text_row(text: String) -> ListItem<'static> {
         };
         spans.push(Span::styled(word.to_string(), style));
     }
-    ListItem::new(Line::from(spans))
+    Text::from(Line::from(spans))
 }
 
 /// Splits `text` into spans, emphasising every case-insensitive occurrence of a query word.
