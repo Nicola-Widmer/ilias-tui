@@ -111,6 +111,8 @@ impl App {
     }
 
     pub fn run(mut self, terminal: &mut DefaultTerminal) -> Result<()> {
+        /// Events read in one go before the screen is drawn again.
+        const MAX_EVENTS_PER_DRAW: usize = 100;
         self.start()?;
         // Whether the screen may have changed since it was last drawn. Only then is it drawn
         // again (and while the spinner turns): an idle TUI draws nothing.
@@ -126,11 +128,13 @@ impl App {
                 break;
             }
             if let Some((editor, draft)) = self.composing.take() {
-                let next = match crate::compose::in_editor(terminal, &editor, &draft) {
-                    Ok(Some((title, text))) => crate::compose::question(draft, title, text),
-                    Ok(None) => Action::Cancelled,
-                    Err(e) => Action::Error(format!("{e:#}")),
-                };
+                let next =
+                    match crate::compose::in_editor(terminal, &editor, &draft, self.config.mouse())
+                    {
+                        Ok(Some((title, text))) => crate::compose::question(draft, title, text),
+                        Ok(None) => Action::Cancelled,
+                        Err(e) => Action::Error(format!("{e:#}")),
+                    };
                 self.tx.send(next)?;
                 changed = true;
             }
@@ -139,18 +143,30 @@ impl App {
                 changed = false;
             }
             if event::poll(Duration::from_millis(50))? {
-                // Keys, clicks, a resize: draw again whatever they were.
+                // Keys, clicks, a resize: draw again whatever they were. Everything already
+                // waiting first (a trackpad sends scroll events by the dozen), then one draw,
+                // so a fast scroll can't fall behind.
                 changed = true;
-                let action = match event::read()? {
-                    Event::Key(key) if key.kind == KeyEventKind::Press => self.handle_key(key),
-                    Event::Mouse(mouse) => self
-                        .components()
-                        .into_iter()
-                        .find_map(|c| c.handle_mouse_event(mouse)),
-                    _ => None,
-                };
-                if let Some(action) = action {
-                    self.tx.send(action)?;
+                for _ in 0..MAX_EVENTS_PER_DRAW {
+                    let action = match event::read()? {
+                        Event::Key(key) if key.kind == KeyEventKind::Press => self.handle_key(key),
+                        Event::Mouse(mouse) => self
+                            .components()
+                            .into_iter()
+                            .find_map(|c| c.handle_mouse_event(mouse)),
+                        _ => None,
+                    };
+                    if let Some(action) = action {
+                        self.tx.send(action)?;
+                    }
+                    // What the event did (e.g. a dialog it opened) counts for the next one.
+                    while let Ok(action) = self.rx.try_recv() {
+                        self.dispatch(action)?;
+                    }
+                    if self.should_quit || self.composing.is_some() || !event::poll(Duration::ZERO)?
+                    {
+                        break;
+                    }
                 }
             }
         }

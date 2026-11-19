@@ -7,6 +7,15 @@ features and changes in behaviour, the last one for fixes only. See
 
 ## Unreleased
 
+### Fixed
+
+- **Scrolling with the mouse support off** (`ILIAS_MOUSE=0` or the settings) no longer
+  scrolls the terminal's history over the TUI: the terminal sends the wheel and trackpad
+  as arrow keys instead, and text selection keeps working. Writing a forum post no longer
+  turns the mouse support back on when it is off in the settings.
+- **Fast scrolling** doesn't fall behind: everything waiting is read before the screen is
+  drawn again.
+
 ## 0.5.0 - 2026-11-19
 
 ### Added

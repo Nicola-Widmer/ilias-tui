@@ -92,7 +92,10 @@ impl Field {
                 "Enter switches between dark, light and hub. For your own colours, add e.g. \
                  \"colors\": { \"accent\": \"#ff8800\" } to config.json and restart."
             }
-            Field::Mouse => "Off: the terminal's own text selection works without a modifier key.",
+            Field::Mouse => {
+                "Off: the terminal's own text selection works without a modifier key; \
+                 scrolling still moves the selection."
+            }
             Field::Cache => "Keeps opened pages for instant display and offline use.",
             Field::Offline => "Start with cached pages and saved files only (L goes online).",
             Field::DryRun => "Never send favourites changes; only say what would have happened.",

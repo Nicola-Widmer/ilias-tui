@@ -134,7 +134,7 @@ In the sync review:
 
 `?` shows the keys in the app. The mouse works too: click to select, double-click to open, scroll to move, click a tab or a
 breadcrumb. To select text, hold **Option** (iTerm2, Terminal.app) or **Shift** (most other
-terminals); `ILIAS_MOUSE=0` turns the mouse off.
+terminals); `ILIAS_MOUSE=0` turns the mouse off (scrolling still moves the selection).
 
 Forum posts are written in `$VISUAL` / `$EDITOR` (give it by a name on your `PATH`, e.g.
 `code -w`; on Windows Notepad if neither is set), else in one-line prompts.

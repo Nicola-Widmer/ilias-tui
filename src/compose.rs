@@ -7,7 +7,7 @@ use std::process::Command;
 
 use color_eyre::{Result, eyre::bail, eyre::eyre};
 use ratatui::DefaultTerminal;
-use ratatui::crossterm::event::{DisableMouseCapture, EnableMouseCapture};
+use ratatui::crossterm::event::DisableMouseCapture;
 use ratatui::crossterm::execute;
 use ratatui::crossterm::terminal::{
     EnterAlternateScreen, LeaveAlternateScreen, disable_raw_mode, enable_raw_mode,
@@ -63,26 +63,24 @@ pub fn read(draft: &Draft, written: &str) -> Result<Option<(String, String)>> {
 }
 
 /// Lets the user write the post in their editor, with the TUI out of the way meanwhile.
-/// `None` if they wrote nothing.
+/// `None` if they wrote nothing. `mouse`: the mouse setting, to take the mouse back after.
 pub fn in_editor(
     terminal: &mut DefaultTerminal,
     editor: &str,
     draft: &Draft,
+    mouse: bool,
 ) -> Result<Option<(String, String)>> {
     let path = std::env::temp_dir().join(format!("ilias-tui-post-{}.txt", std::process::id()));
     std::fs::File::create(&path)?.write_all(template(draft).as_bytes())?;
     let mut words = editor.split_whitespace();
     let program = words.next().ok_or_else(|| eyre!("no editor set"))?;
-    let mouse = std::env::var("ILIAS_MOUSE").as_deref() != Ok("0");
 
     disable_raw_mode()?;
     execute!(std::io::stdout(), LeaveAlternateScreen, DisableMouseCapture)?;
     let status = Command::new(program).args(words).arg(&path).status();
     enable_raw_mode()?;
     execute!(std::io::stdout(), EnterAlternateScreen)?;
-    if mouse {
-        execute!(std::io::stdout(), EnableMouseCapture)?;
-    }
+    crate::take_mouse(mouse)?;
     // A full redraw. (`clear` would ask the terminal where its cursor is, which not every
     // terminal answers in time.)
     let size = terminal.size()?;

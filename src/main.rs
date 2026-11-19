@@ -70,8 +70,8 @@ fn main() -> Result<()> {
             client.set_offline(offline);
             let mut terminal = ratatui::init();
             let mouse = config.mouse();
+            take_mouse(mouse)?;
             if mouse {
-                execute!(std::io::stdout(), EnableMouseCapture)?;
                 // ratatui's own panic hook restores the screen; also give the mouse back.
                 let hook = std::panic::take_hook();
                 std::panic::set_hook(Box::new(move |info| {
@@ -239,6 +239,22 @@ fn item_from_url(base: &Url, url: &str) -> Result<ilias::Item> {
         url: url.into(),
         ..Default::default()
     })
+}
+
+/// Takes the mouse for the TUI: clicks and the wheel. With mouse support off, only the
+/// wheel, which the terminal then sends as arrow keys ("alternate scroll", DEC mode 1007):
+/// its own text selection keeps working, and it doesn't scroll its history over the TUI.
+/// Mode 1007 only acts on the TUI's (alternate) screen, and some terminals have it on
+/// anyway, so it is left on at the end.
+pub fn take_mouse(on: bool) -> std::io::Result<()> {
+    use std::io::Write as _;
+    let mut out = std::io::stdout();
+    if on {
+        execute!(out, EnableMouseCapture)
+    } else {
+        out.write_all(b"\x1b[?1007h")?;
+        out.flush()
+    }
 }
 
 /// Restores the saved session, refreshing it silently via Keycloak, and falls back to
