@@ -92,7 +92,7 @@ fn takes_over_the_old_list_once_keeping_out_copies_elsewhere() {
 #[test]
 fn an_old_relative_date_is_read_on_the_day_the_copy_was_saved() {
     let now = jiff::Timestamp::now().as_millisecond() as u64;
-    let today = jiff::Zoned::now().date();
+    let today = jiff::ZonedDateTime::now().date();
     assert_eq!(
         saved_version("1 KB · Today, 10:00", now),
         format!("1 KB · {today}T10:00:00")

@@ -132,7 +132,7 @@ fn participant(row: ElementRef, base: &Url, folder: &[String]) -> Option<Item> {
 /// `Today, 19:38:51` as the date it is now (`9. Nov 2026, 19:38`), so it reads the same
 /// tomorrow; ILIAS' own absolute dates stay as they are.
 fn absolute(date: &str) -> String {
-    let today = jiff::Zoned::now().date();
+    let today = jiff::ZonedDateTime::now().date();
     match parse_date(date, today) {
         Some(at) if !date.starts_with(|c: char| c.is_ascii_digit()) => {
             at.strftime("%-d. %b %Y, %H:%M").to_string()

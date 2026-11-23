@@ -109,7 +109,7 @@ pub fn version(item: &Item) -> String {
         .cloned()
         .collect::<Vec<_>>()
         .join(" · ");
-    absolute(&listed, jiff::Zoned::now().date())
+    absolute(&listed, jiff::ZonedDateTime::now().date())
 }
 
 /// `version` with every date in it made absolute, "Today" being `day`. Dates that are

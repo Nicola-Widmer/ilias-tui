@@ -1,0 +1,5 @@
+# Only takes dependency versions that have been out for a week, so a hijacked release has
+# time to be noticed. Versions already in Cargo.lock stay. Needs Cargo 1.100; older ones
+# ignore it with a warning. See CONTRIBUTING.md for taking a security fix sooner.
+[registry]
+global-min-publish-age = "7 days"
