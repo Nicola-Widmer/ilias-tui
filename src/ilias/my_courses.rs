@@ -34,7 +34,11 @@ impl Client {
             let dashboard = scope.spawn(|| self.dashboard(&known));
             let courses = self.course_list_page()?;
             let dashboard = dashboard.join().ok().and_then(Result::ok);
-            Ok(assemble(courses, dashboard, jiff::Zoned::now().datetime()))
+            Ok(assemble(
+                courses,
+                dashboard,
+                jiff::ZonedDateTime::now().datetime(),
+            ))
         })
     }
 

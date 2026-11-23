@@ -68,7 +68,7 @@ impl Journal {
 }
 
 fn now() -> String {
-    jiff::Zoned::now()
+    jiff::ZonedDateTime::now()
         .strftime("%Y-%m-%dT%H:%M:%S%:z")
         .to_string()
 }

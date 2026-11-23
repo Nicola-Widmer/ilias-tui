@@ -85,7 +85,9 @@ impl Cache {
         });
         self.put(key, page);
         match old {
-            Some((old, old_day)) => seen::diff(&old, old_day, page, jiff::Zoned::now().date()),
+            Some((old, old_day)) => {
+                seen::diff(&old, old_day, page, jiff::ZonedDateTime::now().date())
+            }
             None => seen::New::default(),
         }
     }
@@ -130,7 +132,7 @@ impl Cache {
 /// The local calendar day of `time`.
 fn day(time: SystemTime) -> Option<jiff::civil::Date> {
     let time = jiff::Timestamp::try_from(time).ok()?;
-    Some(time.to_zoned(jiff::tz::TimeZone::system()).date())
+    Some(time.to_zoned_datetime(jiff::tz::TimeZone::system()).date())
 }
 
 #[cfg(test)]

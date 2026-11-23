@@ -471,8 +471,8 @@ pub fn saved_version(version: &str, modified_ms: u64) -> String {
     let day = jiff::Timestamp::from_millisecond(modified_ms as i64)
         .ok()
         .filter(|_| modified_ms > 0)
-        .map(|t| t.to_zoned(jiff::tz::TimeZone::system()).date())
-        .unwrap_or_else(|| jiff::Zoned::now().date());
+        .map(|t| t.to_zoned_datetime(jiff::tz::TimeZone::system()).date())
+        .unwrap_or_else(|| jiff::ZonedDateTime::now().date());
     super::absolute(version, day)
 }
 
