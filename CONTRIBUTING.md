@@ -30,6 +30,17 @@ To try features against a real server, there is a throwaway ILIAS 10 in Docker, 
   changes data on ILIAS.
 - [docs/security.md](docs/security.md): what is stored, sent and opened.
 
+## Dependencies
+
+[.cargo/config.toml](.cargo/config.toml) makes Cargo (1.100 or newer) skip versions published
+in the last 7 days, so a hijacked release has time to be noticed. Versions already in
+`Cargo.lock` stay. To take a security fix sooner, look at what changed in it, then lift the
+limit for that one command (it lifts it for the dependencies the command updates too):
+
+```bash
+CARGO_RESOLVER_INCOMPATIBLE_PUBLISH_AGE=allow cargo update -p <crate> --precise <version>
+```
+
 ## Versions
 
 ilias-tui uses [semantic versioning](https://semver.org). The version is in `Cargo.toml`;
